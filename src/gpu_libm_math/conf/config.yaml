@@ -1,0 +1,17 @@
+# Copyright 2026 Leandro A. Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+defaults:
+  - experiment_schema
+  - function: ???
+  - metric: ???
+  - library: ???
+  - backend: ???
+  - _self_
+
+run:
+  seed: 42
+  domains: null
+
+llvm:
+  root: null

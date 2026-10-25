@@ -1,0 +1,8 @@
+# Copyright 2026 Leandro A. Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+name: cuda
+target_triple: nvptx64-nvidia-cuda
+gpu_arch: null
+device_id: 0
+sdk_root: null

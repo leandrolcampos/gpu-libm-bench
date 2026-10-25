@@ -617,6 +617,7 @@ packages:
   requires_dist:
   - numpy>=2.0,<3
   - hydra-core>=1.4.0rc2,<1.5
+  - omegaconf>=2.4.1rc1,<2.5
   - rich>=14,<15
   requires_python: '>=3.12'
 - pypi: https://files.pythonhosted.org/packages/11/27/6c832963c39a2d09dd83972992bcd32b625eb9d91769753e8bf3a16aae0a/hydra_core-1.4.0rc3-py3-none-any.whl

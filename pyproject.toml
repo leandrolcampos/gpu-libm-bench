@@ -11,7 +11,15 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-dependencies = ["numpy>=2.0,<3", "hydra-core>=1.4.0rc2,<1.5", "rich>=14,<15"]
+dependencies = [
+    "numpy>=2.0,<3",
+    "hydra-core>=1.4.0rc2,<1.5",
+    "omegaconf>=2.4.1rc1,<2.5",
+    "rich>=14,<15",
+]
+
+[project.scripts]
+gpu-libm-math = "gpu_libm_math.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gpu_libm_math"]
