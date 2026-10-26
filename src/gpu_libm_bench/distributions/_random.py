@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit-interval random sampling."""
+"""Floating-point sampling on the unit interval."""
 
 import numpy as np
 from numpy.typing import NDArray

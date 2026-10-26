@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for experiment input preparation and reproducible stream allocation."""
+"""Tests for benchmark experiment orchestration."""
 
 import os
 import subprocess

@@ -9,6 +9,9 @@ __pycache__/
 # Editor settings
 .vscode/
 
+# Local project documentation
+/.project/
+
 # Package and native builds
 build/
 dist/

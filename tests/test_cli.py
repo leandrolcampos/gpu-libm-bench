@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU-only integration tests for configuring experiments through the CLI."""
+"""Tests for the benchmark command-line interface."""
 
 import os
 import subprocess

@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compose, validate and inspect experiment configurations with Hydra."""
+"""Command-line interface for configuring and running benchmarks."""
 
 import hydra
 from omegaconf import DictConfig, OmegaConf

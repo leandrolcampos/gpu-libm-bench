@@ -1,0 +1,62 @@
+# Copyright 2026 Leandro A. Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+"""GPU device inventory for supported backends."""
+
+import argparse
+import os
+from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+
+from gpu_libm_bench.devices import DeviceContext
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="List visible devices across all supported GPU backends."
+    )
+    parser.add_argument(
+        "--backend-dir",
+        type=Path,
+        help="Override GPU_LIBM_BENCH_BACKEND_DIR for native backend discovery.",
+    )
+    arguments = parser.parse_args()
+    if arguments.backend_dir is not None:
+        os.environ["GPU_LIBM_BENCH_BACKEND_DIR"] = str(arguments.backend_dir)
+
+    console = Console()
+    errors = Console(stderr=True)
+    table = Table(title="GPU devices")
+    table.add_column("Backend")
+    table.add_column("ID", justify="right")
+    table.add_column("Name")
+    table.add_column("Architecture")
+    table.add_column("Memory (MiB)", justify="right")
+    failed = False
+
+    for backend in DeviceContext.supported_backends():
+        try:
+            for device_id in range(DeviceContext.device_count(backend=backend)):
+                info = DeviceContext.get_device_info(device_id, backend=backend)
+                table.add_row(
+                    info.backend,
+                    str(info.device_id),
+                    info.name,
+                    info.architecture,
+                    f"{info.total_memory_bytes / 2**20:,.2f}",
+                )
+        except (ImportError, OSError, RuntimeError, ValueError) as error:
+            errors.print(f"{backend}: {error}", style="red", markup=False)
+            failed = True
+
+    if table.row_count:
+        console.print(table)
+    elif not failed:
+        console.print("No GPU devices found.")
+    return int(failed)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

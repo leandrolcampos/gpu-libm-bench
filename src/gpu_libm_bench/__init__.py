@@ -1,4 +1,4 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""A benchmarking framework for GPU math libraries"""
+"""GPU math library benchmarking."""

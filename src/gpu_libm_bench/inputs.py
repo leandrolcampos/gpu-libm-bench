@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Input generators."""
+"""Input generators and batches for mathematical functions."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping

@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Reproducible input distributions."""
+"""Probability distributions for benchmark inputs."""
 
 from .base import Distribution
 from .uniform import Uniform

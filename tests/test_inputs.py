@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for input generators and their externally supplied random streams."""
+"""Tests for input generation and batching."""
 
 import numpy as np
 import pytest

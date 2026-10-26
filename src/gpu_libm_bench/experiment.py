@@ -1,12 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experiment composition and ownership of random streams for one execution.
-
-A fresh Experiment reproduces its configured inputs. Generators within an
-instance advance between requests. Domain identities preserve streams when
-domains are filtered, reordered or added.
-"""
+"""Benchmark experiment orchestration."""
 
 import hashlib
 import json

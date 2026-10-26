@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared types."""
+"""Shared numeric and array types."""
 
 from collections.abc import Sequence
 from typing import SupportsIndex

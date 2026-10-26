@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for consistency between experiment configuration selections."""
+"""Tests for experiment configuration."""
 
 from dataclasses import dataclass
 

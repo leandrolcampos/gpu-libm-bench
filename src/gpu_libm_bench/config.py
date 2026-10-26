@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experiment schemas and consistency checks between configuration selections."""
+"""Experiment configuration schemas and consistency validation."""
 
 from collections.abc import Iterable
 from dataclasses import dataclass

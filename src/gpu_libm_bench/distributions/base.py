@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Input distribution interface."""
+"""Interfaces and factories for input distributions."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
