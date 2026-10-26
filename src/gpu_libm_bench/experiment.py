@@ -49,7 +49,7 @@ def _domain_rng(
     input_entropy: list[int], function_name: str, domain_name: str
 ) -> np.random.Generator:
     label = json.dumps(
-        ["gpu-libm-math:inputs:v3", function_name, domain_name],
+        ["gpu-libm-bench:inputs:v3", function_name, domain_name],
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from gpu_libm_math.distributions._random import random
+from gpu_libm_bench.distributions._random import random
 
 
 def test_float16_grid_is_exact() -> None:

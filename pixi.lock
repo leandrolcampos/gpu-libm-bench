@@ -613,7 +613,7 @@ packages:
   size: 119208
   timestamp: 1792758382821
 - pypi: ./
-  name: gpu-libm-math
+  name: gpu-libm-bench
   requires_dist:
   - numpy>=2.0,<3
   - hydra-core>=1.4.0rc2,<1.5

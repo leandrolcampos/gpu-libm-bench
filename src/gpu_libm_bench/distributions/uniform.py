@@ -11,7 +11,7 @@ from typing import cast, overload
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
 
-from gpu_libm_math.types import FloatDType, FloatScalar, SampleShape, SampleSize
+from gpu_libm_bench.types import FloatDType, FloatScalar, SampleShape, SampleSize
 
 from ._random import random
 from .base import Distribution

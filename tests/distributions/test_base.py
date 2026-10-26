@@ -6,7 +6,7 @@
 import numpy as np
 import pytest
 
-from gpu_libm_math.distributions import Distribution, Uniform
+from gpu_libm_bench.distributions import Distribution, Uniform
 
 
 def test_factory_constructs_uniform() -> None:

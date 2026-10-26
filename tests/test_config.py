@@ -10,7 +10,7 @@ from hydra import compose, initialize_config_module
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
-from gpu_libm_math.config import (
+from gpu_libm_bench.config import (
     ArgumentConfig,
     MetricConfig,
     register_config_schema,
@@ -21,7 +21,7 @@ from gpu_libm_math.config import (
 @pytest.fixture
 def experiment_config() -> DictConfig:
     register_config_schema()
-    with initialize_config_module(config_module="gpu_libm_math.conf"):
+    with initialize_config_module(config_module="gpu_libm_bench.conf"):
         return compose(
             config_name="config",
             overrides=[
@@ -108,7 +108,7 @@ def test_other_metrics_use_their_own_schema() -> None:
         node=CustomMetricConfig(name="custom", unit="calls", batch_size=32),
         replace=True,
     )
-    with initialize_config_module(config_module="gpu_libm_math.conf"):
+    with initialize_config_module(config_module="gpu_libm_bench.conf"):
         config = compose(
             config_name="config",
             overrides=[

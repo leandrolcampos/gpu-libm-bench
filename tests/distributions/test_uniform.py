@@ -8,8 +8,8 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from gpu_libm_math.distributions import Uniform
-from gpu_libm_math.types import FloatType, SampleSize
+from gpu_libm_bench.distributions import Uniform
+from gpu_libm_bench.types import FloatType, SampleSize
 
 
 @pytest.fixture(
@@ -74,7 +74,7 @@ def test_sampling_transforms_unit_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "gpu_libm_math.distributions.uniform.random",
+        "gpu_libm_bench.distributions.uniform.random",
         Mock(return_value=np.array([0, 0.25, 0.5, 0.75], dtype=dtype)),
     )
     distribution = Uniform(low=low, high=high, dtype=dtype)
@@ -91,7 +91,7 @@ def test_nonrepresentable_bounds_are_rounded_inward(
     dtype: FloatType, low: float, high: float, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "gpu_libm_math.distributions.uniform.random",
+        "gpu_libm_bench.distributions.uniform.random",
         Mock(return_value=np.array([0, np.nextafter(dtype(1), dtype(0))], dtype=dtype)),
     )
     distribution = Uniform(low=low, high=high, dtype=dtype)
@@ -107,7 +107,7 @@ def test_full_finite_range_avoids_overflow(
 ) -> None:
     maximum = float(np.finfo(dtype).max)
     monkeypatch.setattr(
-        "gpu_libm_math.distributions.uniform.random",
+        "gpu_libm_bench.distributions.uniform.random",
         Mock(return_value=np.array([0, np.nextafter(dtype(1), dtype(0))], dtype=dtype)),
     )
 

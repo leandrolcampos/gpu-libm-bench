@@ -15,7 +15,7 @@ SELECTIONS = ["function=expf", "metric=latency", "library=llvm-libm", "backend=c
 
 
 def run_cli(tmp_path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
-    executable = Path(sys.executable).with_name("gpu-libm-math")
+    executable = Path(sys.executable).with_name("gpu-libm-bench")
     # Run outside the checkout to exercise the packaged configuration search path.
     return subprocess.run(
         [executable, *arguments],

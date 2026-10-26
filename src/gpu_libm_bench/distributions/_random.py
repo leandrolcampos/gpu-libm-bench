@@ -6,7 +6,7 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from gpu_libm_math.types import FloatDType, FloatScalar, SampleShape
+from gpu_libm_bench.types import FloatDType, FloatScalar, SampleShape
 
 
 def random(

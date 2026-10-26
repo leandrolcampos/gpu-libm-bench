@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
 
-from gpu_libm_math.types import SampleSize
+from gpu_libm_bench.types import SampleSize
 
 
 class Distribution(ABC):

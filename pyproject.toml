@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gpu-libm-math"
+name = "gpu-libm-bench"
 version = "0.1.0"
 description = "A benchmarking framework for GPU math libraries"
 authors = [{ name = "Leandro A. Lacerda Campos" }]
@@ -19,10 +19,10 @@ dependencies = [
 ]
 
 [project.scripts]
-gpu-libm-math = "gpu_libm_math.cli:main"
+gpu-libm-bench = "gpu_libm_bench.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gpu_libm_math"]
+packages = ["src/gpu_libm_bench"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -35,7 +35,7 @@ ruff = ">=0.9,<1"
 mypy = ">=1.14,<2"
 
 [tool.pixi.pypi-dependencies]
-gpu-libm-math = { path = ".", editable = true }
+gpu-libm-bench = { path = ".", editable = true }
 
 [tool.pixi.tasks]
 test = "pytest"
@@ -58,6 +58,6 @@ select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src/gpu_libm_math"]
+files = ["src/gpu_libm_bench"]
 check_untyped_defs = true
 warn_unused_ignores = true

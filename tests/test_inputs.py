@@ -6,13 +6,13 @@
 import numpy as np
 import pytest
 
-from gpu_libm_math import inputs
-from gpu_libm_math.config import (
+from gpu_libm_bench import inputs
+from gpu_libm_bench.config import (
     ArgumentConfig,
     RandomGeneratorConfig,
     SignatureConfig,
 )
-from gpu_libm_math.distributions import Uniform
+from gpu_libm_bench.distributions import Uniform
 
 SIGNATURE = SignatureConfig("float", [ArgumentConfig("x", "float", "input")])
 ARGUMENTS = {"x": {"distribution": "uniform", "low": -1, "high": 1}}

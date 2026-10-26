@@ -111,7 +111,7 @@ def register_config_schema() -> None:
     ConfigStore.instance().store(
         name="experiment_schema",
         node=ExperimentConfig,
-        provider="gpu-libm-math",
+        provider="gpu-libm-bench",
         replace=True,
     )
     ConfigStore.instance().store(
@@ -119,14 +119,14 @@ def register_config_schema() -> None:
         name="latency",
         node=LatencyConfig,
         package="metric",
-        provider="gpu-libm-math",
+        provider="gpu-libm-bench",
         replace=True,
     )
     ConfigStore.instance().store(
         group="schema/input_generator",
         name="random",
         node=RandomGeneratorConfig,
-        provider="gpu-libm-math",
+        provider="gpu-libm-bench",
         replace=True,
     )
 
