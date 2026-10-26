@@ -10,8 +10,8 @@ from gpu_libm_math.distributions import Distribution, Uniform
 
 
 def test_factory_constructs_uniform() -> None:
-    distribution = Distribution.create(
-        "uniform", low=-10.0, high=10.0, dtype=np.float32
+    distribution = Distribution.from_config(
+        {"distribution": "uniform", "low": -10.0, "high": 10.0}, dtype=np.float32
     )
 
     assert isinstance(distribution, Uniform)
@@ -22,4 +22,4 @@ def test_factory_constructs_uniform() -> None:
 
 def test_unknown_distribution_is_rejected() -> None:
     with pytest.raises(ValueError):
-        Distribution.create("missing")
+        Distribution.from_config({"distribution": "missing"}, dtype=np.float32)

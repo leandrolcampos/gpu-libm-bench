@@ -4,29 +4,36 @@
 """Input distribution interface."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
-from numpy.random import Generator
-from numpy.typing import NDArray
+from numpy.typing import DTypeLike, NDArray
 
 from gpu_libm_math.types import SampleSize
 
 
 class Distribution(ABC):
     @staticmethod
-    def create(name: str, **parameters: Any) -> "Distribution":
+    def from_config(config: Mapping[str, Any], *, dtype: DTypeLike) -> "Distribution":
+        parameters = dict(config)
+        try:
+            name = parameters.pop("distribution")
+        except KeyError as error:
+            raise ValueError(
+                "A distribution configuration requires 'distribution'."
+            ) from error
         if name == "uniform":
             from .uniform import Uniform
 
-            return Uniform(**parameters)
+            return Uniform(dtype=dtype, **parameters)
 
         raise ValueError(f"Unknown distribution: {name!r}")
 
     @abstractmethod
     def __call__(
         self,
-        rng: Generator,
+        rng: np.random.Generator,
         sample_size: SampleSize = None,
     ) -> np.generic | NDArray[np.generic]: ...
 

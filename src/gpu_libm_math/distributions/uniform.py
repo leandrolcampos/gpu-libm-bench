@@ -9,7 +9,6 @@ from numbers import Real
 from typing import cast, overload
 
 import numpy as np
-from numpy.random import Generator
 from numpy.typing import DTypeLike, NDArray
 
 from gpu_libm_math.types import FloatDType, FloatScalar, SampleShape, SampleSize
@@ -78,21 +77,23 @@ class Uniform(Distribution):
         object.__setattr__(self, "_high_value", high_value)
 
     @overload
-    def __call__(self, rng: Generator, sample_size: None = None) -> FloatScalar: ...
+    def __call__(
+        self, rng: np.random.Generator, sample_size: None = None
+    ) -> FloatScalar: ...
 
     @overload
     def __call__(
-        self, rng: Generator, sample_size: SampleShape
+        self, rng: np.random.Generator, sample_size: SampleShape
     ) -> NDArray[FloatScalar]: ...
 
     @overload
     def __call__(
-        self, rng: Generator, sample_size: SampleSize = None
+        self, rng: np.random.Generator, sample_size: SampleSize = None
     ) -> FloatScalar | NDArray[FloatScalar]: ...
 
     def __call__(
         self,
-        rng: Generator,
+        rng: np.random.Generator,
         sample_size: SampleSize = None,
     ) -> FloatScalar | NDArray[FloatScalar]:
         # NumPy ignores dtype for size=None; an empty shape preserves it.

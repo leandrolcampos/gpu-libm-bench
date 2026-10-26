@@ -35,7 +35,7 @@ def test_configure_experiment_without_gpu(tmp_path: Path) -> None:
         "metric.sample_size=16",
         "run.seed=123",
         "run.domains=[wide,central]",
-        "function.domains.central.x.low=-5",
+        "function.domains.central.generator.arguments.x.low=-5",
         "llvm.root=/nonexistent/llvm",
     )
     assert result.returncode == 0, result.stderr
@@ -51,7 +51,9 @@ def test_configure_experiment_without_gpu(tmp_path: Path) -> None:
     assert config.metric.sample_size == 16
     assert config.run.seed == 123
     assert config.run.domains == ["wide", "central"]
-    assert config.function.domains.central.x.low == -5
+    assert config.function.domains.central.generator.name == "random"
+    assert config.function.domains.central.generator.arguments.x.low == -5
+    assert config.function.domains.wide.generator.arguments.x.low == -80
 
 
 @pytest.mark.parametrize("selection", SELECTIONS)
@@ -61,7 +63,16 @@ def test_experiment_selections_are_required(tmp_path: Path, selection: str) -> N
     assert selection.split("=")[0] in result.stderr
 
 
-def test_inconsistent_experiment_exits_with_error(tmp_path: Path) -> None:
-    result = run_cli(tmp_path, *SELECTIONS, "run.domains=[missing]")
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ("run.domains=[missing]", "run.domains"),
+        ("~function.domains.wide.generator.arguments.x", "Domain 'wide'"),
+    ],
+)
+def test_inconsistent_experiment_exits_with_error(
+    tmp_path: Path, override: str, message: str
+) -> None:
+    result = run_cli(tmp_path, *SELECTIONS, override)
     assert result.returncode != 0
-    assert "run.domains" in result.stderr
+    assert message in result.stderr

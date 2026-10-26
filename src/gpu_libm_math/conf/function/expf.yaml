@@ -1,6 +1,11 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
+defaults:
+  - /schema/input_generator@domains.central.generator: random
+  - /schema/input_generator@domains.wide.generator: random
+  - _self_
+
 name: expf
 
 signature:
@@ -14,12 +19,18 @@ wrapper: null
 
 domains:
   central:
-    x:
-      distribution: uniform
-      low: -10.0
-      high: 10.0
+    generator:
+      name: random
+      arguments:
+        x:
+          distribution: uniform
+          low: -10.0
+          high: 10.0
   wide:
-    x:
-      distribution: uniform
-      low: -80.0
-      high: 80.0
+    generator:
+      name: random
+      arguments:
+        x:
+          distribution: uniform
+          low: -80.0
+          high: 80.0

@@ -4,19 +4,19 @@
 """Unit-interval random sampling."""
 
 import numpy as np
-from numpy.random import Generator
 from numpy.typing import NDArray
 
 from gpu_libm_math.types import FloatDType, FloatScalar, SampleShape
 
 
 def random(
-    rng: Generator, sample_size: SampleShape, dtype: FloatDType
+    rng: np.random.Generator, sample_size: SampleShape, dtype: FloatDType
 ) -> NDArray[FloatScalar]:
     if dtype == np.dtype(np.float16):
         significand_bits = 11
+        # Use 32-bit draws to preserve the stream across odd-sized batches.
         samples = rng.integers(
-            0, 1 << significand_bits, size=sample_size, dtype=np.uint16
+            0, 1 << significand_bits, size=sample_size, dtype=np.uint32
         ).astype(np.float16)
         samples *= np.float16(2.0**-significand_bits)
         return samples
@@ -24,4 +24,9 @@ def random(
     if dtype == np.dtype(np.float32):
         return rng.random(size=sample_size, dtype=np.float32)
 
-    return rng.random(size=sample_size, dtype=np.float64)
+    if dtype == np.dtype(np.float64):
+        return rng.random(size=sample_size, dtype=np.float64)
+
+    raise TypeError(
+        f"Unsupported dtype {dtype!r}; expected native float16, float32 or float64."
+    )

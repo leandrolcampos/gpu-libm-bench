@@ -3,14 +3,12 @@
 
 """Experiment schemas and consistency checks between configuration selections."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, cast
 
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
-
-DistributionConfig = dict[str, Any]
-DomainConfig = dict[str, DistributionConfig]
 
 
 @dataclass
@@ -24,6 +22,24 @@ class ArgumentConfig:
 class SignatureConfig:
     return_type: str
     arguments: list[ArgumentConfig]
+
+
+DistributionConfig = dict[str, Any]
+
+
+@dataclass
+class InputGeneratorConfig:
+    name: str
+
+
+@dataclass
+class RandomGeneratorConfig(InputGeneratorConfig):
+    arguments: dict[str, DistributionConfig]
+
+
+@dataclass
+class DomainConfig:
+    generator: InputGeneratorConfig
 
 
 @dataclass
@@ -106,6 +122,13 @@ def register_config_schema() -> None:
         provider="gpu-libm-math",
         replace=True,
     )
+    ConfigStore.instance().store(
+        group="schema/input_generator",
+        name="random",
+        node=RandomGeneratorConfig,
+        provider="gpu-libm-math",
+        replace=True,
+    )
 
 
 def validate_config(config: DictConfig) -> ExperimentConfig:
@@ -126,9 +149,37 @@ def validate_config(config: DictConfig) -> ExperimentConfig:
             if name not in domains:
                 raise ValueError(f"run.domains contains an unknown domain: {name!r}.")
 
+    _validate_function_inputs(
+        experiment.function, domains if selected is None else selected
+    )
+
     if experiment.backend.name not in experiment.library.backends:
         raise ValueError(
             f"Library {experiment.library.name!r} does not declare support for "
             f"backend {experiment.backend.name!r}."
         )
     return experiment
+
+
+def _validate_function_inputs(
+    function: FunctionConfig, domain_names: Iterable[str]
+) -> None:
+    arguments = function.signature.arguments
+    names = [argument.name for argument in arguments]
+    if len(set(names)) != len(names):
+        raise ValueError("Signature argument names must be unique.")
+    if any(argument.role not in {"input", "output"} for argument in arguments):
+        raise ValueError("Signature argument roles must be 'input' or 'output'.")
+    inputs = {argument.name for argument in arguments if argument.role == "input"}
+    if not inputs:
+        raise ValueError("Signature must declare at least one input argument.")
+
+    for name in domain_names:
+        generator = function.domains[name].generator
+        if (
+            isinstance(generator, RandomGeneratorConfig)
+            and set(generator.arguments) != inputs
+        ):
+            raise ValueError(
+                f"Domain {name!r} arguments must match the input signature."
+            )
