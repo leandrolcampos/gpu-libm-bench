@@ -12,5 +12,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 include(GPULibmBenchDependencies)
 
+add_subdirectory(../common "${CMAKE_CURRENT_BINARY_DIR}/common")
 add_subdirectory(lib)
 add_subdirectory(python)

@@ -6,6 +6,8 @@
 #ifndef GPU_LIBM_BENCH_CUDA_DEVICECONTEXT_HPP
 #define GPU_LIBM_BENCH_CUDA_DEVICECONTEXT_HPP
 
+#include "Expected.hpp"
+
 #include <cstddef>
 #include <string>
 
@@ -18,8 +20,8 @@ struct DeviceInfo {
   std::size_t TotalMemoryBytes;
 };
 
-int getDeviceCount();
-DeviceInfo getDeviceInfo(int DeviceID);
+Expected<int> getDeviceCount();
+Expected<DeviceInfo> getDeviceInfo(int DeviceID);
 
 } // namespace gpu_libm_bench
 

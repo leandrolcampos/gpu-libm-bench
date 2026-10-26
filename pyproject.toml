@@ -63,6 +63,9 @@ ninja = ">=1.12,<2"
 gpu-libm-bench = { path = ".", editable = true, extras = ["native"] }
 
 [tool.pixi.feature.native.tasks]
+common-build = { cmd = "cmake --build build/backends/common", depends-on = ["common-configure"] }
+common-configure = "cmake -S backends/common/tests -B build/backends/common -G Ninja -DCMAKE_BUILD_TYPE=Release"
+common-test = { cmd = "ctest --test-dir build/backends/common --output-on-failure", depends-on = ["common-build"] }
 cuda-build = { cmd = "cmake --build build/backends/cuda", depends-on = ["cuda-configure"] }
 cuda-configure = "cmake -S backends/cuda -B build/backends/cuda -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python"
 cuda-test = { cmd = "pytest -m cuda", depends-on = ["cuda-build"] }

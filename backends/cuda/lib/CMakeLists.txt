@@ -11,5 +11,11 @@ target_include_directories(GPULibmBenchCUDA
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_link_libraries(GPULibmBenchCUDA
+  PUBLIC
+    GPULibmBenchCommon
   PRIVATE
     CUDA::cuda_driver)
+
+target_compile_options(GPULibmBenchCUDA
+  PRIVATE
+    "$<$<CXX_COMPILER_ID:Clang,GNU>:-fno-exceptions>")
