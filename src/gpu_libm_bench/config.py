@@ -81,7 +81,7 @@ class LibraryConfig:
 class BackendConfig:
     name: str
     target_triple: str
-    gpu_arch: str | None
+    architecture: str | None
     device_id: int
     sdk_root: str | None
 
