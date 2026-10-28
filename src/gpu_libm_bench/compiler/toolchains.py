@@ -20,6 +20,7 @@ class LLVMToolchain:
     clang: Path
     llvm_dis: Path
     llvm_nm: Path
+    library_dirs: tuple[Path, ...]
     version: str
 
 
@@ -45,9 +46,26 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
             root = Path(discovered).resolve().parent.parent
 
     root = root.expanduser().resolve()
-    clang = executable(root / "bin" / "clang++")
-    llvm_dis = executable(root / "bin" / "llvm-dis")
-    llvm_nm = executable(root / "bin" / "llvm-nm")
+    if not root.is_dir():
+        raise FileNotFoundError(f"LLVM directory does not exist: {root}")
+
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        raise FileNotFoundError(
+            "CMake was not found on PATH; it is required to discover LLVM."
+        )
+    probe = Path(__file__).resolve().parents[3] / "cmake" / "probes" / "llvm"
+    if not (probe / "CMakeLists.txt").is_file():
+        raise FileNotFoundError(f"LLVM discovery project was not found: {probe}")
+    with TemporaryDirectory(prefix="gpu-libm-bench-llvm-") as directory:
+        run_tool(
+            [cmake, "-S", probe, "-B", directory, "-G", "Ninja", f"-DLLVM_ROOT={root}"]
+        )
+        metadata = json.loads((Path(directory) / "llvm-toolchain.json").read_text())
+    clang = executable(Path(metadata["clang"]))
+    llvm_dis = executable(Path(metadata["llvm_dis"]))
+    llvm_nm = executable(Path(metadata["llvm_nm"]))
+    library_dirs = tuple(Path(path).resolve() for path in metadata["library_dirs"])
 
     tools = (clang, llvm_dis, llvm_nm)
     versions = [run_tool([tool, "--version"]) for tool in tools]
@@ -60,7 +78,7 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
     if len(set(majors)) != 1:
         raise ValueError(f"LLVM tools in {root} have incompatible versions: {majors}")
 
-    return LLVMToolchain(root, clang, llvm_dis, llvm_nm, versions[0])
+    return LLVMToolchain(root, clang, llvm_dis, llvm_nm, library_dirs, versions[0])
 
 
 def resolve_cuda(root: Path | None = None) -> CudaToolkit:

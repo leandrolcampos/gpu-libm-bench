@@ -45,10 +45,22 @@ def _resolve_llvm_libm(
     required_symbols: tuple[str, ...],
 ) -> DeviceLibrary:
     if bitcode_path is None:
-        bitcode_path = llvm.root / "lib" / target.target_triple / "libm.bc"
+        candidates = [
+            directory / target.target_triple / "libm.bc"
+            for directory in llvm.library_dirs
+        ]
+        bitcode_path = next((path for path in candidates if path.is_file()), None)
+        if bitcode_path is None:
+            searched = ", ".join(str(path) for path in candidates)
+            raise FileNotFoundError(
+                f"LLVM-libm bitcode was not found. Searched: {searched}. "
+                "Provide an explicit bitcode_path for a custom installation."
+            )
+
     path = bitcode_path.expanduser().resolve()
     if not path.is_file():
         raise FileNotFoundError(f"LLVM-libm bitcode was not found: {path}")
+
     ir = run_tool([llvm.llvm_dis, path, "-o", "-"])
     triple = re.search(r'^target triple = "([^"]+)"', ir, re.MULTILINE)
     if triple is None or triple.group(1) != target.target_triple:
@@ -57,6 +69,7 @@ def _resolve_llvm_libm(
             f"Bitcode {path} has target triple {actual!r}; "
             f"expected {target.target_triple!r}."
         )
+
     if required_symbols:
         output = run_tool(
             [
@@ -72,4 +85,5 @@ def _resolve_llvm_libm(
             raise ValueError(
                 f"Bitcode {path} does not define symbols: {', '.join(sorted(missing))}."
             )
+
     return DeviceLibrary("llvm-libm", path)

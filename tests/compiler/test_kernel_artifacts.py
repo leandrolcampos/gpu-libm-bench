@@ -49,6 +49,7 @@ def test_build_request_preserves_selected_tools_and_libraries(
         library=library, target=TARGET, llvm=llvm, sdk=sdk
     )
     assert f"-DGPU_LIBM_BENCH_LLVM_ROOT={llvm.root}" in arguments
+    assert f"-DGPU_LIBM_BENCH_CLANG={llvm.clang}" in arguments
     assert "-DGPU_LIBM_BENCH_SDK_ROOT=/custom cuda" in arguments
     assert f"-DGPU_LIBM_BENCH_BITCODE_FILE={library.bitcode_file}" in arguments
     assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments

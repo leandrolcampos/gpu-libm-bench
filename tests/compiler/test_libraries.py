@@ -18,7 +18,7 @@ TARGET = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 def test_library_path_selection(
     monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain, tmp_path: Path, override: bool
 ) -> None:
-    default = llvm.root / "lib" / TARGET.target_triple / "libm.bc"
+    default = llvm.library_dirs[0] / TARGET.target_triple / "libm.bc"
     default.parent.mkdir(parents=True)
     default.touch()
     custom = tmp_path / "custom.bc"
@@ -43,7 +43,7 @@ def test_library_path_selection(
 
 
 def test_missing_explicit_bitcode_does_not_fall_back(llvm: LLVMToolchain) -> None:
-    default = llvm.root / "lib" / TARGET.target_triple / "libm.bc"
+    default = llvm.library_dirs[0] / TARGET.target_triple / "libm.bc"
     default.parent.mkdir(parents=True)
     default.touch()
     with pytest.raises(FileNotFoundError, match="missing.bc"):

@@ -44,7 +44,7 @@ def compiled_image() -> tuple[KernelArtifact, LLVMToolchain, dict[str, Any]]:
     )
     request = KernelRequest(metadata["library"], "expf", KernelKind.EVALUATE)
     artifact = resolve_kernel_artifact(request, target=target, image_path=image)
-    llvm = resolve_llvm(Path(metadata["compiler"]).parent.parent)
+    llvm = resolve_llvm(Path(metadata["llvm_root"]))
     return artifact, llvm, metadata
 
 

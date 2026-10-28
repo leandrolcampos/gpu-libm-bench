@@ -11,6 +11,22 @@ import pytest
 from gpu_libm_bench.compiler import toolchains
 
 
+def _write_llvm_metadata(
+    command: list[str | Path], llvm: toolchains.LLVMToolchain
+) -> None:
+    directory = Path(command[command.index("-B") + 1])
+    (directory / "llvm-toolchain.json").write_text(
+        json.dumps(
+            {
+                "clang": str(llvm.clang),
+                "llvm_dis": str(llvm.llvm_dis),
+                "llvm_nm": str(llvm.llvm_nm),
+                "library_dirs": [str(path) for path in llvm.library_dirs],
+            }
+        )
+    )
+
+
 @pytest.mark.parametrize("source", ["explicit", "environment", "path"])
 def test_llvm_selection_precedence(
     monkeypatch: pytest.MonkeyPatch,
@@ -35,16 +51,25 @@ def test_llvm_selection_precedence(
         discovered = search / "clang++"
     else:
         discovered = other_bin / "clang++"
-    monkeypatch.setattr(toolchains.shutil, "which", lambda name: str(discovered))
+    monkeypatch.setattr(
+        toolchains.shutil,
+        "which",
+        lambda name: str(discovered) if name == "clang++" else "cmake",
+    )
     commands = []
 
     def version(command: list[str | Path]) -> str:
+        if command[0] == "cmake":
+            assert f"-DLLVM_ROOT={llvm.root}" in command
+            _write_llvm_metadata(command, llvm)
+            return ""
         commands.append(command)
         return "LLVM version 24.0.0git"
 
     monkeypatch.setattr(toolchains, "run_tool", version)
     selected = toolchains.resolve_llvm(llvm.root if source == "explicit" else None)
     assert selected.root == llvm.root
+    assert selected.library_dirs == llvm.library_dirs
     assert {command[0] for command in commands} == {
         llvm.clang,
         llvm.llvm_dis,
@@ -71,15 +96,18 @@ def test_invalid_llvm_selection_does_not_fall_back(
 def test_llvm_tools_must_have_coherent_versions(
     monkeypatch: pytest.MonkeyPatch, llvm: toolchains.LLVMToolchain
 ) -> None:
-    monkeypatch.setattr(
-        toolchains,
-        "run_tool",
-        lambda command: (
+    def version(command: list[str | Path]) -> str:
+        if command[0] == "cmake":
+            _write_llvm_metadata(command, llvm)
+            return ""
+        return (
             "LLVM version 20.1.0"
             if command[0] == llvm.llvm_nm
             else "LLVM version 24.0.0"
-        ),
-    )
+        )
+
+    monkeypatch.setattr(toolchains.shutil, "which", lambda name: "cmake")
+    monkeypatch.setattr(toolchains, "run_tool", version)
     with pytest.raises(ValueError, match="incompatible versions"):
         toolchains.resolve_llvm(llvm.root)
 

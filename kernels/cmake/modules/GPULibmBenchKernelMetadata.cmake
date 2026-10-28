@@ -28,6 +28,7 @@ function(gpu_libm_bench_write_kernel_metadata library directory)
   set(architecture "${GPU_LIBM_BENCH_ARCHITECTURE}")
   set(image "$<TARGET_FILE:${library}>")
   set(compiler "${CMAKE_CXX_COMPILER}")
+  set(llvm_root "${GPU_LIBM_BENCH_LLVM_ROOT}")
   set(sdk_root "${GPU_LIBM_BENCH_SDK_ROOT}")
   set(sdk_version "${GPU_LIBM_BENCH_SDK_VERSION}")
   set(bitcode_file "${GPU_LIBM_BENCH_BITCODE_FILE}")
@@ -37,8 +38,8 @@ function(gpu_libm_bench_write_kernel_metadata library directory)
 
   set(metadata "{}")
   foreach(field IN ITEMS library backend target_triple architecture image
-      compiler sdk_root sdk_version bitcode_file compile_commands compile_flags
-      link_flags)
+      compiler llvm_root sdk_root sdk_version bitcode_file compile_commands
+      compile_flags link_flags)
     _gpu_libm_bench_json_string(encoded "${${field}}")
     string(JSON metadata SET "${metadata}" "${field}" "${encoded}")
   endforeach()

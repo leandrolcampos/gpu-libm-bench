@@ -33,6 +33,7 @@ def kernel_cmake_arguments(
         raise ValueError("Only CUDA kernel image builds are currently supported.")
     values = {
         "LLVM_ROOT": str(llvm.root),
+        "CLANG": str(llvm.clang),
         "SDK_ROOT": str(sdk.root),
         "SDK_VERSION": sdk.version,
         "TARGET_TRIPLE": target.target_triple,
