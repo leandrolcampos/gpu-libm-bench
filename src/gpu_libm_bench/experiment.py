@@ -11,7 +11,7 @@ import numpy as np
 from numpy.random import SeedSequence
 
 from . import inputs
-from .config import ExperimentConfig
+from .configs import ExperimentConfig
 
 
 class Experiment:

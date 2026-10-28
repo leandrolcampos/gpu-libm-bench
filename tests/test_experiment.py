@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_module
 
-from gpu_libm_bench.config import (
+from gpu_libm_bench.configs import (
     DomainConfig,
     ExperimentConfig,
     LatencyConfig,
@@ -27,7 +27,7 @@ from gpu_libm_bench.experiment import Experiment
 @pytest.fixture
 def config() -> ExperimentConfig:
     register_config_schema()
-    with initialize_config_module(config_module="gpu_libm_bench.conf"):
+    with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
         composed = compose(
             config_name="config",
             overrides=[
@@ -148,11 +148,11 @@ def test_input_sampling_does_not_consume_other_streams(
 def test_seed_policy_is_stable_across_processes(tmp_path: Path) -> None:
     script = """
 from hydra import compose, initialize_config_module
-from gpu_libm_bench.config import register_config_schema, validate_config
+from gpu_libm_bench.configs import register_config_schema, validate_config
 from gpu_libm_bench.experiment import Experiment
 
 register_config_schema()
-with initialize_config_module(config_module="gpu_libm_bench.conf"):
+with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
     config = compose(config_name="config", overrides=[
         "function=expf", "metric=latency", "library=llvm-libm", "backend=cuda",
     ])

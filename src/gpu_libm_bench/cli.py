@@ -7,12 +7,12 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.errors import OmegaConfBaseException
 
-from .config import register_config_schema, validate_config
+from .configs import register_config_schema, validate_config
 
 register_config_schema()
 
 
-@hydra.main(config_path="conf", config_name="config")
+@hydra.main(config_path="configs/yaml", config_name="config")
 def main(config: DictConfig) -> None:
     try:
         validate_config(config)

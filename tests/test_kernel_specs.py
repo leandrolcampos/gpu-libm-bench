@@ -5,7 +5,7 @@
 
 import pytest
 
-from gpu_libm_bench.config import ArgumentConfig, FunctionConfig, SignatureConfig
+from gpu_libm_bench.configs import ArgumentConfig, FunctionConfig, SignatureConfig
 from gpu_libm_bench.kernels import KernelArgument, KernelKind, KernelSpec
 
 

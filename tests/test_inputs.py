@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.config import (
+from gpu_libm_bench.configs import (
     ArgumentConfig,
     RandomGeneratorConfig,
     SignatureConfig,

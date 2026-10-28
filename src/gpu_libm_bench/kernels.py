@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .config import FunctionConfig, SignatureConfig
+    from .configs import FunctionConfig, SignatureConfig
 
 _SCALAR_DTYPES = {
     "_Float16": "float16",
