@@ -8,21 +8,19 @@ from pathlib import Path
 
 import pytest
 
-from gpu_libm_bench.compiler.kernels import (
-    kernel_cmake_arguments,
-    resolve_kernel_artifact,
+from gpu_libm_bench.compiler.images import (
+    image_cmake_arguments,
+    resolve_device_image,
 )
 from gpu_libm_bench.compiler.libraries import DeviceLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import CudaToolkit, LLVMToolchain
-from gpu_libm_bench.kernels import KernelKind, KernelRequest
 
 TARGET = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
 
 @pytest.fixture
-def request_and_image(tmp_path: Path) -> tuple[KernelRequest, Path]:
-    request = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATE)
+def image_path(tmp_path: Path) -> Path:
     image = tmp_path / "cuda" / "sm_120" / "llvm-libm" / "math.cubin"
     image.parent.mkdir(parents=True)
     image.touch()
@@ -37,7 +35,7 @@ def request_and_image(tmp_path: Path) -> tuple[KernelRequest, Path]:
             }
         )
     )
-    return request, image
+    return image
 
 
 def test_build_request_preserves_selected_tools_and_libraries(
@@ -45,7 +43,7 @@ def test_build_request_preserves_selected_tools_and_libraries(
 ) -> None:
     library = DeviceLibrary("llvm-libm", tmp_path / "libm.bc")
     sdk = CudaToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
-    arguments = kernel_cmake_arguments(
+    arguments = image_cmake_arguments(
         library=library, target=TARGET, llvm=llvm, sdk=sdk
     )
     assert f"-DGPU_LIBM_BENCH_LLVM_ROOT={llvm.root}" in arguments
@@ -55,52 +53,42 @@ def test_build_request_preserves_selected_tools_and_libraries(
     assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
 
 
-def test_default_artifact_matches_request(
-    tmp_path: Path, request_and_image: tuple[KernelRequest, Path]
+@pytest.mark.parametrize("functions", [["expf", "logf"], []])
+def test_default_image_preserves_declared_functions(
+    tmp_path: Path, image_path: Path, functions: list[str]
 ) -> None:
-    request, image = request_and_image
-    artifact = resolve_kernel_artifact(request, target=TARGET, build_root=tmp_path)
-    assert artifact.image == image
+    manifest = image_path.with_suffix(".manifest.json")
+    metadata = json.loads(manifest.read_text())
+    metadata["functions"] = functions
+    manifest.write_text(json.dumps(metadata))
+    image = resolve_device_image("llvm-libm", target=TARGET, build_root=tmp_path)
+    assert image.path == image_path
+    assert image.functions == tuple(functions)
 
 
 def test_custom_image_selection_does_not_fall_back(
-    tmp_path: Path, request_and_image: tuple[KernelRequest, Path]
+    tmp_path: Path, image_path: Path
 ) -> None:
-    request, _ = request_and_image
-    custom = request_and_image[1].with_name("custom.cubin")
+    custom = image_path.with_name("custom.cubin")
     custom.touch()
-    artifact = resolve_kernel_artifact(
-        request, target=TARGET, image_path=custom, build_root=tmp_path
+    image = resolve_device_image(
+        "llvm-libm", target=TARGET, image_path=custom, build_root=tmp_path
     )
-    assert artifact.image == custom
-    assert artifact.manifest is None
+    assert image.path == custom
+    assert image.manifest is None
+    assert image.functions is None
     custom.unlink()
     with pytest.raises(FileNotFoundError, match="custom.cubin"):
-        resolve_kernel_artifact(
-            request, target=TARGET, image_path=custom, build_root=tmp_path
+        resolve_device_image(
+            "llvm-libm", target=TARGET, image_path=custom, build_root=tmp_path
         )
 
 
 @pytest.mark.parametrize("field", ["architecture", "library"])
-def test_image_provenance_must_match_request(
-    request_and_image: tuple[KernelRequest, Path], field: str
-) -> None:
-    request, image = request_and_image
-    manifest = image.with_suffix(".manifest.json")
+def test_image_provenance_must_match_selection(image_path: Path, field: str) -> None:
+    manifest = image_path.with_suffix(".manifest.json")
     metadata = json.loads(manifest.read_text())
     metadata[field] = "other"
     manifest.write_text(json.dumps(metadata))
     with pytest.raises(ValueError, match=f"does not match {field}"):
-        resolve_kernel_artifact(request, target=TARGET, image_path=image)
-
-
-def test_image_must_contain_requested_function(
-    request_and_image: tuple[KernelRequest, Path],
-) -> None:
-    request, image = request_and_image
-    manifest = image.with_suffix(".manifest.json")
-    metadata = json.loads(manifest.read_text())
-    metadata["functions"] = ["logf"]
-    manifest.write_text(json.dumps(metadata))
-    with pytest.raises(ValueError, match="does not contain function 'expf'"):
-        resolve_kernel_artifact(request, target=TARGET, image_path=image)
+        resolve_device_image("llvm-libm", target=TARGET, image_path=image_path)

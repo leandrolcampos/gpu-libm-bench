@@ -1,14 +1,14 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Configuration of device image builds."""
+"""Configuration of GPU kernel builds."""
 
 import argparse
 import os
 from pathlib import Path
 
 from gpu_libm_bench.compiler._commands import run_tool
-from gpu_libm_bench.compiler.kernels import kernel_cmake_arguments
+from gpu_libm_bench.compiler.images import image_cmake_arguments
 from gpu_libm_bench.compiler.libraries import resolve_device_library
 from gpu_libm_bench.compiler.targets import resolve_target
 from gpu_libm_bench.compiler.toolchains import resolve_cuda, resolve_llvm
@@ -16,9 +16,7 @@ from gpu_libm_bench.devices import DeviceContext
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Configure a GPU math device image build."
-    )
+    parser = argparse.ArgumentParser(description="Configure a GPU math kernel build.")
     parser.add_argument("--llvm-root", type=Path)
     parser.add_argument("--sdk-root", type=Path)
     parser.add_argument(
@@ -59,7 +57,7 @@ def main() -> None:
             arguments.build_dir,
             "-G",
             "Ninja",
-            *kernel_cmake_arguments(library=library, target=target, llvm=llvm, sdk=sdk),
+            *image_cmake_arguments(library=library, target=target, llvm=llvm, sdk=sdk),
         ]
     )
     print(output)

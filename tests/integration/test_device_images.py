@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Integration tests for compiled math kernel images."""
+"""Integration tests for compiled device images."""
 
 import json
 import os
@@ -14,20 +14,18 @@ from typing import Any
 import pytest
 
 from gpu_libm_bench.compiler._commands import run_tool
-from gpu_libm_bench.compiler.kernels import (
-    KernelArtifact,
-    resolve_kernel_artifact,
-)
+from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import LLVMToolchain, resolve_llvm
+from gpu_libm_bench.devices import DeviceImage
 from gpu_libm_bench.kernels import KernelKind, KernelRequest
 
-pytestmark = pytest.mark.kernels
+pytestmark = pytest.mark.images
 
 
 @pytest.fixture(scope="module")
-def compiled_image() -> tuple[KernelArtifact, LLVMToolchain, dict[str, Any]]:
-    configured = os.environ.get("GPU_LIBM_BENCH_KERNEL_IMAGE")
+def compiled_image() -> tuple[DeviceImage, LLVMToolchain, dict[str, Any]]:
+    configured = os.environ.get("GPU_LIBM_BENCH_DEVICE_IMAGE")
     if configured is not None:
         image = Path(configured).resolve()
     else:
@@ -35,22 +33,21 @@ def compiled_image() -> tuple[KernelArtifact, LLVMToolchain, dict[str, Any]]:
         candidates = list(root.glob("cuda/*/llvm-libm/math.cubin"))
         if len(candidates) != 1:
             pytest.fail(
-                "Build a device image or set GPU_LIBM_BENCH_KERNEL_IMAGE to select one."
+                "Build a device image or set GPU_LIBM_BENCH_DEVICE_IMAGE to select one."
             )
         image = candidates[0]
     metadata = json.loads(image.with_suffix(".manifest.json").read_text())
     target = CompilationTarget(
         metadata["backend"], metadata["target_triple"], metadata["architecture"]
     )
-    request = KernelRequest(metadata["library"], "expf", KernelKind.EVALUATE)
-    artifact = resolve_kernel_artifact(request, target=target, image_path=image)
+    image = resolve_device_image(metadata["library"], target=target, image_path=image)
     llvm = resolve_llvm(Path(metadata["llvm_root"]))
-    return artifact, llvm, metadata
+    return image, llvm, metadata
 
 
 @pytest.fixture(scope="module")
 def unlinked_command(
-    compiled_image: tuple[KernelArtifact, LLVMToolchain, dict[str, Any]],
+    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
 ) -> list[str]:
     _, _, metadata = compiled_image
     database = json.loads(Path(metadata["compile_commands"]).read_text())
@@ -76,45 +73,45 @@ def unlinked_command(
 
 
 def test_image_exports_registered_kernels(
-    compiled_image: tuple[KernelArtifact, LLVMToolchain, dict[str, Any]],
+    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
 ) -> None:
-    artifact, llvm, metadata = compiled_image
+    image, llvm, metadata = compiled_image
     symbols = run_tool(
         [
             llvm.llvm_nm,
             "--defined-only",
             "--extern-only",
             "--just-symbol-name",
-            artifact.image,
+            image.path,
         ]
     ).splitlines()
     ptx = Path(metadata["ptx"]).read_text()
     assert re.search(
-        rf"^\.target {re.escape(artifact.target.architecture)}(?:,|\s|$)",
+        rf"^\.target {re.escape(image.target.architecture)}(?:,|\s|$)",
         ptx,
         re.MULTILINE,
     )
     for function in metadata["functions"]:
-        request = KernelRequest(artifact.library, function, KernelKind.EVALUATE)
+        request = KernelRequest(image.library, function, KernelKind.EVALUATE)
         assert request.symbol in symbols
         assert re.search(rf"\.visible\s+\.entry\s+{re.escape(request.symbol)}\(", ptx)
     cuobjdump = Path(metadata["sdk_root"]) / "bin" / "cuobjdump"
-    dump = run_tool([cuobjdump, "--dump-sass", artifact.image])
-    assert f"code for {artifact.target.architecture}" in dump
+    dump = run_tool([cuobjdump, "--dump-sass", image.path])
+    assert f"code for {image.target.architecture}" in dump
 
 
 def test_selected_library_resolves_wrapper_calls(
-    compiled_image: tuple[KernelArtifact, LLVMToolchain, dict[str, Any]],
+    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
     unlinked_command: list[str],
     tmp_path: Path,
 ) -> None:
-    artifact, llvm, _ = compiled_image
+    image, llvm, _ = compiled_image
     raw = tmp_path / "unlinked.ll"
     run_tool([*unlinked_command, "-S", "-emit-llvm", "-o", raw])
     raw_ir = raw.read_text()
     assert re.search(r"\bcall\b[^\n]*@expf\(", raw_ir)
     assert "@llvm.exp.f32(" not in raw_ir
-    linked = list(artifact.image.parent.glob(f"{artifact.image.name}.*.precodegen.bc"))
+    linked = list(image.path.parent.glob(f"{image.path.name}.*.precodegen.bc"))
     assert len(linked) == 1
     undefined = run_tool(
         [
@@ -128,7 +125,7 @@ def test_selected_library_resolves_wrapper_calls(
 
 
 def test_missing_library_cannot_be_replaced_by_a_builtin(
-    compiled_image: tuple[KernelArtifact, LLVMToolchain, dict[str, Any]],
+    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
     unlinked_command: list[str],
     tmp_path: Path,
 ) -> None:

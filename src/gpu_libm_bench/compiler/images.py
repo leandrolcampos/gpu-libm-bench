@@ -1,28 +1,19 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Device image build requests and artifact resolution."""
+"""Kernel compilation and device image resolution."""
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
-from gpu_libm_bench.kernels import KernelRequest
+from gpu_libm_bench.devices import DeviceImage
 
 from .libraries import DeviceLibrary
 from .targets import CompilationTarget
 from .toolchains import CudaToolkit, LLVMToolchain
 
 
-@dataclass(frozen=True, slots=True)
-class KernelArtifact:
-    image: Path
-    target: CompilationTarget
-    library: str
-    manifest: Path | None
-
-
-def kernel_cmake_arguments(
+def image_cmake_arguments(
     *,
     library: DeviceLibrary,
     target: CompilationTarget,
@@ -30,7 +21,7 @@ def kernel_cmake_arguments(
     sdk: CudaToolkit,
 ) -> tuple[str, ...]:
     if target.backend != "cuda":
-        raise ValueError("Only CUDA kernel image builds are currently supported.")
+        raise ValueError("Only CUDA device image builds are currently supported.")
     values = {
         "LLVM_ROOT": str(llvm.root),
         "CLANG": str(llvm.clang),
@@ -44,13 +35,13 @@ def kernel_cmake_arguments(
     return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
 
 
-def resolve_kernel_artifact(
-    request: KernelRequest,
+def resolve_device_image(
+    library: str,
     *,
     target: CompilationTarget,
     image_path: Path | None = None,
     build_root: Path | None = None,
-) -> KernelArtifact:
+) -> DeviceImage:
     explicit = image_path is not None
     if image_path is None:
         if build_root is None:
@@ -60,7 +51,7 @@ def resolve_kernel_artifact(
             build_root
             / target.backend
             / target.architecture
-            / request.library
+            / library
             / f"math{suffix}"
         )
     image = image_path.expanduser().resolve()
@@ -68,11 +59,12 @@ def resolve_kernel_artifact(
         raise FileNotFoundError(f"Device image was not found: {image}")
     manifest_path = image.with_suffix(".manifest.json")
     manifest: Path | None = None
+    functions: tuple[str, ...] | None = None
     if manifest_path.is_file():
         manifest = manifest_path
         metadata = json.loads(manifest_path.read_text())
         expected = {
-            "library": request.library,
+            "library": library,
             "backend": target.backend,
             "target_triple": target.target_triple,
             "architecture": target.architecture,
@@ -82,11 +74,8 @@ def resolve_kernel_artifact(
                 raise ValueError(
                     f"Image manifest {manifest} does not match {field}={value!r}."
                 )
-        if request.function not in metadata.get("functions", []):
-            raise ValueError(
-                f"Image manifest {manifest} does not contain function "
-                f"{request.function!r}."
-            )
+        if "functions" in metadata:
+            functions = tuple(metadata["functions"])
     elif not explicit:
         raise FileNotFoundError(f"Device image manifest was not found: {manifest_path}")
-    return KernelArtifact(image, target, request.library, manifest)
+    return DeviceImage(image, target, library, functions, manifest)
