@@ -49,9 +49,10 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
     llvm_dis = executable(root / "bin" / "llvm-dis")
     llvm_nm = executable(root / "bin" / "llvm-nm")
 
-    versions = [run_tool([tool, "--version"]) for tool in (clang, llvm_dis, llvm_nm)]
+    tools = (clang, llvm_dis, llvm_nm)
+    versions = [run_tool([tool, "--version"]) for tool in tools]
     majors = []
-    for tool, version in zip((clang, llvm_dis, llvm_nm), versions, strict=True):
+    for tool, version in zip(tools, versions, strict=True):
         match = re.search(r"\b(?:clang|LLVM) version\s+(\d+)", version)
         if match is None:
             raise ValueError(f"Cannot identify the LLVM version of {tool}: {version}")

@@ -70,8 +70,12 @@ cuda-build = { cmd = "cmake --build build/backends/cuda", depends-on = ["cuda-co
 cuda-configure = "cmake -S backends/cuda -B build/backends/cuda -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python"
 cuda-test = { cmd = "pytest -m cuda", depends-on = ["cuda-build"] }
 cuda-tidy = { cmd = "run-clang-tidy -quiet -p build/backends/cuda", depends-on = ["cuda-configure"] }
+kernels-build = { cmd = "cmake --build build/kernels", depends-on = ["kernels-configure"] }
+kernels-configure = "python tools/configure_kernels.py"
+kernels-test = { cmd = "pytest -m kernels", depends-on = ["kernels-build"] }
+kernels-tidy = { cmd = "run-clang-tidy -quiet -p build/kernels", depends-on = ["kernels-configure"] }
 list-devices = { cmd = "python tools/list_devices.py", depends-on = ["cuda-build"] }
-native-format-check = "find backends -regextype posix-extended -type f -regex '.*\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|cu|cuh|hip|inc)' -exec clang-format --dry-run --Werror '{}' +"
+native-format-check = "find backends kernels -regextype posix-extended -type f -regex '.*\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|cu|cuh|hip|inc)' -exec clang-format --dry-run --Werror '{}' +"
 
 [tool.mypy]
 check_untyped_defs = true
@@ -80,9 +84,12 @@ python_version = "3.12"
 warn_unused_ignores = true
 
 [tool.pytest.ini_options]
-addopts = "-m 'not cuda'"
+addopts = "-m 'not cuda and not kernels'"
 filterwarnings = ["error"]
-markers = ["cuda: integration tests requiring the built CUDA backend and NVIDIA driver"]
+markers = [
+    "cuda: integration tests requiring the built CUDA backend and NVIDIA driver",
+    "kernels: integration tests requiring compiled device images and their compiler tools",
+]
 testpaths = ["tests"]
 
 [tool.ruff]

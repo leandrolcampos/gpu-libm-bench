@@ -39,7 +39,7 @@ def test_library_path_selection(
         bitcode_path=custom if override else None,
         required_symbols=("expf",),
     )
-    assert result.bitcode_files == (selected,)
+    assert result.bitcode_file == selected
 
 
 def test_missing_explicit_bitcode_does_not_fall_back(llvm: LLVMToolchain) -> None:

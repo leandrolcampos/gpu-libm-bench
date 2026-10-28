@@ -15,8 +15,6 @@ signature:
       type: float
       role: input
 
-wrapper: null
-
 domains:
   central:
     generator:

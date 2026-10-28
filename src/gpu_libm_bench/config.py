@@ -46,7 +46,6 @@ class DomainConfig:
 class FunctionConfig:
     name: str
     signature: SignatureConfig
-    wrapper: str | None
     domains: dict[str, DomainConfig]
 
 

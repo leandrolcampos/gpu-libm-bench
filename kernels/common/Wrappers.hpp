@@ -1,0 +1,24 @@
+// Copyright 2026 Leandro A. Lacerda Campos
+// SPDX-License-Identifier: Apache-2.0
+//
+// Evaluation and measurement wrappers for GPU math functions.
+
+#ifndef GPU_LIBM_BENCH_KERNELS_COMMON_WRAPPERS_HPP
+#define GPU_LIBM_BENCH_KERNELS_COMMON_WRAPPERS_HPP
+
+#include "GPU.hpp"
+
+#include <stdint.h>
+
+namespace gpu_libm_bench {
+
+template <auto Function, typename OutputType, typename... InputTypes>
+void evaluate(uint64_t Count, OutputType *Output, const InputTypes *...Inputs) {
+  uint64_t Index = gpu::globalThreadId();
+  if (Index < Count)
+    Output[Index] = Function(Inputs[Index]...);
+}
+
+} // namespace gpu_libm_bench
+
+#endif // GPU_LIBM_BENCH_KERNELS_COMMON_WRAPPERS_HPP

@@ -15,7 +15,7 @@ from .toolchains import LLVMToolchain
 @dataclass(frozen=True, slots=True)
 class DeviceLibrary:
     name: str
-    bitcode_files: tuple[Path, ...]
+    bitcode_file: Path
 
 
 def resolve_device_library(
@@ -72,4 +72,4 @@ def _resolve_llvm_libm(
             raise ValueError(
                 f"Bitcode {path} does not define symbols: {', '.join(sorted(missing))}."
             )
-    return DeviceLibrary("llvm-libm", (path,))
+    return DeviceLibrary("llvm-libm", path)

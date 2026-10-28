@@ -60,4 +60,5 @@ def load_backend(path: Path, *, module_name: str) -> ModuleType:
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     sys.modules[module_name] = module
+
     return module
