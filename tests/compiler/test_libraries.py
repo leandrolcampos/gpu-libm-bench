@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for device library selection and target compatibility."""
+"""Tests for math library selection and target compatibility."""
 
 from pathlib import Path
 
@@ -32,7 +32,7 @@ def test_library_path_selection(
         return "expf\nlogf"
 
     monkeypatch.setattr(libraries, "run_tool", inspect)
-    result = libraries.resolve_device_library(
+    result = libraries.resolve_library(
         library="llvm-libm",
         llvm=llvm,
         target=TARGET,
@@ -47,7 +47,7 @@ def test_missing_explicit_bitcode_does_not_fall_back(llvm: LLVMToolchain) -> Non
     default.parent.mkdir(parents=True)
     default.touch()
     with pytest.raises(FileNotFoundError, match="missing.bc"):
-        libraries.resolve_device_library(
+        libraries.resolve_library(
             library="llvm-libm",
             llvm=llvm,
             target=TARGET,
@@ -67,7 +67,7 @@ def test_bitcode_requires_matching_target(
         lambda command: f'target triple = "{triple}"' if triple else "",
     )
     with pytest.raises(ValueError, match="target triple"):
-        libraries.resolve_device_library(
+        libraries.resolve_library(
             library="llvm-libm", llvm=llvm, target=TARGET, bitcode_path=path
         )
 
@@ -87,7 +87,7 @@ def test_bitcode_must_define_required_function(
         ),
     )
     with pytest.raises(ValueError, match="does not define symbols: expf"):
-        libraries.resolve_device_library(
+        libraries.resolve_library(
             library="llvm-libm",
             llvm=llvm,
             target=TARGET,
@@ -100,5 +100,5 @@ def test_bitcode_must_define_required_function(
 def test_other_providers_do_not_fall_back_to_llvm_libm(
     llvm: LLVMToolchain, library: str
 ) -> None:
-    with pytest.raises(ValueError, match="Unsupported device math library"):
-        libraries.resolve_device_library(library=library, llvm=llvm, target=TARGET)
+    with pytest.raises(ValueError, match="Unsupported math library"):
+        libraries.resolve_library(library=library, llvm=llvm, target=TARGET)

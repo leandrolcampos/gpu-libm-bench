@@ -66,14 +66,14 @@ class LatencyConfig(MetricConfig):
 
 
 @dataclass
-class DeviceLibraryConfig:
+class LibraryArtifactConfig:
     bitcode_path: str | None
 
 
 @dataclass
 class LibraryConfig:
     name: str
-    backends: dict[str, DeviceLibraryConfig]
+    backends: dict[str, LibraryArtifactConfig]
 
 
 @dataclass

@@ -8,14 +8,14 @@ from pathlib import Path
 
 from gpu_libm_bench.devices import DeviceImage
 
-from .libraries import DeviceLibrary
+from .libraries import Library
 from .targets import CompilationTarget
 from .toolchains import CudaToolkit, LLVMToolchain
 
 
 def image_cmake_arguments(
     *,
-    library: DeviceLibrary,
+    library: Library,
     target: CompilationTarget,
     llvm: LLVMToolchain,
     sdk: CudaToolkit,

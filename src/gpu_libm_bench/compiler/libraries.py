@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro A. Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Device math library resolution and artifact validation."""
+"""Math library resolution and artifact validation."""
 
 import re
 from dataclasses import dataclass
@@ -13,19 +13,19 @@ from .toolchains import LLVMToolchain
 
 
 @dataclass(frozen=True, slots=True)
-class DeviceLibrary:
+class Library:
     name: str
     bitcode_file: Path
 
 
-def resolve_device_library(
+def resolve_library(
     *,
     library: str,
     llvm: LLVMToolchain,
     target: CompilationTarget,
     bitcode_path: Path | None = None,
     required_symbols: tuple[str, ...] = (),
-) -> DeviceLibrary:
+) -> Library:
     if library == "llvm-libm":
         return _resolve_llvm_libm(
             llvm=llvm,
@@ -34,7 +34,7 @@ def resolve_device_library(
             required_symbols=required_symbols,
         )
     else:
-        raise ValueError(f"Unsupported device math library: {library!r}.")
+        raise ValueError(f"Unsupported math library: {library!r}.")
 
 
 def _resolve_llvm_libm(
@@ -43,7 +43,7 @@ def _resolve_llvm_libm(
     target: CompilationTarget,
     bitcode_path: Path | None,
     required_symbols: tuple[str, ...],
-) -> DeviceLibrary:
+) -> Library:
     if bitcode_path is None:
         candidates = [
             directory / target.target_triple / "libm.bc"
@@ -86,4 +86,4 @@ def _resolve_llvm_libm(
                 f"Bitcode {path} does not define symbols: {', '.join(sorted(missing))}."
             )
 
-    return DeviceLibrary("llvm-libm", path)
+    return Library("llvm-libm", path)

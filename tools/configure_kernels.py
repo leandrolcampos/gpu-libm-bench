@@ -9,7 +9,7 @@ from pathlib import Path
 
 from gpu_libm_bench.compiler._commands import run_tool
 from gpu_libm_bench.compiler.images import image_cmake_arguments
-from gpu_libm_bench.compiler.libraries import resolve_device_library
+from gpu_libm_bench.compiler.libraries import resolve_library
 from gpu_libm_bench.compiler.targets import resolve_target
 from gpu_libm_bench.compiler.toolchains import resolve_cuda, resolve_llvm
 from gpu_libm_bench.devices import DeviceContext
@@ -41,7 +41,7 @@ def main() -> None:
         device=device,
         sdk=sdk,
     )
-    library = resolve_device_library(
+    library = resolve_library(
         library="llvm-libm",
         llvm=llvm,
         target=target,

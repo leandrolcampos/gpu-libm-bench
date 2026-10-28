@@ -12,7 +12,7 @@ from gpu_libm_bench.compiler.images import (
     image_cmake_arguments,
     resolve_device_image,
 )
-from gpu_libm_bench.compiler.libraries import DeviceLibrary
+from gpu_libm_bench.compiler.libraries import Library
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import CudaToolkit, LLVMToolchain
 
@@ -41,7 +41,7 @@ def image_path(tmp_path: Path) -> Path:
 def test_build_request_preserves_selected_tools_and_libraries(
     llvm: LLVMToolchain, tmp_path: Path
 ) -> None:
-    library = DeviceLibrary("llvm-libm", tmp_path / "libm.bc")
+    library = Library("llvm-libm", tmp_path / "libm.bc")
     sdk = CudaToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
     arguments = image_cmake_arguments(
         library=library, target=TARGET, llvm=llvm, sdk=sdk
