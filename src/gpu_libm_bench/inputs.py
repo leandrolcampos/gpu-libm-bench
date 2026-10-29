@@ -7,7 +7,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from operator import index
-from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -76,7 +75,7 @@ class InputGenerator(ABC):
 class RandomGenerator(InputGenerator):
     def __init__(
         self,
-        distributions: Mapping[str, Distribution],
+        distributions: Mapping[str, Distribution[Scalar]],
         rng: np.random.Generator,
         *,
         domain: str,
@@ -100,9 +99,7 @@ class RandomGenerator(InputGenerator):
         return InputBatch(
             domain=self._domain,
             arguments={
-                name: cast(
-                    "NDArray[Scalar]", distribution(self._rngs[name], batch_size)
-                )
+                name: distribution(self._rngs[name], batch_size)
                 for name, distribution in self._distributions.items()
             },
         )
@@ -110,12 +107,12 @@ class RandomGenerator(InputGenerator):
 
 def _distributions_from_config(
     signature: SignatureConfig, parameters: Mapping[str, DistributionConfig]
-) -> dict[str, Distribution]:
+) -> dict[str, Distribution[Scalar]]:
     arguments = [
         argument for argument in signature.arguments if argument.role == "input"
     ]
 
-    distributions: dict[str, Distribution] = {}
+    distributions: dict[str, Distribution[Scalar]] = {}
     for argument in arguments:
         try:
             dtype = _INPUT_DTYPES[argument.type]

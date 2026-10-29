@@ -6,24 +6,34 @@
 from dataclasses import dataclass, field
 from math import isfinite
 from numbers import Real
-from typing import cast, overload
+from typing import Any, cast, overload
 
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
 
-from gpu_libm_bench.types import FloatDType, FloatScalar, SampleShape, SampleSize
+from gpu_libm_bench.types import FloatScalar, SampleShape, SampleSize
 
 from ._random import random
 from .base import Distribution
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Uniform(Distribution):
+class Uniform[T: FloatScalar](Distribution[T]):
     low: float
     high: float
-    dtype: FloatDType
-    _low_value: FloatScalar = field(repr=False, compare=False)
-    _high_value: FloatScalar = field(repr=False, compare=False)
+    dtype: np.dtype[T]
+    _low_value: T = field(repr=False, compare=False)
+    _high_value: T = field(repr=False, compare=False)
+
+    @overload
+    def __init__(
+        self, *, low: float, high: float, dtype: type[T] | np.dtype[T]
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self: "Uniform[Any]", *, low: float, high: float, dtype: DTypeLike
+    ) -> None: ...
 
     def __init__(self, *, low: float, high: float, dtype: DTypeLike) -> None:
         if (
@@ -47,7 +57,7 @@ class Uniform(Distribution):
             np.dtype(np.float64),
         ):
             raise TypeError("uniform requires native float16, float32 or float64 dtype")
-        normalized_dtype = cast("FloatDType", normalized_dtype)
+        normalized_dtype = cast("np.dtype[T]", normalized_dtype)
 
         with np.errstate(over="ignore", under="ignore"):
             low_value = normalized_dtype.type(low)
@@ -75,25 +85,23 @@ class Uniform(Distribution):
         object.__setattr__(self, "_high_value", high_value)
 
     @overload
-    def __call__(
-        self, rng: np.random.Generator, sample_size: None = None
-    ) -> FloatScalar: ...
+    def __call__(self, rng: np.random.Generator, sample_size: None = None) -> T: ...
 
     @overload
     def __call__(
         self, rng: np.random.Generator, sample_size: SampleShape
-    ) -> NDArray[FloatScalar]: ...
+    ) -> NDArray[T]: ...
 
     @overload
     def __call__(
         self, rng: np.random.Generator, sample_size: SampleSize = None
-    ) -> FloatScalar | NDArray[FloatScalar]: ...
+    ) -> T | NDArray[T]: ...
 
     def __call__(
         self,
         rng: np.random.Generator,
         sample_size: SampleSize = None,
-    ) -> FloatScalar | NDArray[FloatScalar]:
+    ) -> T | NDArray[T]:
         # NumPy ignores dtype for size=None; an empty shape preserves it.
         shape = () if sample_size is None else sample_size
         samples = random(rng, shape, self.dtype)
@@ -109,7 +117,7 @@ class Uniform(Distribution):
             samples += self._low_value
 
         if sample_size is None:
-            return cast("FloatScalar", samples[()])
+            return cast("T", samples[()])
         return samples
 
     def __str__(self) -> str:
