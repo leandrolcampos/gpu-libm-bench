@@ -38,6 +38,10 @@ inline uint64_t globalThreadId() {
   return blockId() * blockSize() + threadId();
 }
 
+// Fixed-frequency timer. Units and frequency are backend-specific.
+
+inline uint64_t readTimer() { return __builtin_readsteadycounter(); }
+
 } // namespace gpu_libm_bench::gpu
 
 #endif // GPU_LIBM_BENCH_KERNELS_COMMON_GPU_HPP

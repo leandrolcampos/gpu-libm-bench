@@ -8,11 +8,17 @@ from typing import TypedDict
 import numpy as np
 from numpy.typing import NDArray
 
+class TimerProperties(TypedDict):
+    source: str
+    counter_bits: int
+    frequency_hz: int
+
 class DeviceProperties(TypedDict):
     device_id: int
     name: str
     architecture: str
     total_memory_bytes: int
+    timer: TimerProperties
 
 def device_count() -> int: ...
 def get_device_info(device_id: int = 0) -> DeviceProperties: ...

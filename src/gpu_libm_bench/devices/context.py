@@ -24,12 +24,27 @@ _SUPPORTED_BACKENDS = ("cuda",)
 
 
 @dataclass(frozen=True, slots=True)
+class TimerInfo:
+    source: str
+    counter_bits: int
+    frequency_hz: int
+
+    def __post_init__(self) -> None:
+        if self.frequency_hz <= 0:
+            raise ValueError("timer frequency must be positive")
+
+    def to_nanoseconds(self, ticks: NDArray[np.uint64]) -> NDArray[np.float64]:
+        return ticks.astype(np.float64) * (1_000_000_000 / self.frequency_hz)
+
+
+@dataclass(frozen=True, slots=True)
 class DeviceInfo:
     backend: str
     device_id: int
     name: str
     architecture: str
     total_memory_bytes: int
+    timer: TimerInfo
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,7 +231,14 @@ class DeviceContext:
     @staticmethod
     def get_device_info(device_id: int = 0, *, backend: str = "cuda") -> DeviceInfo:
         properties = _load_backend(backend).get_device_info(device_id)
-        return DeviceInfo(backend=backend, **properties)
+        return DeviceInfo(
+            backend=backend,
+            device_id=properties["device_id"],
+            name=properties["name"],
+            architecture=properties["architecture"],
+            total_memory_bytes=properties["total_memory_bytes"],
+            timer=TimerInfo(**properties["timer"]),
+        )
 
 
 def _load_backend(backend: str) -> ModuleType:

@@ -25,6 +25,7 @@ def main() -> None:
     parser.add_argument("--device-id", type=int, default=0)
     parser.add_argument("--bitcode-path", type=Path)
     parser.add_argument("--build-dir", type=Path, default=Path("build/kernels"))
+    parser.add_argument("--build-testing", action="store_true")
     arguments = parser.parse_args()
     llvm = resolve_llvm(arguments.llvm_root)
     sdk = resolve_cuda(arguments.sdk_root)
@@ -58,6 +59,7 @@ def main() -> None:
             "-G",
             "Ninja",
             *image_cmake_arguments(library=library, target=target, llvm=llvm, sdk=sdk),
+            f"-DBUILD_TESTING={'ON' if arguments.build_testing else 'OFF'}",
         ]
     )
     print(output)

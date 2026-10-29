@@ -23,3 +23,8 @@ if(NOT GPU_LIBM_BENCH_LIBRARY IN_LIST supported_libraries)
 endif()
 
 add_subdirectory("${GPU_LIBM_BENCH_LIBRARY}")
+
+option(BUILD_TESTING "Build device validation kernels" OFF)
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()

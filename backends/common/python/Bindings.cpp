@@ -64,11 +64,17 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
       [](int DeviceID) {
         DeviceInfo Info = unwrap(getDeviceInfo(DeviceID));
 
+        py::dict Timer;
+        Timer["source"] = Info.Timer.Source;
+        Timer["counter_bits"] = Info.Timer.CounterBits;
+        Timer["frequency_hz"] = Info.Timer.FrequencyHz;
+
         py::dict Properties;
         Properties["device_id"] = Info.DeviceID;
         Properties["name"] = Info.Name;
         Properties["architecture"] = Info.Architecture;
         Properties["total_memory_bytes"] = Info.TotalMemoryBytes;
+        Properties["timer"] = Timer;
 
         return Properties;
       },

@@ -3,7 +3,7 @@
 
 """GPU devices, execution contexts, and modules."""
 
-from .context import DeviceContext, DeviceInfo, LaunchConfig
+from .context import DeviceContext, DeviceInfo, LaunchConfig, TimerInfo
 from .memory import DeviceBuffer
 from .module import DeviceImage, DeviceKernel, DeviceModule
 
@@ -15,4 +15,5 @@ __all__ = [
     "DeviceKernel",
     "DeviceModule",
     "LaunchConfig",
+    "TimerInfo",
 ]

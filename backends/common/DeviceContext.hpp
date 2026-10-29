@@ -18,11 +18,18 @@
 
 namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND {
 
+struct TimerInfo {
+  std::string Source;
+  std::uint32_t CounterBits;
+  std::uint64_t FrequencyHz;
+};
+
 struct DeviceInfo {
   int DeviceID;
   std::string Name;
   std::string Architecture;
   std::size_t TotalMemoryBytes;
+  TimerInfo Timer;
 };
 
 Expected<int> getDeviceCount();

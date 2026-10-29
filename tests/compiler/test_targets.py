@@ -10,7 +10,7 @@ import pytest
 
 from gpu_libm_bench.compiler import targets
 from gpu_libm_bench.compiler.toolchains import CudaToolkit, LLVMToolchain
-from gpu_libm_bench.devices import DeviceInfo
+from gpu_libm_bench.devices import DeviceInfo, TimerInfo
 
 
 @pytest.mark.parametrize("architecture", [None, "sm_90"])
@@ -23,7 +23,14 @@ def test_architecture_selection_uses_device_only_as_default(
         target_triple="nvptx64-nvidia-cuda",
         architecture=architecture,
         llvm=llvm,
-        device=DeviceInfo("cuda", 1, "GPU", "sm_120", 1024),
+        device=DeviceInfo(
+            "cuda",
+            1,
+            "GPU",
+            "sm_120",
+            1024,
+            TimerInfo("%globaltimer", 64, 1_000_000_000),
+        ),
     )
     assert target.architecture == (architecture or "sm_120")
 

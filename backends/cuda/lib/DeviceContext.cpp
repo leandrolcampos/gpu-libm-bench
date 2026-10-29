@@ -62,9 +62,12 @@ Expected<DeviceInfo> getDeviceInfo(int DeviceID) {
                        "cuDeviceTotalMem"))
     return Err;
 
-  return DeviceInfo{DeviceID, Name,
+  // %globaltimer reports nanoseconds, independently of the GPU core clock.
+  return DeviceInfo{DeviceID,
+                    Name,
                     "sm_" + std::to_string(Major) + std::to_string(Minor),
-                    TotalMemoryBytes};
+                    TotalMemoryBytes,
+                    {"%globaltimer", 64, 1'000'000'000}};
 }
 
 DeviceContext::DeviceContext(std::shared_ptr<detail::DeviceState> Device,

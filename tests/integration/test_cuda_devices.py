@@ -21,6 +21,9 @@ def test_query_visible_devices() -> None:
         assert info.name
         assert info.architecture.startswith("sm_")
         assert info.total_memory_bytes > 0
+        assert info.timer.source == "%globaltimer"
+        assert info.timer.counter_bits == 64
+        assert info.timer.frequency_hz == 1_000_000_000
 
 
 def test_negative_device_id_is_rejected() -> None:

@@ -1,18 +1,19 @@
-# Defines device image build rules for math libraries.
+# Defines device image build rules.
 
 include_guard(GLOBAL)
 include(GPULibmBenchImageMetadata)
 
-function(gpu_libm_bench_add_function image_target function_name source_file)
-  target_sources(${image_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${source_file}")
-  set_property(TARGET ${image_target} APPEND PROPERTY
+function(gpu_libm_bench_add_function library_target function_name source_file)
+  target_sources(${library_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${source_file}")
+  set_property(TARGET ${library_target} APPEND PROPERTY
     GPU_LIBM_BENCH_FUNCTIONS "${function_name}")
 endfunction()
 
-function(_gpu_libm_bench_configure_cuda_image image_target)
+function(_gpu_libm_bench_configure_cuda_image image_target subdirectory)
   set(directory
-    "${CMAKE_BINARY_DIR}/cuda/${GPU_LIBM_BENCH_ARCHITECTURE}/${GPU_LIBM_BENCH_LIBRARY}")
-  set(ptx "${directory}/math.ptx")
+    "${CMAKE_BINARY_DIR}/cuda/${GPU_LIBM_BENCH_ARCHITECTURE}/${subdirectory}")
+  get_target_property(output_name ${image_target} OUTPUT_NAME)
+  set(ptx "${directory}/${output_name}.ptx")
   set_target_properties(${image_target} PROPERTIES
     SUFFIX .cubin RUNTIME_OUTPUT_DIRECTORY "${directory}"
     GPU_LIBM_BENCH_BACKEND cuda GPU_LIBM_BENCH_PTX "${ptx}")
@@ -24,40 +25,49 @@ function(_gpu_libm_bench_configure_cuda_image image_target)
     -Wl,--save-temps)
   add_custom_command(TARGET ${image_target} POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-      "${CMAKE_BINARY_DIR}/math.s" "${ptx}"
+      "${CMAKE_BINARY_DIR}/${output_name}.s" "${ptx}"
     BYPRODUCTS "${ptx}"
     VERBATIM)
 endfunction()
 
-function(gpu_libm_bench_configure_image image_target)
-  foreach(variable IN ITEMS SDK_ROOT ARCHITECTURE BITCODE_FILE)
+function(gpu_libm_bench_configure_device_image image_target subdirectory)
+  foreach(variable IN ITEMS SDK_ROOT ARCHITECTURE)
     if(NOT GPU_LIBM_BENCH_${variable})
       message(FATAL_ERROR "GPU_LIBM_BENCH_${variable} must be provided")
     endif()
   endforeach()
+
+  target_include_directories(${image_target} PRIVATE "${PROJECT_SOURCE_DIR}/common")
+  target_compile_options(${image_target} PRIVATE
+    -nostdlibinc -nostdinc++ -fno-builtin -fno-exceptions -fno-rtti -O3)
+  target_link_options(${image_target} PRIVATE -O3)
+
+  if(GPU_LIBM_BENCH_TARGET_TRIPLE STREQUAL "nvptx64-nvidia-cuda")
+    _gpu_libm_bench_configure_cuda_image(${image_target} "${subdirectory}")
+  else()
+    message(FATAL_ERROR
+      "Unsupported device target: ${GPU_LIBM_BENCH_TARGET_TRIPLE}")
+  endif()
+endfunction()
+
+function(gpu_libm_bench_configure_library library_target)
+  if(NOT GPU_LIBM_BENCH_BITCODE_FILE)
+    message(FATAL_ERROR "GPU_LIBM_BENCH_BITCODE_FILE must be provided")
+  endif()
   set(bitcode_file "${GPU_LIBM_BENCH_BITCODE_FILE}")
   if(NOT EXISTS "${bitcode_file}" OR IS_DIRECTORY "${bitcode_file}")
     message(FATAL_ERROR "Library bitcode was not found: ${bitcode_file}")
   endif()
 
-  get_target_property(source_files ${image_target} SOURCES)
+  get_target_property(source_files ${library_target} SOURCES)
   set_property(SOURCE ${source_files} APPEND PROPERTY
     OBJECT_DEPENDS "${bitcode_file}")
 
-  set_target_properties(${image_target} PROPERTIES OUTPUT_NAME math)
-  target_include_directories(${image_target} PRIVATE "${PROJECT_SOURCE_DIR}/common")
-  target_compile_options(${image_target} PRIVATE
-    -nostdlibinc -nostdinc++ -fno-builtin -fno-exceptions -fno-rtti -O3
+  set_target_properties(${library_target} PROPERTIES OUTPUT_NAME math)
+  gpu_libm_bench_configure_device_image(${library_target} "${GPU_LIBM_BENCH_LIBRARY}")
+  target_compile_options(${library_target} PRIVATE
     "SHELL:-Xclang -mlink-builtin-bitcode -Xclang \"${bitcode_file}\"")
-  target_link_options(${image_target} PRIVATE -O3)
 
-  if(GPU_LIBM_BENCH_TARGET_TRIPLE STREQUAL "nvptx64-nvidia-cuda")
-    _gpu_libm_bench_configure_cuda_image(${image_target})
-  else()
-    message(FATAL_ERROR
-      "Unsupported device target: ${GPU_LIBM_BENCH_TARGET_TRIPLE}")
-  endif()
-
-  get_target_property(directory ${image_target} RUNTIME_OUTPUT_DIRECTORY)
-  gpu_libm_bench_write_image_metadata(${image_target} "${directory}")
+  get_target_property(directory ${library_target} RUNTIME_OUTPUT_DIRECTORY)
+  gpu_libm_bench_write_image_metadata(${library_target} "${directory}")
 endfunction()
