@@ -76,7 +76,9 @@ def test_missing_backend_has_an_actionable_diagnostic(
     monkeypatch.setenv("GPU_LIBM_BENCH_BACKEND_DIR", str(tmp_path))
     monkeypatch.setattr(backends, "import_module", missing_module)
 
-    with pytest.raises(RuntimeError, match="pixi run -e native cuda-build") as error:
+    with pytest.raises(
+        backends.BackendNotFoundError, match="pixi run -e native cuda-build"
+    ) as error:
         DeviceContext.device_count()
 
     assert module_name in str(error.value)
@@ -129,3 +131,4 @@ def test_backend_dependency_failure_is_preserved(
         DeviceContext.device_count()
 
     assert caught.value.__cause__ is error
+    assert not isinstance(caught.value, backends.BackendNotFoundError)

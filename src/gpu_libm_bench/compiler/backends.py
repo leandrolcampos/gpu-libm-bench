@@ -12,8 +12,13 @@ from pathlib import Path
 from types import ModuleType
 
 
+class BackendNotFoundError(RuntimeError):
+    pass
+
+
 def get_backend(backend: str) -> ModuleType:
     module_name = f"gpu_libm_bench.backends._{backend}"
+
     try:
         return import_module(module_name)
     except ModuleNotFoundError as error:
@@ -26,7 +31,7 @@ def get_backend(backend: str) -> ModuleType:
     else:
         package_directory = Path(__file__).resolve().parents[1]
         if package_directory.parent.name != "src":
-            raise ImportError(
+            raise BackendNotFoundError(
                 f"native backend {module_name!r} is not installed. "
                 "Set GPU_LIBM_BENCH_BACKEND_DIR to the native backend build directory"
             )
@@ -37,7 +42,8 @@ def get_backend(backend: str) -> ModuleType:
         path = directory / f"_{backend}{suffix}"
         if path.is_file():
             return load_backend(path, module_name=module_name)
-    raise ImportError(
+
+    raise BackendNotFoundError(
         f"native backend {module_name!r} was not found in {directory}. "
         f"Build it with 'pixi run -e native {backend}-build', or set "
         "GPU_LIBM_BENCH_BACKEND_DIR to the native backend build directory"
@@ -46,6 +52,7 @@ def get_backend(backend: str) -> ModuleType:
 
 def load_backend(path: Path, *, module_name: str) -> ModuleType:
     path = path.resolve(strict=True)
+
     existing = sys.modules.get(module_name)
     if existing is not None:
         if existing.__file__ is not None and Path(existing.__file__).resolve() == path:
@@ -55,6 +62,7 @@ def load_backend(path: Path, *, module_name: str) -> ModuleType:
     spec = spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load backend {module_name!r} from {path}")
+
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     sys.modules[module_name] = module
