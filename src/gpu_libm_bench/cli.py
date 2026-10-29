@@ -17,7 +17,7 @@ def main(config: DictConfig) -> None:
     try:
         validate_config(config)
     except (ValueError, OmegaConfBaseException) as error:
-        raise SystemExit(f"Invalid experiment configuration: {error}") from error
+        raise SystemExit(f"invalid experiment configuration: {error}") from error
 
     print("Configuration validated. Benchmark execution is not available yet.")
     print(OmegaConf.to_yaml(config, resolve=True))

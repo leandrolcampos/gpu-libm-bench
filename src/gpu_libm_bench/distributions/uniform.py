@@ -32,13 +32,13 @@ class Uniform(Distribution):
             or isinstance(low, (bool, np.bool_))
             or isinstance(high, (bool, np.bool_))
         ):
-            raise TypeError("Uniform bounds must be real numbers.")
+            raise TypeError("uniform bounds must be real numbers")
 
         low, high = float(low), float(high)
         if not isfinite(low) or not isfinite(high):
-            raise ValueError("Uniform bounds must be finite.")
+            raise ValueError("uniform bounds must be finite")
         if low >= high:
-            raise ValueError("Uniform requires low < high.")
+            raise ValueError("uniform requires low < high")
 
         normalized_dtype = np.dtype(dtype)
         if normalized_dtype not in (
@@ -46,16 +46,14 @@ class Uniform(Distribution):
             np.dtype(np.float32),
             np.dtype(np.float64),
         ):
-            raise TypeError(
-                "Uniform requires native float16, float32 or float64 dtype."
-            )
+            raise TypeError("uniform requires native float16, float32 or float64 dtype")
         normalized_dtype = cast("FloatDType", normalized_dtype)
 
         with np.errstate(over="ignore", under="ignore"):
             low_value = normalized_dtype.type(low)
             high_value = normalized_dtype.type(high)
             if not np.isfinite(low_value) or not np.isfinite(high_value):
-                raise ValueError("Uniform bounds must round to finite dtype values.")
+                raise ValueError("uniform bounds must round to finite dtype values")
 
             if float(low_value) < low:
                 low_value = np.nextafter(low_value, normalized_dtype.type(np.inf))
@@ -68,7 +66,7 @@ class Uniform(Distribution):
             or not np.isfinite(high_value)
             or low_value > high_value
         ):
-            raise ValueError("Uniform interval contains no representable dtype values.")
+            raise ValueError("uniform interval contains no representable dtype values")
 
         object.__setattr__(self, "low", low)
         object.__setattr__(self, "high", high)

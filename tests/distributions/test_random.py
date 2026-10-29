@@ -26,5 +26,5 @@ def test_float16_grid_is_exact() -> None:
 
 
 def test_unsupported_dtype_is_rejected() -> None:
-    with pytest.raises(TypeError, match="Unsupported dtype"):
+    with pytest.raises(TypeError, match="unsupported dtype"):
         random(np.random.default_rng(42), 8, np.dtype(np.int32))

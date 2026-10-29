@@ -100,5 +100,5 @@ def test_bitcode_must_define_required_function(
 def test_other_providers_do_not_fall_back_to_llvm_libm(
     llvm: LLVMToolchain, library: str
 ) -> None:
-    with pytest.raises(ValueError, match="Unsupported math library"):
+    with pytest.raises(ValueError, match="unsupported math library"):
         libraries.resolve_library(library=library, llvm=llvm, target=TARGET)

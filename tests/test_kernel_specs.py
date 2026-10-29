@@ -94,7 +94,7 @@ def test_evaluation_contract_follows_function_signature(
     [
         (
             SignatureConfig("float", [ArgumentConfig("x", "long double", "input")]),
-            "Unsupported scalar type",
+            "unsupported scalar type",
         ),
         (
             SignatureConfig(

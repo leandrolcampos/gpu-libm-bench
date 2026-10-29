@@ -68,13 +68,14 @@ common-configure = "cmake -S backends/common/tests -B build/backends/common -G N
 common-test = { cmd = "ctest --test-dir build/backends/common --output-on-failure", depends-on = ["common-build"] }
 cuda-build = { cmd = "cmake --build build/backends/cuda", depends-on = ["cuda-configure"] }
 cuda-configure = "cmake -S backends/cuda -B build/backends/cuda -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python"
-cuda-test = { cmd = "pytest -m cuda", depends-on = ["cuda-build"] }
+cuda-execution-test = { cmd = "pytest -m 'cuda and execution'", depends-on = ["cuda-build", "kernels-build"] }
+cuda-test = { cmd = "pytest -m 'cuda and not execution'", depends-on = ["cuda-build"] }
 cuda-tidy = { cmd = "run-clang-tidy -quiet -p build/backends/cuda", depends-on = ["cuda-configure"] }
 images-test = { cmd = "pytest -m images", depends-on = ["kernels-build"] }
 kernels-build = { cmd = "cmake --build build/kernels", depends-on = ["kernels-configure"] }
 kernels-configure = "python tools/configure_kernels.py"
 kernels-tidy = { cmd = "run-clang-tidy -quiet -p build/kernels", depends-on = ["kernels-configure"] }
-list-devices = { cmd = "python tools/list_devices.py", depends-on = ["cuda-build"] }
+list-devices = "python tools/list_devices.py"
 native-format-check = "find backends kernels -regextype posix-extended -type f -regex '.*\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|cu|cuh|hip|inc)' -exec clang-format --dry-run --Werror '{}' +"
 
 [tool.mypy]
@@ -88,6 +89,7 @@ addopts = "-m 'not cuda and not images'"
 filterwarnings = ["error"]
 markers = [
     "cuda: integration tests requiring the built CUDA backend and NVIDIA driver",
+    "execution: integration tests requiring a native backend, device image, and GPU",
     "images: integration tests requiring compiled device images and their compiler tools",
 ]
 testpaths = ["tests"]

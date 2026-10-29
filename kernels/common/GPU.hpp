@@ -7,7 +7,6 @@
 #define GPU_LIBM_BENCH_KERNELS_COMMON_GPU_HPP
 
 #include <gpuintrin.h>
-#include <stdint.h>
 
 namespace gpu_libm_bench::gpu {
 
@@ -35,7 +34,9 @@ inline uint64_t blockId() {
               static_cast<uint64_t>(__gpu_num_blocks_y()) * __gpu_block_id_z());
 }
 
-inline uint64_t globalThreadId() { return blockId() * blockSize() + threadId(); }
+inline uint64_t globalThreadId() {
+  return blockId() * blockSize() + threadId();
+}
 
 } // namespace gpu_libm_bench::gpu
 

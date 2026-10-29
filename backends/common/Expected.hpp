@@ -20,6 +20,7 @@ template <typename T> class [[nodiscard]] Expected {
 public:
   // NOLINTNEXTLINE(misc-explicit-constructor): Allow direct value returns.
   Expected(T Value) : Storage(std::in_place_index<0>, std::move(Value)) {}
+
   // NOLINTNEXTLINE(misc-explicit-constructor): Allow direct error propagation.
   Expected(Error Failure)
       : Storage(std::in_place_index<1>, std::move(Failure)) {

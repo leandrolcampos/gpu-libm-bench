@@ -48,7 +48,7 @@ class KernelSpec:
     def from_config(config: "FunctionConfig", *, kind: KernelKind) -> "KernelSpec":
         if kind is KernelKind.EVALUATE:
             return _evaluate_spec(config.signature)
-        raise ValueError(f"Unsupported kernel kind: {kind!r}.")
+        raise ValueError(f"unsupported kernel kind: {kind!r}")
 
 
 def _evaluate_spec(signature: "SignatureConfig") -> KernelSpec:
@@ -58,13 +58,16 @@ def _evaluate_spec(signature: "SignatureConfig") -> KernelSpec:
         if argument.role == "output":
             if not type_name.endswith("*"):
                 raise ValueError(
-                    f"Output argument {argument.name!r} must have a pointer type."
+                    f"output argument {argument.name!r} must have a pointer type"
                 )
             type_name = type_name[:-1].strip()
+
         arguments.append(KernelArgument(argument.name, _scalar_dtype(type_name), True))
+
     return_type = signature.return_type.strip()
     if return_type != "void":
         arguments.append(KernelArgument("output", _scalar_dtype(return_type), True))
+
     arguments.append(KernelArgument("count", "uint64", False))
     return KernelSpec(tuple(arguments))
 
@@ -74,5 +77,5 @@ def _scalar_dtype(type_name: str) -> str:
         return _SCALAR_DTYPES[type_name]
     except KeyError as error:
         raise ValueError(
-            f"Unsupported scalar type in kernel spec: {type_name!r}."
+            f"unsupported scalar type in kernel spec: {type_name!r}"
         ) from error

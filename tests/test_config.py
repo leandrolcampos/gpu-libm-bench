@@ -65,7 +65,7 @@ def test_domain_arguments_must_match_only_signature_inputs(
     if valid:
         validate_config(experiment_config)
     else:
-        with pytest.raises(ValueError, match="Domain 'wide'.*input signature"):
+        with pytest.raises(ValueError, match="domain 'wide'.*input signature"):
             validate_config(experiment_config)
 
 

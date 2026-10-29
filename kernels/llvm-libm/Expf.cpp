@@ -5,8 +5,6 @@
 
 #include "Wrappers.hpp"
 
-#include <stdint.h>
-
 extern "C" float expf(float);
 
 extern "C" __gpu_kernel void expfEvaluate(const float *X, float *Output,

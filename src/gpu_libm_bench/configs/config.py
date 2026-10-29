@@ -136,17 +136,17 @@ def validate_config(config: DictConfig) -> ExperimentConfig:
 
     domains = experiment.function.domains
     if not domains:
-        raise ValueError("function.domains must contain at least one domain.")
+        raise ValueError("function.domains must contain at least one domain")
     if any(not name.strip() for name in domains):
-        raise ValueError("Domain names must not be empty.")
+        raise ValueError("domain names must not be empty")
 
     selected = experiment.run.domains
     if selected is not None:
         if not selected or len(set(selected)) != len(selected):
-            raise ValueError("run.domains must be a nonempty list without duplicates.")
+            raise ValueError("run.domains must be a nonempty list without duplicates")
         for name in selected:
             if name not in domains:
-                raise ValueError(f"run.domains contains an unknown domain: {name!r}.")
+                raise ValueError(f"run.domains contains an unknown domain: {name!r}")
 
     _validate_function_inputs(
         experiment.function, domains if selected is None else selected
@@ -154,8 +154,8 @@ def validate_config(config: DictConfig) -> ExperimentConfig:
 
     if experiment.backend.name not in experiment.library.backends:
         raise ValueError(
-            f"Library {experiment.library.name!r} does not declare support for "
-            f"backend {experiment.backend.name!r}."
+            f"library {experiment.library.name!r} does not declare support for "
+            f"backend {experiment.backend.name!r}"
         )
     return experiment
 
@@ -166,12 +166,12 @@ def _validate_function_inputs(
     arguments = function.signature.arguments
     names = [argument.name for argument in arguments]
     if len(set(names)) != len(names):
-        raise ValueError("Signature argument names must be unique.")
+        raise ValueError("signature argument names must be unique")
     if any(argument.role not in {"input", "output"} for argument in arguments):
-        raise ValueError("Signature argument roles must be 'input' or 'output'.")
+        raise ValueError("signature argument roles must be 'input' or 'output'")
     inputs = {argument.name for argument in arguments if argument.role == "input"}
     if not inputs:
-        raise ValueError("Signature must declare at least one input argument.")
+        raise ValueError("signature must declare at least one input argument")
 
     for name in domain_names:
         generator = function.domains[name].generator
@@ -180,5 +180,5 @@ def _validate_function_inputs(
             and set(generator.arguments) != inputs
         ):
             raise ValueError(
-                f"Domain {name!r} arguments must match the input signature."
+                f"domain {name!r} arguments must match the input signature"
             )

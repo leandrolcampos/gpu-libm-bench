@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
 
-from gpu_libm_bench.types import SampleSize
+from gpu_libm_bench.types import SampleSize, Scalar
 
 
 class Distribution(ABC):
@@ -21,21 +21,21 @@ class Distribution(ABC):
             name = parameters.pop("distribution")
         except KeyError as error:
             raise ValueError(
-                "A distribution configuration requires 'distribution'."
+                "a distribution configuration requires 'distribution'"
             ) from error
         if name == "uniform":
             from .uniform import Uniform
 
             return Uniform(dtype=dtype, **parameters)
 
-        raise ValueError(f"Unknown distribution: {name!r}")
+        raise ValueError(f"unknown distribution: {name!r}")
 
     @abstractmethod
     def __call__(
         self,
         rng: np.random.Generator,
         sample_size: SampleSize = None,
-    ) -> np.generic | NDArray[np.generic]: ...
+    ) -> Scalar | NDArray[Scalar]: ...
 
     @abstractmethod
     def __str__(self) -> str: ...

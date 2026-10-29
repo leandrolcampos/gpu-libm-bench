@@ -28,5 +28,5 @@ def random(
         return rng.random(size=sample_size, dtype=np.float64)
 
     raise TypeError(
-        f"Unsupported dtype {dtype!r}; expected native float16, float32 or float64."
+        f"unsupported dtype {dtype!r}; expected native float16, float32 or float64"
     )

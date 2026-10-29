@@ -34,19 +34,19 @@ def resolve_target(
     sdk: CudaToolkit | None = None,
 ) -> CompilationTarget:
     if backend not in _TARGET_TRIPLES:
-        raise ValueError(f"Unsupported compilation backend: {backend!r}.")
+        raise ValueError(f"unsupported compilation backend: {backend!r}")
     if target_triple != _TARGET_TRIPLES[backend]:
         raise ValueError(
-            f"Target triple {target_triple!r} does not match backend {backend!r}."
+            f"target triple {target_triple!r} does not match backend {backend!r}"
         )
     if device is not None and device.backend != backend:
         raise ValueError(
-            f"Device backend {device.backend!r} does not match {backend!r}."
+            f"device backend {device.backend!r} does not match {backend!r}"
         )
     if architecture is None:
         if device is None:
             raise ValueError(
-                "architecture is unset; provide information for the selected GPU."
+                "architecture is unset; provide information for the selected GPU"
             )
         architecture = device.architecture
 
@@ -56,23 +56,23 @@ def resolve_target(
     supported = set(re.findall(r"^\s+((?:sm_|gfx)[\w-]+)\s*$", output, re.MULTILINE))
     if not supported:
         raise RuntimeError(
-            f"Clang did not report GPU architectures for {target_triple}."
+            f"Clang did not report GPU architectures for {target_triple}"
         )
     if architecture not in supported:
         raise ValueError(
-            f"Clang {llvm.clang} does not support GPU architecture {architecture!r}."
+            f"Clang {llvm.clang} does not support GPU architecture {architecture!r}"
         )
 
     if sdk is not None:
         if isinstance(sdk, CudaToolkit):
             if backend != "cuda":
-                raise ValueError("A CUDA Toolkit cannot be used for a non-CUDA target.")
+                raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
             assembler_help = run_tool([sdk.ptxas, "--help"])
             if architecture not in re.findall(r"'(sm_[\w]+)'", assembler_help):
                 raise ValueError(
-                    f"CUDA assembler {sdk.ptxas} does not support {architecture!r}."
+                    f"CUDA assembler {sdk.ptxas} does not support {architecture!r}"
                 )
         else:
-            raise TypeError(f"Unsupported SDK type: {type(sdk).__name__}.")
+            raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
 
     return CompilationTarget(backend, target_triple, architecture)

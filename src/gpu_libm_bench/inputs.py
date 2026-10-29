@@ -19,7 +19,7 @@ from .configs import (
     SignatureConfig,
 )
 from .distributions import Distribution
-from .types import FloatType
+from .types import FloatType, Scalar
 
 _INPUT_DTYPES: dict[str, FloatType] = {
     "float": np.float32,
@@ -31,7 +31,7 @@ _INPUT_DTYPES: dict[str, FloatType] = {
 @dataclass(frozen=True, slots=True)
 class InputBatch:
     domain: str
-    arguments: dict[str, NDArray[np.generic]]
+    arguments: dict[str, NDArray[Scalar]]
 
     @property
     def size(self) -> int:
@@ -48,9 +48,10 @@ class InputGenerator(ABC):
         rng: np.random.Generator | None = None,
     ) -> "InputGenerator":
         if config.name != "random" or not isinstance(config, RandomGeneratorConfig):
-            raise ValueError(f"Unknown input generator: {config.name!r}.")
+            raise ValueError(f"unknown input generator: {config.name!r}")
         if rng is None:
-            raise ValueError("Random input generation requires an explicit Generator.")
+            raise ValueError("random input generation requires an explicit Generator")
+
         distributions = _distributions_from_config(signature, config.arguments)
         return RandomGenerator(distributions, rng, domain=domain_name)
 
@@ -65,8 +66,10 @@ class InputGenerator(ABC):
                 batch = self.generate(batch_size)
             except StopIteration:
                 return
+
             if drop_remainder and batch.size < batch_size:
                 return
+
             yield batch
 
 
@@ -79,7 +82,8 @@ class RandomGenerator(InputGenerator):
         domain: str,
     ) -> None:
         if not distributions:
-            raise ValueError("At least one input distribution is required.")
+            raise ValueError("at least one input distribution is required")
+
         self._distributions = dict(distributions)
         names = sorted(self._distributions)
         self._rngs = dict(zip(names, rng.spawn(len(names)), strict=True))
@@ -87,15 +91,17 @@ class RandomGenerator(InputGenerator):
 
     def generate(self, batch_size: int) -> InputBatch:
         if isinstance(batch_size, (bool, np.bool_)):
-            raise TypeError("batch_size must be an integer.")
+            raise TypeError("batch_size must be an integer")
+
         batch_size = index(batch_size)
         if batch_size <= 0:
-            raise ValueError("batch_size must be positive.")
+            raise ValueError("batch_size must be positive")
+
         return InputBatch(
             domain=self._domain,
             arguments={
                 name: cast(
-                    "NDArray[np.generic]", distribution(self._rngs[name], batch_size)
+                    "NDArray[Scalar]", distribution(self._rngs[name], batch_size)
                 )
                 for name, distribution in self._distributions.items()
             },
@@ -115,12 +121,14 @@ def _distributions_from_config(
             dtype = _INPUT_DTYPES[argument.type]
         except KeyError as error:
             raise ValueError(
-                f"Unsupported input type {argument.type!r} for argument {argument.name!r}."
+                f"unsupported input type {argument.type!r} for argument {argument.name!r}"
             ) from error
+
         try:
             distributions[argument.name] = Distribution.from_config(
                 parameters[argument.name], dtype=dtype
             )
         except (TypeError, ValueError) as error:
-            raise ValueError(f"Argument {argument.name!r}: {error}") from error
+            raise ValueError(f"argument {argument.name!r}: {error}") from error
+
     return distributions

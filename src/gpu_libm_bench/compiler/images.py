@@ -21,7 +21,7 @@ def image_cmake_arguments(
     sdk: CudaToolkit,
 ) -> tuple[str, ...]:
     if target.backend != "cuda":
-        raise ValueError("Only CUDA device image builds are currently supported.")
+        raise ValueError("only CUDA device image builds are currently supported")
     values = {
         "LLVM_ROOT": str(llvm.root),
         "CLANG": str(llvm.clang),
@@ -56,7 +56,7 @@ def resolve_device_image(
         )
     image = image_path.expanduser().resolve()
     if not image.is_file():
-        raise FileNotFoundError(f"Device image was not found: {image}")
+        raise FileNotFoundError(f"device image was not found: {image}")
     manifest_path = image.with_suffix(".manifest.json")
     manifest: Path | None = None
     functions: tuple[str, ...] | None = None
@@ -72,10 +72,10 @@ def resolve_device_image(
         for field, value in expected.items():
             if metadata.get(field) != value:
                 raise ValueError(
-                    f"Image manifest {manifest} does not match {field}={value!r}."
+                    f"image manifest {manifest} does not match {field}={value!r}"
                 )
         if "functions" in metadata:
             functions = tuple(metadata["functions"])
     elif not explicit:
-        raise FileNotFoundError(f"Device image manifest was not found: {manifest_path}")
+        raise FileNotFoundError(f"device image manifest was not found: {manifest_path}")
     return DeviceImage(image, target, library, functions, manifest)

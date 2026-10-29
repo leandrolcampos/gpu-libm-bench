@@ -34,7 +34,7 @@ def resolve_library(
             required_symbols=required_symbols,
         )
     else:
-        raise ValueError(f"Unsupported math library: {library!r}.")
+        raise ValueError(f"unsupported math library: {library!r}")
 
 
 def _resolve_llvm_libm(
@@ -54,7 +54,7 @@ def _resolve_llvm_libm(
             searched = ", ".join(str(path) for path in candidates)
             raise FileNotFoundError(
                 f"LLVM-libm bitcode was not found. Searched: {searched}. "
-                "Provide an explicit bitcode_path for a custom installation."
+                "Provide an explicit bitcode_path for a custom installation"
             )
 
     path = bitcode_path.expanduser().resolve()
@@ -66,8 +66,8 @@ def _resolve_llvm_libm(
     if triple is None or triple.group(1) != target.target_triple:
         actual = triple.group(1) if triple is not None else "missing"
         raise ValueError(
-            f"Bitcode {path} has target triple {actual!r}; "
-            f"expected {target.target_triple!r}."
+            f"bitcode {path} has target triple {actual!r}; "
+            f"expected {target.target_triple!r}"
         )
 
     if required_symbols:
@@ -83,7 +83,7 @@ def _resolve_llvm_libm(
         missing = set(required_symbols) - set(output.splitlines())
         if missing:
             raise ValueError(
-                f"Bitcode {path} does not define symbols: {', '.join(sorted(missing))}."
+                f"bitcode {path} does not define symbols: {', '.join(sorted(missing))}"
             )
 
     return Library("llvm-libm", path)

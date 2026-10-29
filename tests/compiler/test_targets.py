@@ -75,7 +75,7 @@ def test_unsupported_sdk_type_is_rejected(
     monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain
 ) -> None:
     monkeypatch.setattr(targets, "run_tool", lambda command: "\tsm_120\n")
-    with pytest.raises(TypeError, match="Unsupported SDK type: object"):
+    with pytest.raises(TypeError, match="unsupported SDK type: object"):
         targets.resolve_target(
             backend="cuda",
             target_triple="nvptx64-nvidia-cuda",

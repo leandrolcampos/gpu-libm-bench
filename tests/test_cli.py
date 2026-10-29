@@ -67,7 +67,7 @@ def test_experiment_selections_are_required(tmp_path: Path, selection: str) -> N
     ("override", "message"),
     [
         ("run.domains=[missing]", "run.domains"),
-        ("~function.domains.wide.generator.arguments.x", "Domain 'wide'"),
+        ("~function.domains.wide.generator.arguments.x", "domain 'wide'"),
     ],
 )
 def test_inconsistent_experiment_exits_with_error(

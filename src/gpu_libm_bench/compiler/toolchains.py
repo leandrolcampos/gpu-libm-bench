@@ -41,7 +41,7 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
             if discovered is None:
                 raise FileNotFoundError(
                     "LLVM was not found. Set llvm.root or LLVM_ROOT, "
-                    "or add clang++ to PATH."
+                    "or add clang++ to PATH"
                 )
             root = Path(discovered).resolve().parent.parent
 
@@ -52,7 +52,7 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
     cmake = shutil.which("cmake")
     if cmake is None:
         raise FileNotFoundError(
-            "CMake was not found on PATH; it is required to discover LLVM."
+            "CMake was not found on PATH; it is required to discover LLVM"
         )
     probe = Path(__file__).resolve().parents[3] / "cmake" / "probes" / "llvm"
     if not (probe / "CMakeLists.txt").is_file():
@@ -73,7 +73,7 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
     for tool, version in zip(tools, versions, strict=True):
         match = re.search(r"\b(?:clang|LLVM) version\s+(\d+)", version)
         if match is None:
-            raise ValueError(f"Cannot identify the LLVM version of {tool}: {version}")
+            raise ValueError(f"cannot identify the LLVM version of {tool}: {version}")
         majors.append(match.group(1))
     if len(set(majors)) != 1:
         raise ValueError(f"LLVM tools in {root} have incompatible versions: {majors}")
@@ -85,7 +85,7 @@ def resolve_cuda(root: Path | None = None) -> CudaToolkit:
     cmake = shutil.which("cmake")
     if cmake is None:
         raise FileNotFoundError(
-            "CMake was not found on PATH; it is required to discover the CUDA Toolkit."
+            "CMake was not found on PATH; it is required to discover the CUDA Toolkit"
         )
 
     probe = Path(__file__).resolve().parents[3] / "cmake" / "probes" / "cuda"
@@ -108,12 +108,12 @@ def resolve_cuda(root: Path | None = None) -> CudaToolkit:
     selected = Path(metadata["root"]).resolve()
     if root is not None and selected != root:
         raise ValueError(
-            f"CUDA discovery selected {selected} instead of requested {root}."
+            f"CUDA discovery selected {selected} instead of requested {root}"
         )
 
     ptxas = executable(Path(metadata["ptxas"]).resolve())
     version = run_tool([ptxas, "--version"])
     if "ptxas" not in version:
-        raise ValueError(f"Cannot identify the CUDA assembler {ptxas}: {version}")
+        raise ValueError(f"cannot identify the CUDA assembler {ptxas}: {version}")
 
     return CudaToolkit(selected, ptxas, metadata["version"])
