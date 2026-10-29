@@ -173,8 +173,13 @@ Error DeviceContext::copyToDevice(DeviceBuffer &Destination, const void *Source,
   if (!Guard)
     return std::move(Guard).error();
 
-  return check(cuMemcpyHtoD(Destination.Pointer, Source, ByteCount),
-               "cuMemcpyHtoD");
+  if (auto Err = check(cuMemcpyHtoDAsync(Destination.Pointer, Source, ByteCount,
+                                         static_cast<CUstream>(Stream)),
+                       "cuMemcpyHtoDAsync"))
+    return Err;
+
+  return check(cuStreamSynchronize(static_cast<CUstream>(Stream)),
+               "cuStreamSynchronize");
 }
 
 Error DeviceContext::copyToHost(void *Destination, const DeviceBuffer &Source,
@@ -193,8 +198,13 @@ Error DeviceContext::copyToHost(void *Destination, const DeviceBuffer &Source,
   if (!Guard)
     return std::move(Guard).error();
 
-  return check(cuMemcpyDtoH(Destination, Source.Pointer, ByteCount),
-               "cuMemcpyDtoH");
+  if (auto Err = check(cuMemcpyDtoHAsync(Destination, Source.Pointer, ByteCount,
+                                         static_cast<CUstream>(Stream)),
+                       "cuMemcpyDtoHAsync"))
+    return Err;
+
+  return check(cuStreamSynchronize(static_cast<CUstream>(Stream)),
+               "cuStreamSynchronize");
 }
 
 Error DeviceContext::launch(const DeviceKernel &Kernel,

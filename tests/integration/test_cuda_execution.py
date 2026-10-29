@@ -126,6 +126,25 @@ def test_evaluate_exp_preserves_tail(
     assert np.isnan(destination[count:]).all()
 
 
+def test_launch_observes_the_latest_host_copy(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec
+) -> None:
+    source = np.empty(1 << 16, dtype=np.float32)
+    destination = np.empty_like(source)
+    x = context.create_buffer(source.size, dtype=source.dtype)
+    y = context.create_buffer(destination.size, dtype=destination.dtype)
+    kernel = load_kernel(context, image, spec)
+    config = LaunchConfig(grid=(source.size // 256, 1, 1), block=(256, 1, 1))
+
+    for value in (-1, 1) * 16:
+        source.fill(value)
+        context.copy_to_device(x, source)
+        context.launch(kernel, x, y, np.uint64(source.size), config=config)
+        context.copy_to_host(destination, y)
+
+        np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
+
+
 def test_copy_rejects_incompatible_arrays(context: DeviceContext) -> None:
     buffer = context.create_buffer(8, dtype=np.float32)
 
