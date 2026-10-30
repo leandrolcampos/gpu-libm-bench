@@ -1,10 +1,10 @@
 // Copyright 2026 Leandro A. Lacerda Campos
 // SPDX-License-Identifier: Apache-2.0
 //
-// Evaluation and measurement wrappers for GPU math functions.
+// Evaluation wrappers for GPU math functions.
 
-#ifndef GPU_LIBM_BENCH_KERNELS_COMMON_WRAPPERS_HPP
-#define GPU_LIBM_BENCH_KERNELS_COMMON_WRAPPERS_HPP
+#ifndef GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATE_HPP
+#define GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATE_HPP
 
 #include "GPU.hpp"
 
@@ -19,4 +19,4 @@ void evaluate(uint64_t Count, OutputType *Output, const InputTypes *...Inputs) {
 
 } // namespace gpu_libm_bench
 
-#endif // GPU_LIBM_BENCH_KERNELS_COMMON_WRAPPERS_HPP
+#endif // GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATE_HPP

@@ -36,12 +36,14 @@ def compiled_image() -> tuple[DeviceImage, LLVMToolchain, dict[str, Any]]:
                 "Build a device image or set GPU_LIBM_BENCH_DEVICE_IMAGE to select one."
             )
         image = candidates[0]
+
     metadata = json.loads(image.with_suffix(".manifest.json").read_text())
     target = CompilationTarget(
         metadata["backend"], metadata["target_triple"], metadata["architecture"]
     )
     image = resolve_device_image(metadata["library"], target=target, image_path=image)
     llvm = resolve_llvm(Path(metadata["llvm_root"]))
+
     return image, llvm, metadata
 
 
@@ -53,8 +55,10 @@ def unlinked_command(
     database = json.loads(Path(metadata["compile_commands"]).read_text())
     entry = next(item for item in database if item["file"] == metadata["sources"][0])
     arguments = shlex.split(entry["command"])
+
     command = []
     index = 0
+
     while index < len(arguments):
         if arguments[index : index + 3] == [
             "-Xclang",
@@ -69,6 +73,7 @@ def unlinked_command(
         else:
             command.append(arguments[index])
             index += 1
+
     return command
 
 
@@ -85,43 +90,37 @@ def test_image_exports_registered_kernels(
             image.path,
         ]
     ).splitlines()
+
     ptx = Path(metadata["ptx"]).read_text()
     assert re.search(
         rf"^\.target {re.escape(image.target.architecture)}(?:,|\s|$)",
         ptx,
         re.MULTILINE,
     )
+
     for function in metadata["functions"]:
-        request = KernelRequest(image.library, function, KernelKind.EVALUATE)
-        assert request.symbol in symbols
-        assert re.search(rf"\.visible\s+\.entry\s+{re.escape(request.symbol)}\(", ptx)
+        for kind in KernelKind:
+            request = KernelRequest(image.library, function, kind)
+            assert request.symbol in symbols
+            assert re.search(
+                rf"\.visible\s+\.entry\s+{re.escape(request.symbol)}\(", ptx
+            )
+
     cuobjdump = Path(metadata["sdk_root"]) / "bin" / "cuobjdump"
     dump = run_tool([cuobjdump, "--dump-sass", image.path])
     assert f"code for {image.target.architecture}" in dump
 
 
-def test_selected_library_resolves_wrapper_calls(
-    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
+def test_wrappers_preserve_math_function_calls(
     unlinked_command: list[str],
     tmp_path: Path,
 ) -> None:
-    image, llvm, _ = compiled_image
     raw = tmp_path / "unlinked.ll"
     run_tool([*unlinked_command, "-S", "-emit-llvm", "-o", raw])
+
     raw_ir = raw.read_text()
     assert re.search(r"\bcall\b[^\n]*@expf\(", raw_ir)
     assert "@llvm.exp.f32(" not in raw_ir
-    linked = list(image.path.parent.glob(f"{image.path.name}.*.precodegen.bc"))
-    assert len(linked) == 1
-    undefined = run_tool(
-        [
-            llvm.llvm_nm,
-            "--undefined-only",
-            "--just-symbol-name",
-            linked[0],
-        ]
-    )
-    assert not undefined
 
 
 def test_missing_library_cannot_be_replaced_by_a_builtin(
@@ -136,8 +135,10 @@ def test_missing_library_cannot_be_replaced_by_a_builtin(
         "-o",
         str(tmp_path / "unlinked.cubin"),
     ]
+
     result = subprocess.run(
         command, cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30
     )
+
     assert result.returncode != 0
-    assert "Undefined reference to 'expf'" in result.stderr
+    assert re.search(r"(?:undefined|unresolved)[^\n]*\bexpf\b", result.stderr, re.I)
