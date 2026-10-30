@@ -35,11 +35,12 @@ inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
                  : "v"(static_cast<uint32_t>(State)),
                    "v"(static_cast<uint32_t>(State >> 32))
                  : "memory");
-  } else
+  } else {
     asm volatile("v_or_b32 %0, 0, %0"
                  :
                  : "v"(static_cast<uint32_t>(State))
                  : "memory");
+  }
 #else
 #error "unsupported GPU target"
 #endif
