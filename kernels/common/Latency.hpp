@@ -16,15 +16,34 @@ namespace detail {
 template <typename StorageType>
 inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
   uint64_t Timestamp = gpu::readTimer();
-  auto Dependency = static_cast<StorageType>(Timestamp);
-  Dependency &= DependencyMask;
+  StorageType Dependency = static_cast<StorageType>(Timestamp) & DependencyMask;
   State ^= Dependency;
   return Timestamp;
 }
 
 template <typename StorageType>
 inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
+  // Keep the result consumer ordered before the timer.
+#if defined(__NVPTX__)
   State ^= DependencyMask;
+  asm volatile("" : : "llr"(State) : "memory");
+#elif defined(__AMDGCN__)
+  if constexpr (sizeof(StorageType) == 8) {
+    uint32_t Consumed;
+    asm volatile("v_or_b32 %0, %1, %2"
+                 : "=v"(Consumed)
+                 : "v"(static_cast<uint32_t>(State)),
+                   "v"(static_cast<uint32_t>(State >> 32))
+                 : "memory");
+  } else
+    asm volatile("v_or_b32 %0, 0, %0"
+                 :
+                 : "v"(static_cast<uint32_t>(State))
+                 : "memory");
+#else
+#error "unsupported GPU target"
+#endif
+
   return gpu::readTimer();
 }
 
