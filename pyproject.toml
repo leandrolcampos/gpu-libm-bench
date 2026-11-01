@@ -7,7 +7,7 @@ name = "gpu-libm-bench"
 version = "0.1.0"
 description = "GPU math library benchmarking"
 readme = "README.md"
-authors = [{ name = "Leandro A. Lacerda Campos" }]
+authors = [{ name = "Leandro Lacerda Campos" }]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"

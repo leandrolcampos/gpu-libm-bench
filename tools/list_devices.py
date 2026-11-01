@@ -1,4 +1,4 @@
-# Copyright 2026 Leandro A. Lacerda Campos
+# Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
 """GPU device inventory for supported backends."""
