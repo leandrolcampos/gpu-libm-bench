@@ -87,6 +87,7 @@ class DeviceContext:
 
         self._backend = backend
         self._device_id = device_id
+        self._device_info: DeviceInfo | None = None
 
     @property
     def backend(self) -> str:
@@ -95,6 +96,14 @@ class DeviceContext:
     @property
     def device_id(self) -> int:
         return self._device_id
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        if self._device_info is None:
+            self._device_info = self.get_device_info(
+                self.device_id, backend=self.backend
+            )
+        return self._device_info
 
     @property
     def closed(self) -> bool:
