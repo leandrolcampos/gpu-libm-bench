@@ -106,21 +106,22 @@ Error DeviceContext::ensureOpen() const {
 Error DeviceContext::validateBuffer(const DeviceBuffer &Buffer) const {
   if (auto Err = ensureOpen())
     return Err;
-  if (!Buffer.Device || Buffer.Device->getContext() != Device->getContext())
+  if (!Buffer.Device)
+    return Error{ErrorKind::InvalidArgument, "device buffer is invalid"};
+  if (Buffer.Device->getContext() != Device->getContext())
     return Error{ErrorKind::InvalidArgument,
-                 "device buffer is incompatible with the underlying native "
-                 "CUDA context"};
+                 "device buffer belongs to a different CUDA device"};
   return Error::success();
 }
 
 Error DeviceContext::validateKernel(const DeviceKernel &Kernel) const {
   if (auto Err = ensureOpen())
     return Err;
-  if (!Kernel.Module ||
-      Kernel.getDevice()->getContext() != Device->getContext())
-    return Error{
-        ErrorKind::InvalidArgument,
-        "kernel is incompatible with the underlying native CUDA context"};
+  if (!Kernel.Module)
+    return Error{ErrorKind::InvalidArgument, "kernel is invalid"};
+  if (Kernel.getDevice()->getContext() != Device->getContext())
+    return Error{ErrorKind::InvalidArgument,
+                 "kernel belongs to a different CUDA device"};
   return Error::success();
 }
 
