@@ -96,6 +96,8 @@ void latency(uint32_t PassCount, uint32_t ChainLength,
   if (gpu::globalThreadId() != 0)
     return;
 
+  // Scalar masks generated parameter-memory accesses inside the timed region;
+  // the pointer form kept the mask in a register after loading it beforehand.
   detail::latencyChain<Function>(PassCount, ChainLength, ZeroMask[0],
                                  ElapsedTicks, Output, FirstInput[0],
                                  OtherInputs[0]...);
