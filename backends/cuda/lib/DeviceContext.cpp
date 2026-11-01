@@ -108,7 +108,19 @@ Error DeviceContext::validateBuffer(const DeviceBuffer &Buffer) const {
     return Err;
   if (!Buffer.Device || Buffer.Device->getContext() != Device->getContext())
     return Error{ErrorKind::InvalidArgument,
-                 "device buffer belongs to another device context"};
+                 "device buffer is incompatible with the underlying native "
+                 "CUDA context"};
+  return Error::success();
+}
+
+Error DeviceContext::validateKernel(const DeviceKernel &Kernel) const {
+  if (auto Err = ensureOpen())
+    return Err;
+  if (!Kernel.Module ||
+      Kernel.getDevice()->getContext() != Device->getContext())
+    return Error{
+        ErrorKind::InvalidArgument,
+        "kernel is incompatible with the underlying native CUDA context"};
   return Error::success();
 }
 
@@ -210,12 +222,8 @@ Error DeviceContext::copyToHost(void *Destination, const DeviceBuffer &Source,
 Error DeviceContext::launch(const DeviceKernel &Kernel,
                             const std::vector<LaunchArgument> &Arguments,
                             const LaunchConfig &Config) const {
-  if (auto Err = ensureOpen())
+  if (auto Err = validateKernel(Kernel))
     return Err;
-  if (!Kernel.Module ||
-      Kernel.getDevice()->getContext() != Device->getContext())
-    return Error{ErrorKind::InvalidArgument,
-                 "kernel belongs to another device context"};
   if (!Config.isValid())
     return Error{ErrorKind::InvalidArgument,
                  "invalid kernel launch configuration"};

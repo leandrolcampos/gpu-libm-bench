@@ -67,6 +67,7 @@ private:
 
   Error ensureOpen() const;
   Error validateBuffer(const DeviceBuffer &Buffer) const;
+  Error validateKernel(const DeviceKernel &Kernel) const;
 
   std::shared_ptr<detail::DeviceState> Device;
   void *Stream;
