@@ -14,16 +14,24 @@ def test_query_visible_devices() -> None:
     count = DeviceContext.device_count()
     if count == 0:
         pytest.skip("No NVIDIA devices are visible to the CUDA driver.")
+
     for device_id in range(count):
         info = DeviceContext.get_device_info(device_id)
+
         assert info.backend == "cuda"
         assert info.device_id == device_id
         assert info.name
         assert info.architecture.startswith("sm_")
         assert info.total_memory_bytes > 0
+
         assert info.timer.source == "%globaltimer"
         assert info.timer.counter_bits == 64
         assert info.timer.frequency_hz == 1_000_000_000
+
+        with DeviceContext(device_id) as context:
+            cached_info = context.device_info
+            assert cached_info == info
+            assert context.device_info is cached_info
 
 
 def test_negative_device_id_is_rejected() -> None:

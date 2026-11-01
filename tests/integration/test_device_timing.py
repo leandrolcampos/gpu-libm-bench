@@ -30,8 +30,9 @@ def context() -> Iterator[DeviceContext]:
 
 @pytest.fixture
 def timer_module(context: DeviceContext) -> DeviceModule:
-    info = context.get_device_info(context.device_id, backend=context.backend)
+    info = context.device_info
     target = CompilationTarget(info.backend, "nvptx64-nvidia-cuda", info.architecture)
+
     build_root = Path(__file__).resolve().parents[2] / "build" / "kernels"
     path = Path(
         os.environ.get(

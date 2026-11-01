@@ -11,6 +11,8 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_module
 
+from gpu_libm_bench import inputs
+from gpu_libm_bench.benchmarks import LatencyBenchmark
 from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.configs import (
@@ -27,7 +29,6 @@ from gpu_libm_bench.devices import (
     LaunchConfig,
 )
 from gpu_libm_bench.kernels import KernelArgument, KernelKind, KernelRequest, KernelSpec
-from gpu_libm_bench.metrics import LatencyBenchmark
 from gpu_libm_bench.types import Scalar
 
 pytestmark = [pytest.mark.cuda, pytest.mark.execution]
@@ -58,8 +59,9 @@ def function() -> FunctionConfig:
 
 @pytest.fixture
 def module(context: DeviceContext) -> DeviceModule:
-    info = context.get_device_info()
+    info = context.device_info
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", info.architecture)
+
     configured = os.environ.get("GPU_LIBM_BENCH_DEVICE_IMAGE")
     image = resolve_device_image(
         "llvm-libm",
@@ -72,8 +74,9 @@ def module(context: DeviceContext) -> DeviceModule:
 
 @pytest.fixture
 def latency_module(context: DeviceContext) -> DeviceModule:
-    info = context.get_device_info()
+    info = context.device_info
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", info.architecture)
+
     root = Path(__file__).resolve().parents[2] / "build" / "kernels"
     path = Path(
         os.environ.get(
@@ -86,11 +89,12 @@ def latency_module(context: DeviceContext) -> DeviceModule:
 
 
 @pytest.mark.parametrize("chain_length", [1, 512])
-def test_latency_matches_evaluation_for_the_original_input(
+def test_latency_benchmark_preserves_evaluation_results(
     context: DeviceContext,
     module: DeviceModule,
     function: FunctionConfig,
     chain_length: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = np.array([-110, -80, -1, 0, 1, 80, 100], dtype=np.float32)
     expected = np.empty_like(source)
@@ -116,22 +120,33 @@ def test_latency_matches_evaluation_for_the_original_input(
         KernelRequest("llvm-libm", function.name, KernelKind.LATENCY).symbol,
         spec=KernelSpec.from_config(function, kind=KernelKind.LATENCY),
     )
-    benchmark = LatencyBenchmark(context, kernel, chain_length=chain_length)
+    benchmark = LatencyBenchmark(
+        context,
+        kernel,
+        chain_length=chain_length,
+        repetitions=2,
+        warmup_runs=3,
+    )
 
-    x = context.create_buffer(1, dtype=np.float32)
-    elapsed = context.create_buffer(1, dtype=np.uint64)
-    output = context.create_buffer(1, dtype=np.float32)
-    ticks = np.empty(source.size, dtype=np.uint64)
-    values = np.empty_like(source)
+    launch = context.launch
+    observed = []
 
-    for index in range(source.size):
-        context.copy_to_device(x, source[index : index + 1])
-        benchmark.run_chain(x, elapsed, output)
-        context.copy_to_host(ticks[index : index + 1], elapsed)
-        context.copy_to_host(values[index : index + 1], output)
+    def record_result(
+        kernel,
+        *arguments,
+        config: LaunchConfig,
+    ) -> None:
+        launch(kernel, *arguments, config=config)
 
-    np.testing.assert_array_equal(values.view(np.uint32), expected.view(np.uint32))
-    assert (ticks > 0).any()
+        value = np.empty(1, dtype=np.float32)
+        context.copy_to_host(value, arguments[4])
+        observed.append(value.view(np.uint32)[0])
+
+    monkeypatch.setattr(context, "launch", record_result)
+    benchmark.measure(inputs.InputBatch("central", {"x": source}))
+
+    order = np.concatenate((np.arange(3), np.repeat(np.arange(source.size), 2)))
+    np.testing.assert_array_equal(observed, expected.view(np.uint32)[order])
 
 
 @pytest.mark.parametrize(("chain_length", "pass_count"), [(1, 2), (7, 1), (7, 2)])
@@ -157,6 +172,7 @@ def test_all_calls_preserve_input_bits_across_passes(
     mask = context.create_buffer(1, dtype=np.uint32)
     elapsed = context.create_buffer(1, dtype=np.uint64)
     output = context.create_buffer(1, dtype=np.float32)
+
     count = chain_length * pass_count
     observed = context.create_buffer(count + 1, dtype=np.uint64)
     calls = context.create_buffer(1, dtype=np.uint32)
@@ -164,6 +180,7 @@ def test_all_calls_preserve_input_bits_across_passes(
     trace = np.empty(count + 1, dtype=np.uint64)
     call_count = np.empty(1, dtype=np.uint32)
     result = np.empty(1, dtype=np.float32)
+
     context.copy_to_device(mask, np.zeros(1, dtype=np.uint32))
 
     # Include signed zeros, subnormals, infinities, and NaNs with payloads.
