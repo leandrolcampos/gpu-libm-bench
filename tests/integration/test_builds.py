@@ -18,13 +18,13 @@ from gpu_libm_bench.compiler._commands import run_tool
 from gpu_libm_bench.compiler.backends import build_backend
 from gpu_libm_bench.compiler.libraries import Library, resolve_library
 from gpu_libm_bench.compiler.targets import resolve_target
-from gpu_libm_bench.compiler.toolchains import resolve_cuda, resolve_llvm
+from gpu_libm_bench.compiler.toolchains import resolve_llvm, resolve_sdk
 
 pytestmark = pytest.mark.images
 
 
 def test_backend_build_includes_native_tests(tmp_path: Path) -> None:
-    sdk = resolve_cuda()
+    sdk = resolve_sdk(backend="cuda")
     build_backend("cuda", sdk=sdk, build_directory=tmp_path, build_tests=True)
 
     run_tool(
@@ -105,7 +105,7 @@ def test_compiler_change_triggers_rebuild_after_configure_only(
 
 def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
     llvm = resolve_llvm()
-    sdk = resolve_cuda()
+    sdk = resolve_sdk(backend="cuda")
     target = resolve_target(
         backend="cuda",
         target_triple="nvptx64-nvidia-cuda",

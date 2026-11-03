@@ -111,7 +111,7 @@ def get_backend(backend: str) -> ModuleType:
     for suffix in EXTENSION_SUFFIXES:
         path = directory / f"_{backend}{suffix}"
         if path.is_file():
-            return load_backend(path, module_name=module_name)
+            return _load_backend(path, module_name=module_name)
 
     raise BackendNotFoundError(
         f"native backend {module_name!r} was not found in {directory}. "
@@ -120,7 +120,7 @@ def get_backend(backend: str) -> ModuleType:
     )
 
 
-def load_backend(path: Path, *, module_name: str) -> ModuleType:
+def _load_backend(path: Path, *, module_name: str) -> ModuleType:
     path = path.resolve(strict=True)
 
     existing = sys.modules.get(module_name)

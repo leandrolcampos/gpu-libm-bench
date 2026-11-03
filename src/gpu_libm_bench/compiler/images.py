@@ -24,7 +24,7 @@ def configure_kernels(
     build_directory: Path | None = None,
     build_tests: bool = False,
 ) -> CMakeBuild:
-    arguments = image_cmake_arguments(
+    arguments = _image_cmake_arguments(
         library=library, target=target, llvm=llvm, sdk=sdk
     )
     project = project_directory()
@@ -83,7 +83,7 @@ def build_kernels(
     )
 
 
-def image_cmake_arguments(
+def _image_cmake_arguments(
     *,
     library: Library,
     target: CompilationTarget,

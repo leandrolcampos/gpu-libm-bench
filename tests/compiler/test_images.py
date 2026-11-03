@@ -10,7 +10,7 @@ from typing import cast
 import pytest
 
 from gpu_libm_bench.compiler.images import (
-    image_cmake_arguments,
+    _image_cmake_arguments,
     resolve_device_image,
 )
 from gpu_libm_bench.compiler.libraries import Library
@@ -40,7 +40,7 @@ def test_image_configuration_rejects_incompatible_sdk(
     message: str,
 ) -> None:
     with pytest.raises(error, match=message):
-        image_cmake_arguments(
+        _image_cmake_arguments(
             library=Library("llvm-libm", Path("/libm.bc")),
             target=target,
             llvm=llvm,
@@ -72,7 +72,7 @@ def test_build_request_preserves_selected_tools_and_libraries(
 ) -> None:
     library = Library("llvm-libm", tmp_path / "libm.bc")
     sdk = CUDAToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
-    arguments = image_cmake_arguments(
+    arguments = _image_cmake_arguments(
         library=library, target=TARGET, llvm=llvm, sdk=sdk
     )
     assert f"-DGPU_LIBM_BENCH_LLVM_ROOT={llvm.root}" in arguments

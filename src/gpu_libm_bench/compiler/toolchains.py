@@ -34,7 +34,7 @@ class CUDAToolkit:
 
 def resolve_sdk(*, backend: str, root: Path | None = None) -> CUDAToolkit:
     if backend == "cuda":
-        return resolve_cuda(root)
+        return _resolve_cuda(root)
     else:
         raise ValueError(f"unsupported SDK backend: {backend!r}")
 
@@ -89,7 +89,7 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
     return LLVMToolchain(root, clang, llvm_dis, llvm_nm, library_dirs, versions[0])
 
 
-def resolve_cuda(root: Path | None = None) -> CUDAToolkit:
+def _resolve_cuda(root: Path | None = None) -> CUDAToolkit:
     cmake = shutil.which("cmake")
     if cmake is None:
         raise FileNotFoundError(
