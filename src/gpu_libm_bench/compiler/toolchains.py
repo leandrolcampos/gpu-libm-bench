@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from ._cmake import project_directory
 from ._commands import executable, run_tool
 
 
@@ -25,10 +26,17 @@ class LLVMToolchain:
 
 
 @dataclass(frozen=True, slots=True)
-class CudaToolkit:
+class CUDAToolkit:
     root: Path
     ptxas: Path
     version: str
+
+
+def resolve_sdk(*, backend: str, root: Path | None = None) -> CUDAToolkit:
+    if backend == "cuda":
+        return resolve_cuda(root)
+    else:
+        raise ValueError(f"unsupported SDK backend: {backend!r}")
 
 
 def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
@@ -54,7 +62,7 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
         raise FileNotFoundError(
             "CMake was not found on PATH; it is required to discover LLVM"
         )
-    probe = Path(__file__).resolve().parents[3] / "cmake" / "probes" / "llvm"
+    probe = project_directory() / "cmake" / "probes" / "llvm"
     if not (probe / "CMakeLists.txt").is_file():
         raise FileNotFoundError(f"LLVM discovery project was not found: {probe}")
     with TemporaryDirectory(prefix="gpu-libm-bench-llvm-") as directory:
@@ -81,14 +89,14 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
     return LLVMToolchain(root, clang, llvm_dis, llvm_nm, library_dirs, versions[0])
 
 
-def resolve_cuda(root: Path | None = None) -> CudaToolkit:
+def resolve_cuda(root: Path | None = None) -> CUDAToolkit:
     cmake = shutil.which("cmake")
     if cmake is None:
         raise FileNotFoundError(
             "CMake was not found on PATH; it is required to discover the CUDA Toolkit"
         )
 
-    probe = Path(__file__).resolve().parents[3] / "cmake" / "probes" / "cuda"
+    probe = project_directory() / "cmake" / "probes" / "cuda"
     if not (probe / "CMakeLists.txt").is_file():
         raise FileNotFoundError(
             f"CUDA Toolkit discovery project was not found: {probe}"
@@ -116,4 +124,4 @@ def resolve_cuda(root: Path | None = None) -> CudaToolkit:
     if "ptxas" not in version:
         raise ValueError(f"cannot identify the CUDA assembler {ptxas}: {version}")
 
-    return CudaToolkit(selected, ptxas, metadata["version"])
+    return CUDAToolkit(selected, ptxas, metadata["version"])

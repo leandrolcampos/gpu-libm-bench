@@ -9,7 +9,7 @@ from typing import cast
 import pytest
 
 from gpu_libm_bench.compiler import targets
-from gpu_libm_bench.compiler.toolchains import CudaToolkit, LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 from gpu_libm_bench.devices import DeviceInfo, TimerInfo
 
 
@@ -23,7 +23,7 @@ def test_architecture_selection_uses_device_only_as_default(
         target_triple="nvptx64-nvidia-cuda",
         architecture=architecture,
         llvm=llvm,
-        device=DeviceInfo(
+        device_info=DeviceInfo(
             "cuda",
             1,
             "GPU",
@@ -60,7 +60,7 @@ def test_invalid_compilation_target(
 def test_assembler_must_also_support_selected_architecture(
     monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain
 ) -> None:
-    sdk = CudaToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "12.0")
+    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "12.0")
     monkeypatch.setattr(
         targets,
         "run_tool",
@@ -88,5 +88,5 @@ def test_unsupported_sdk_type_is_rejected(
             target_triple="nvptx64-nvidia-cuda",
             architecture="sm_120",
             llvm=llvm,
-            sdk=cast(CudaToolkit, object()),
+            sdk=cast(CUDAToolkit, object()),
         )

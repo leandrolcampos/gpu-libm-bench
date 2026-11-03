@@ -66,15 +66,18 @@ gpu-libm-bench = { path = ".", editable = true, extras = ["native"] }
 common-build = { cmd = "cmake --build build/backends/common", depends-on = ["common-configure"] }
 common-configure = "cmake -S backends/common/tests -B build/backends/common -G Ninja -DCMAKE_BUILD_TYPE=Release"
 common-test = { cmd = "ctest --test-dir build/backends/common --output-on-failure", depends-on = ["common-build"] }
-cuda-build = { cmd = "cmake --build build/backends/cuda", depends-on = ["cuda-configure"] }
-cuda-configure = "cmake -S backends/cuda -B build/backends/cuda -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python"
+
+cuda-build = "python -m gpu_libm_bench.compiler backend backend=cuda"
+cuda-configure = "python -m gpu_libm_bench.compiler backend --configure-only backend=cuda"
 cuda-execution-test = { cmd = "pytest -m 'cuda and execution'", depends-on = ["cuda-build", "kernels-build"] }
 cuda-test = { cmd = "pytest -m 'cuda and not execution'", depends-on = ["cuda-build"] }
 cuda-tidy = { cmd = "run-clang-tidy -quiet -p build/backends/cuda", depends-on = ["cuda-configure"] }
+
 images-test = { cmd = "pytest -m images", depends-on = ["kernels-build"] }
-kernels-build = { cmd = "cmake --build build/kernels", depends-on = ["kernels-configure"] }
-kernels-configure = "python tools/configure_kernels.py --build-testing"
+kernels-build = "python -m gpu_libm_bench.compiler kernels --build-tests library=llvm-libm backend=cuda"
+kernels-configure = "python -m gpu_libm_bench.compiler kernels --configure-only --build-tests library=llvm-libm backend=cuda"
 kernels-tidy = { cmd = "run-clang-tidy -quiet -p build/kernels", depends-on = ["kernels-configure"] }
+
 list-devices = "python tools/list_devices.py"
 native-format-check = "find backends kernels -regextype posix-extended -type f -regex '.*\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|cu|cuh|hip|inc)' -exec clang-format --dry-run --Werror '{}' +"
 

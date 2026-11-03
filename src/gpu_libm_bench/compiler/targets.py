@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from gpu_libm_bench.devices import DeviceInfo
 
 from ._commands import run_tool
-from .toolchains import CudaToolkit, LLVMToolchain
+from .toolchains import CUDAToolkit, LLVMToolchain
 
 _TARGET_TRIPLES = {
     "cuda": "nvptx64-nvidia-cuda",
@@ -30,8 +30,8 @@ def resolve_target(
     target_triple: str,
     architecture: str | None,
     llvm: LLVMToolchain,
-    device: DeviceInfo | None = None,
-    sdk: CudaToolkit | None = None,
+    device_info: DeviceInfo | None = None,
+    sdk: CUDAToolkit | None = None,
 ) -> CompilationTarget:
     if backend not in _TARGET_TRIPLES:
         raise ValueError(f"unsupported compilation backend: {backend!r}")
@@ -39,16 +39,16 @@ def resolve_target(
         raise ValueError(
             f"target triple {target_triple!r} does not match backend {backend!r}"
         )
-    if device is not None and device.backend != backend:
+    if device_info is not None and device_info.backend != backend:
         raise ValueError(
-            f"device backend {device.backend!r} does not match {backend!r}"
+            f"device backend {device_info.backend!r} does not match {backend!r}"
         )
     if architecture is None:
-        if device is None:
+        if device_info is None:
             raise ValueError(
                 "architecture is unset; provide information for the selected GPU"
             )
-        architecture = device.architecture
+        architecture = device_info.architecture
 
     output = run_tool(
         [llvm.clang, f"--target={target_triple}", "--print-supported-cpus"]
@@ -64,7 +64,7 @@ def resolve_target(
         )
 
     if sdk is not None:
-        if isinstance(sdk, CudaToolkit):
+        if isinstance(sdk, CUDAToolkit):
             if backend != "cuda":
                 raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
             assembler_help = run_tool([sdk.ptxas, "--help"])

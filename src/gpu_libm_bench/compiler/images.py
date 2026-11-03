@@ -8,9 +8,79 @@ from pathlib import Path
 
 from gpu_libm_bench.devices import DeviceImage
 
+from ._cmake import CMakeBuild, project_directory
+from ._commands import run_tool
 from .libraries import Library
 from .targets import CompilationTarget
-from .toolchains import CudaToolkit, LLVMToolchain
+from .toolchains import CUDAToolkit, LLVMToolchain
+
+
+def configure_kernels(
+    *,
+    library: Library,
+    target: CompilationTarget,
+    llvm: LLVMToolchain,
+    sdk: CUDAToolkit,
+    build_directory: Path | None = None,
+    build_tests: bool = False,
+) -> CMakeBuild:
+    arguments = image_cmake_arguments(
+        library=library, target=target, llvm=llvm, sdk=sdk
+    )
+    project = project_directory()
+    toolchain_files: tuple[Path, ...] = (
+        llvm.clang,
+        project / "kernels" / "cmake" / "modules" / "GPULibmBenchToolchain.cmake",
+    )
+    if isinstance(sdk, CUDAToolkit):
+        toolchain_files += (
+            sdk.ptxas,
+            sdk.ptxas.parent / "nvlink",
+            Path(run_tool([llvm.clang, "--print-prog-name=clang-nvlink-wrapper"])),
+        )
+
+    build = CMakeBuild(
+        project / "kernels",
+        build_directory
+        if build_directory is not None
+        else project / "build" / "kernels",
+        arguments=(*arguments, f"-DBUILD_TESTING={'ON' if build_tests else 'OFF'}"),
+        toolchain=(
+            str(llvm.root),
+            llvm.version,
+            str(sdk.root),
+            sdk.version,
+            target.target_triple,
+        ),
+        toolchain_files=toolchain_files,
+    )
+
+    build.configure()
+    return build
+
+
+def build_kernels(
+    *,
+    library: Library,
+    target: CompilationTarget,
+    llvm: LLVMToolchain,
+    sdk: CUDAToolkit,
+    build_directory: Path | None = None,
+    build_tests: bool = False,
+) -> DeviceImage:
+    build = configure_kernels(
+        library=library,
+        target=target,
+        llvm=llvm,
+        sdk=sdk,
+        build_directory=build_directory,
+        build_tests=build_tests,
+    )
+    build.build()
+
+    return resolve_device_image(
+        library.name, target=target, build_root=build.build_directory
+    )
 
 
 def image_cmake_arguments(
@@ -18,10 +88,14 @@ def image_cmake_arguments(
     library: Library,
     target: CompilationTarget,
     llvm: LLVMToolchain,
-    sdk: CudaToolkit,
+    sdk: CUDAToolkit,
 ) -> tuple[str, ...]:
-    if target.backend != "cuda":
-        raise ValueError("only CUDA device image builds are currently supported")
+    if isinstance(sdk, CUDAToolkit):
+        if target.backend != "cuda":
+            raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
+    else:
+        raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
+
     values = {
         "LLVM_ROOT": str(llvm.root),
         "CLANG": str(llvm.clang),
@@ -45,7 +119,7 @@ def resolve_device_image(
     explicit = image_path is not None
     if image_path is None:
         if build_root is None:
-            build_root = Path(__file__).resolve().parents[3] / "build" / "kernels"
+            build_root = project_directory() / "build" / "kernels"
         suffix = ".cubin" if target.backend == "cuda" else ".hsaco"
         image_path = (
             build_root

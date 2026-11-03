@@ -139,9 +139,14 @@ def test_cuda_passes_explicit_selection_to_cmake_and_preserves_it(
     monkeypatch.setattr(toolchains.shutil, "which", lambda name: "cmake")
     monkeypatch.setattr(toolchains, "run_tool", probe)
     if use_requested_root:
-        toolkit = toolchains.resolve_cuda(requested)
+        toolkit = toolchains.resolve_sdk(backend="cuda", root=requested)
         assert toolkit.root == requested
         assert toolkit.ptxas == ptxas
     else:
         with pytest.raises(ValueError, match="instead of requested"):
-            toolchains.resolve_cuda(requested)
+            toolchains.resolve_sdk(backend="cuda", root=requested)
+
+
+def test_unsupported_sdk_backend_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported SDK backend: 'rocm'"):
+        toolchains.resolve_sdk(backend="rocm")

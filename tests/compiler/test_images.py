@@ -5,6 +5,7 @@
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -14,9 +15,37 @@ from gpu_libm_bench.compiler.images import (
 )
 from gpu_libm_bench.compiler.libraries import Library
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import CudaToolkit, LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 
 TARGET = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
+
+
+@pytest.mark.parametrize(
+    ("target", "sdk", "error", "message"),
+    [
+        (TARGET, object(), TypeError, "unsupported SDK type: object"),
+        (
+            CompilationTarget("rocm", "amdgcn-amd-amdhsa", "gfx1100"),
+            CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
+            ValueError,
+            "non-CUDA target",
+        ),
+    ],
+)
+def test_image_configuration_rejects_incompatible_sdk(
+    llvm: LLVMToolchain,
+    target: CompilationTarget,
+    sdk: object,
+    error: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error, match=message):
+        image_cmake_arguments(
+            library=Library("llvm-libm", Path("/libm.bc")),
+            target=target,
+            llvm=llvm,
+            sdk=cast(CUDAToolkit, sdk),
+        )
 
 
 @pytest.fixture
@@ -42,7 +71,7 @@ def test_build_request_preserves_selected_tools_and_libraries(
     llvm: LLVMToolchain, tmp_path: Path
 ) -> None:
     library = Library("llvm-libm", tmp_path / "libm.bc")
-    sdk = CudaToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
+    sdk = CUDAToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
     arguments = image_cmake_arguments(
         library=library, target=TARGET, llvm=llvm, sdk=sdk
     )

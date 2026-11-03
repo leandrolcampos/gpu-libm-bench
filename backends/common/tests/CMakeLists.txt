@@ -2,14 +2,16 @@
 
 cmake_minimum_required(VERSION 3.31)
 
-project(GPULibmBenchCommonTests LANGUAGES CXX)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(GPULibmBenchCommonTests LANGUAGES CXX)
 
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+  set(CMAKE_CXX_EXTENSIONS OFF)
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_subdirectory(.. "${CMAKE_CURRENT_BINARY_DIR}/common")
+  add_subdirectory(.. "${CMAKE_CURRENT_BINARY_DIR}/common")
 
-enable_testing()
+  enable_testing()
+endif()
 
 add_executable(ExpectedTest
   ExpectedTest.cpp)
