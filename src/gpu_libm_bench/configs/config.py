@@ -61,8 +61,6 @@ class LatencyConfig(MetricConfig):
     chain_length: int
     repetitions: int
     warmup_runs: int
-    bootstrap_resamples: int
-    confidence_level: float
 
 
 @dataclass

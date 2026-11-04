@@ -129,20 +129,15 @@ def test_identical_domains_use_distinct_streams(config: ExperimentConfig) -> Non
     assert not np.array_equal(left.arguments["x"], right.arguments["x"])
 
 
-def test_input_sampling_does_not_consume_other_streams(
+def test_input_sampling_does_not_consume_ordering_stream(
     config: ExperimentConfig,
 ) -> None:
     expected_ordering = Experiment(config).ordering_rng.random(16)
-    expected_bootstrap = Experiment(config).bootstrap_rng.random(16)
     experiment = Experiment(config)
 
     list(experiment.generate_inputs(128))
 
     np.testing.assert_array_equal(experiment.ordering_rng.random(16), expected_ordering)
-    np.testing.assert_array_equal(
-        experiment.bootstrap_rng.random(16), expected_bootstrap
-    )
-    assert not np.array_equal(expected_ordering, expected_bootstrap)
 
 
 def test_seed_policy_is_stable_across_processes(tmp_path: Path) -> None:

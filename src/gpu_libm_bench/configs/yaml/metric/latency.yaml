@@ -12,6 +12,3 @@ sample_size: 8192
 chain_length: 512
 repetitions: 11
 warmup_runs: 10
-
-bootstrap_resamples: 2000
-confidence_level: 0.95

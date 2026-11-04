@@ -269,7 +269,7 @@ def test_incompatible_secondary_input_is_rejected_before_allocation(
     context.create_buffer.assert_not_called()
 
 
-def test_analysis_uses_sample_medians_and_bootstraps_samples() -> None:
+def test_analysis_summarizes_sample_medians() -> None:
     measurement = latency.LatencyMeasurement(
         inputs=inputs.InputBatch("central", {"x": np.ones(3, dtype=np.float32)}),
         elapsed_ticks=np.array(
@@ -287,25 +287,13 @@ def test_analysis_uses_sample_medians_and_bootstraps_samples() -> None:
         pass_count=2,
         warmup_runs=3,
     )
-    rng = Mock(spec=np.random.Generator)
-    rng.integers.side_effect = [
-        np.array(indices, dtype=np.intp)
-        for indices in ((0, 0, 1), (1, 1, 2), (2, 2, 0))
-    ]
-
-    result = latency.analyze(
-        measurement,
-        bootstrap_resamples=3,
-        confidence_level=0.5,
-        rng=rng,
-    )
+    result = latency.analyze(measurement)
 
     np.testing.assert_array_equal(result.latencies, [2, 10, 20])
     assert result.mean == pytest.approx(32 / 3)
     assert result.stdev == pytest.approx((244 / 3) ** 0.5)
     assert result.min == 2
     assert result.max == 20
-    assert result.mean_confidence_interval == pytest.approx((9, 41 / 3))
 
 
 def test_single_sample_has_no_sample_standard_deviation() -> None:
@@ -319,13 +307,7 @@ def test_single_sample_has_no_sample_standard_deviation() -> None:
         chain_length=2,
         warmup_runs=0,
     )
-    result = latency.analyze(
-        measurement,
-        bootstrap_resamples=3,
-        confidence_level=0.95,
-        rng=np.random.default_rng(42),
-    )
+    result = latency.analyze(measurement)
 
     assert result.stdev is None
     assert result.min == result.mean == result.max == 2
-    assert result.mean_confidence_interval == (2, 2)

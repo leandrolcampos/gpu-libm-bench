@@ -18,7 +18,6 @@ from gpu_libm_bench.devices import (
     DeviceKernel,
     LaunchConfig,
 )
-from gpu_libm_bench.statistics import compute_mean_confidence_interval
 from gpu_libm_bench.types import Scalar
 
 _PASS_COUNT = 2
@@ -46,9 +45,6 @@ class LatencyResult:
     measurement: LatencyMeasurement
     latencies: NDArray[np.float64]
     mean: float
-    mean_confidence_interval: tuple[float, float]
-    confidence_level: float
-    bootstrap_resamples: int
     stdev: float | None
     min: float
     max: float
@@ -233,30 +229,14 @@ class LatencyBenchmark:
         return buffers.host_elapsed_ticks[0]
 
 
-def analyze(
-    measurement: LatencyMeasurement,
-    *,
-    bootstrap_resamples: int,
-    confidence_level: float,
-    rng: np.random.Generator,
-) -> LatencyResult:
+def analyze(measurement: LatencyMeasurement) -> LatencyResult:
     times = measurement.device_info.timer.to_nanoseconds(measurement.elapsed_ticks)
     latencies = np.median(times / measurement.chain_length, axis=1)
-
-    mean_confidence_interval = compute_mean_confidence_interval(
-        latencies,
-        resamples=bootstrap_resamples,
-        confidence_level=confidence_level,
-        rng=rng,
-    )
 
     return LatencyResult(
         measurement=measurement,
         latencies=latencies,
         mean=float(np.mean(latencies)),
-        mean_confidence_interval=mean_confidence_interval,
-        confidence_level=confidence_level,
-        bootstrap_resamples=bootstrap_resamples,
         stdev=float(np.std(latencies, ddof=1)) if latencies.size > 1 else None,
         min=float(np.min(latencies)),
         max=float(np.max(latencies)),
