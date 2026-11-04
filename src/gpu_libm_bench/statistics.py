@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-def mean_confidence_interval(
+def compute_mean_confidence_interval(
     values: NDArray[np.float64],
     *,
     resamples: int,

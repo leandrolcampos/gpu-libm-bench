@@ -302,4 +302,30 @@ def test_analysis_uses_sample_medians_and_bootstraps_samples() -> None:
 
     np.testing.assert_array_equal(result.latencies, [2, 10, 20])
     assert result.mean == pytest.approx(32 / 3)
-    assert result.confidence_interval == pytest.approx((9, 41 / 3))
+    assert result.stdev == pytest.approx((244 / 3) ** 0.5)
+    assert result.min == 2
+    assert result.max == 20
+    assert result.mean_confidence_interval == pytest.approx((9, 41 / 3))
+
+
+def test_single_sample_has_no_sample_standard_deviation() -> None:
+    measurement = latency.LatencyMeasurement(
+        inputs.InputBatch("central", {"x": np.ones(1, dtype=np.float32)}),
+        np.array([[2, 4, 1000]], dtype=np.uint64),
+        DeviceInfo(
+            "cuda", 0, "test GPU", "sm_120", 1024, TimerInfo("timer", 64, 10**9)
+        ),
+        pass_count=2,
+        chain_length=2,
+        warmup_runs=0,
+    )
+    result = latency.analyze(
+        measurement,
+        bootstrap_resamples=3,
+        confidence_level=0.95,
+        rng=np.random.default_rng(42),
+    )
+
+    assert result.stdev is None
+    assert result.min == result.mean == result.max == 2
+    assert result.mean_confidence_interval == (2, 2)

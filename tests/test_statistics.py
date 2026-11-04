@@ -6,7 +6,7 @@
 import numpy as np
 import pytest
 
-from gpu_libm_bench.statistics import mean_confidence_interval
+from gpu_libm_bench.statistics import compute_mean_confidence_interval
 
 
 @pytest.mark.parametrize(
@@ -38,11 +38,11 @@ def test_invalid_arguments_are_rejected(parameters, error, message) -> None:
     arguments.update(parameters)
 
     with pytest.raises(error, match=message):
-        mean_confidence_interval(**arguments)
+        compute_mean_confidence_interval(**arguments)
 
 
 def test_single_observation_returns_degenerate_interval() -> None:
-    interval = mean_confidence_interval(
+    interval = compute_mean_confidence_interval(
         np.array([7.5], dtype=np.float64),
         resamples=10,
         confidence_level=0.95,
