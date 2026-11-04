@@ -57,6 +57,9 @@ class InputGenerator(ABC):
     @abstractmethod
     def generate(self, batch_size: int) -> InputBatch: ...
 
+    @abstractmethod
+    def __str__(self) -> str: ...
+
     def batches(
         self, batch_size: int, *, drop_remainder: bool = False
     ) -> Iterator[InputBatch]:
@@ -87,6 +90,12 @@ class RandomGenerator(InputGenerator):
         names = sorted(self._distributions)
         self._rngs = dict(zip(names, rng.spawn(len(names)), strict=True))
         self._domain = domain
+
+    def __str__(self) -> str:
+        return "\n".join(
+            f"{name}: {distribution}"
+            for name, distribution in self._distributions.items()
+        )
 
     def generate(self, batch_size: int) -> InputBatch:
         if isinstance(batch_size, (bool, np.bool_)):

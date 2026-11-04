@@ -63,6 +63,28 @@ def test_random_generator_requires_explicit_rng() -> None:
         )
 
 
+def test_generator_description_preserves_argument_order_without_consuming_rng() -> None:
+    distributions = {
+        "x": Uniform(low=-1, high=1, dtype=np.float32),
+        "y": Uniform(low=2, high=3, dtype=np.float64),
+    }
+    generator = inputs.RandomGenerator(
+        distributions, np.random.default_rng(42), domain="paired"
+    )
+    reference = inputs.RandomGenerator(
+        distributions, np.random.default_rng(42), domain="paired"
+    )
+
+    description = str(generator)
+    assert description == "x: uniform(-1, 1)\ny: uniform(2, 3)"
+    actual = generator.generate(16)
+    expected = reference.generate(16)
+
+    for name in distributions:
+        np.testing.assert_array_equal(actual.arguments[name], expected.arguments[name])
+    assert str(generator) == description
+
+
 def test_argument_streams_survive_batch_partition_and_mapping_reordering() -> None:
     distributions = {
         "z": Uniform(low=-1, high=1, dtype=np.float16),
@@ -100,6 +122,9 @@ def test_batch_iteration_handles_remainder_and_exhaustion(
     class FiniteGenerator(inputs.InputGenerator):
         def __init__(self) -> None:
             self.position = 0
+
+        def __str__(self) -> str:
+            return "FiniteGenerator(size=5)"
 
         def generate(self, batch_size: int) -> inputs.InputBatch:
             if self.position == 5:
