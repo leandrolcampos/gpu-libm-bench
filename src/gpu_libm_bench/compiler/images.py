@@ -4,6 +4,7 @@
 """Kernel compilation and device image resolution."""
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from gpu_libm_bench.devices import DeviceImage
@@ -13,6 +14,19 @@ from ._commands import run_tool
 from .libraries import Library
 from .targets import CompilationTarget
 from .toolchains import CUDAToolkit, LLVMToolchain
+
+
+@dataclass(frozen=True, slots=True)
+class ImageBuildInfo:
+    compiler: Path
+    compiler_version: str
+    sdk_name: str
+    sdk_version: str
+    sdk_root: Path
+    bitcode_file: Path
+    image: DeviceImage
+    compile_options: tuple[str, ...] = ()
+    link_options: tuple[str, ...] = ()
 
 
 def configure_kernels(
