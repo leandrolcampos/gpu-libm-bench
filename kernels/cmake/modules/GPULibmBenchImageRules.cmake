@@ -9,25 +9,27 @@ function(gpu_libm_bench_add_function library_target function_name source_file)
     GPU_LIBM_BENCH_FUNCTIONS "${function_name}")
 endfunction()
 
-function(_gpu_libm_bench_configure_cuda_image image_target subdirectory)
-  set(directory
-    "${CMAKE_BINARY_DIR}/cuda/${GPU_LIBM_BENCH_ARCHITECTURE}/${subdirectory}")
-  get_target_property(output_name ${image_target} OUTPUT_NAME)
-  set(ptx "${directory}/${output_name}.ptx")
-  set_target_properties(${image_target} PROPERTIES
-    SUFFIX .cubin RUNTIME_OUTPUT_DIRECTORY "${directory}"
-    GPU_LIBM_BENCH_BACKEND cuda GPU_LIBM_BENCH_PTX "${ptx}")
-  target_compile_options(${image_target} PRIVATE
-    "-march=${GPU_LIBM_BENCH_ARCHITECTURE}")
-  target_link_options(${image_target} PRIVATE
-    "-march=${GPU_LIBM_BENCH_ARCHITECTURE}"
-    "--cuda-path=${GPU_LIBM_BENCH_SDK_ROOT}"
-    -Wl,--save-temps)
-  add_custom_command(TARGET ${image_target} POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-      "${CMAKE_BINARY_DIR}/${output_name}.s" "${ptx}"
-    BYPRODUCTS "${ptx}"
-    VERBATIM)
+function(gpu_libm_bench_configure_library library_target)
+  if(NOT GPU_LIBM_BENCH_BITCODE_PATH)
+    message(FATAL_ERROR "GPU_LIBM_BENCH_BITCODE_PATH must be provided")
+  endif()
+
+  set(bitcode_path "${GPU_LIBM_BENCH_BITCODE_PATH}")
+  if(NOT EXISTS "${bitcode_path}" OR IS_DIRECTORY "${bitcode_path}")
+    message(FATAL_ERROR "Library bitcode was not found: ${bitcode_path}")
+  endif()
+
+  get_target_property(source_files ${library_target} SOURCES)
+  set_property(SOURCE ${source_files} APPEND PROPERTY
+    OBJECT_DEPENDS "${bitcode_path}")
+
+  set_target_properties(${library_target} PROPERTIES OUTPUT_NAME math)
+  gpu_libm_bench_configure_device_image(${library_target} "${GPU_LIBM_BENCH_LIBRARY}")
+  target_compile_options(${library_target} PRIVATE
+    "SHELL:-Xclang -mlink-builtin-bitcode -Xclang \"${bitcode_path}\"")
+
+  get_target_property(directory ${library_target} RUNTIME_OUTPUT_DIRECTORY)
+  gpu_libm_bench_write_device_image_metadata(${library_target} "${directory}")
 endfunction()
 
 function(gpu_libm_bench_configure_device_image image_target subdirectory)
@@ -50,24 +52,26 @@ function(gpu_libm_bench_configure_device_image image_target subdirectory)
   endif()
 endfunction()
 
-function(gpu_libm_bench_configure_library library_target)
-  if(NOT GPU_LIBM_BENCH_BITCODE_FILE)
-    message(FATAL_ERROR "GPU_LIBM_BENCH_BITCODE_FILE must be provided")
-  endif()
-  set(bitcode_file "${GPU_LIBM_BENCH_BITCODE_FILE}")
-  if(NOT EXISTS "${bitcode_file}" OR IS_DIRECTORY "${bitcode_file}")
-    message(FATAL_ERROR "Library bitcode was not found: ${bitcode_file}")
-  endif()
+function(_gpu_libm_bench_configure_cuda_image image_target subdirectory)
+  set(directory
+    "${CMAKE_BINARY_DIR}/cuda/${GPU_LIBM_BENCH_ARCHITECTURE}/${subdirectory}")
+  get_target_property(output_name ${image_target} OUTPUT_NAME)
+  set(ptx "${directory}/${output_name}.ptx")
 
-  get_target_property(source_files ${library_target} SOURCES)
-  set_property(SOURCE ${source_files} APPEND PROPERTY
-    OBJECT_DEPENDS "${bitcode_file}")
+  set_target_properties(${image_target} PROPERTIES
+    SUFFIX .cubin RUNTIME_OUTPUT_DIRECTORY "${directory}"
+    GPU_LIBM_BENCH_BACKEND cuda GPU_LIBM_BENCH_PTX "${ptx}")
 
-  set_target_properties(${library_target} PROPERTIES OUTPUT_NAME math)
-  gpu_libm_bench_configure_device_image(${library_target} "${GPU_LIBM_BENCH_LIBRARY}")
-  target_compile_options(${library_target} PRIVATE
-    "SHELL:-Xclang -mlink-builtin-bitcode -Xclang \"${bitcode_file}\"")
+  target_compile_options(${image_target} PRIVATE
+    "-march=${GPU_LIBM_BENCH_ARCHITECTURE}")
+  target_link_options(${image_target} PRIVATE
+    "-march=${GPU_LIBM_BENCH_ARCHITECTURE}"
+    "--cuda-path=${GPU_LIBM_BENCH_SDK_ROOT}"
+    -Wl,--save-temps)
 
-  get_target_property(directory ${library_target} RUNTIME_OUTPUT_DIRECTORY)
-  gpu_libm_bench_write_image_metadata(${library_target} "${directory}")
+  add_custom_command(TARGET ${image_target} POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "${CMAKE_BINARY_DIR}/${output_name}.s" "${ptx}"
+    BYPRODUCTS "${ptx}"
+    VERBATIM)
 endfunction()

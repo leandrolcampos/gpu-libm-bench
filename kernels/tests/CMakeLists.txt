@@ -1,4 +1,4 @@
-# Builds device validation images.
+# Builds device images for validation kernels.
 
 add_executable(timer-image Timer.cpp)
 set_target_properties(timer-image PROPERTIES OUTPUT_NAME timer)
