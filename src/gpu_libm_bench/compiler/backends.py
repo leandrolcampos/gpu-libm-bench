@@ -16,6 +16,34 @@ from ._cmake import CMakeBuild, project_directory
 from .toolchains import CUDAToolkit
 
 
+class BackendNotFoundError(RuntimeError):
+    pass
+
+
+def build_backend(
+    backend: str,
+    *,
+    sdk: CUDAToolkit,
+    build_directory: Path | None = None,
+    build_tests: bool = False,
+) -> Path:
+    build = configure_backend(
+        backend, sdk=sdk, build_directory=build_directory, build_tests=build_tests
+    )
+
+    build.build()
+
+    directory = build.build_directory.expanduser().resolve() / "python"
+    for suffix in EXTENSION_SUFFIXES:
+        path = directory / f"_{backend}{suffix}"
+        if path.is_file():
+            return path
+
+    raise FileNotFoundError(
+        f"backend build did not produce an extension in {directory}"
+    )
+
+
 def configure_backend(
     backend: str,
     *,
@@ -33,6 +61,7 @@ def configure_backend(
 
     pybind11 = import_module("pybind11")
     project = project_directory()
+
     build = CMakeBuild(
         project / "backends" / backend,
         build_directory
@@ -58,32 +87,6 @@ def configure_backend(
 
     build.configure()
     return build
-
-
-def build_backend(
-    backend: str,
-    *,
-    sdk: CUDAToolkit,
-    build_directory: Path | None = None,
-    build_tests: bool = False,
-) -> Path:
-    build = configure_backend(
-        backend, sdk=sdk, build_directory=build_directory, build_tests=build_tests
-    )
-    build.build()
-
-    directory = build.build_directory.expanduser().resolve() / "python"
-    for suffix in EXTENSION_SUFFIXES:
-        path = directory / f"_{backend}{suffix}"
-        if path.is_file():
-            return path
-    raise FileNotFoundError(
-        f"backend build did not produce an extension in {directory}"
-    )
-
-
-class BackendNotFoundError(RuntimeError):
-    pass
 
 
 def get_backend(backend: str) -> ModuleType:

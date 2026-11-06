@@ -21,6 +21,7 @@ def test_backend_command_requires_only_backend_config(
 ) -> None:
     sdk = CUDAToolkit(tmp_path / "sdk", tmp_path / "sdk/bin/ptxas", "13.4")
     configure = Mock()
+
     monkeypatch.setattr(build_cli, "resolve_sdk", Mock(return_value=sdk))
     monkeypatch.setattr(build_cli, "resolve_llvm", Mock())
     monkeypatch.setattr(build_cli, "configure_backend", configure)
@@ -92,11 +93,11 @@ def test_kernel_command_preserves_build_selection(
             "--build-tests",
             "backend=cuda",
             f"backend.sdk_root={sdk.root}",
-            "library=llvm-libm",
+            "run.libraries=[llvm-libm]",
             "backend.device_id=3",
             f"backend.architecture={architecture or 'null'}",
             f"llvm.root={llvm.root}",
-            f"library.backends.cuda.bitcode_path={library.bitcode_file}",
+            f"libraries.llvm-libm.backends.cuda.bitcode_path={library.bitcode_file}",
         ],
     )
 
@@ -104,6 +105,7 @@ def test_kernel_command_preserves_build_selection(
 
     build_cli.resolve_sdk.assert_called_once_with(backend="cuda", root=sdk.root)
     build_cli.resolve_llvm.assert_called_once_with(llvm.root)
+
     if architecture is None:
         query.assert_called_once_with(
             device_info.device_id, backend=device_info.backend
@@ -119,12 +121,14 @@ def test_kernel_command_preserves_build_selection(
         device_info=device_info if architecture is None else None,
         sdk=sdk,
     )
+
     build_cli.resolve_library.assert_called_once_with(
         library=library.name,
         llvm=llvm,
         target=target,
         bitcode_path=library.bitcode_file,
     )
+
     image_builder.assert_called_once_with(
         library=library,
         target=target,
@@ -133,3 +137,19 @@ def test_kernel_command_preserves_build_selection(
         build_directory=tmp_path / "build",
         build_tests=True,
     )
+
+
+@pytest.mark.parametrize("selection", ["null", "[llvm-libm,other]"])
+def test_kernel_command_requires_one_explicit_library(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selection: str
+) -> None:
+    sdk = CUDAToolkit(tmp_path / "sdk", tmp_path / "sdk/bin/ptxas", "13.4")
+    monkeypatch.setattr(build_cli, "resolve_sdk", Mock(return_value=sdk))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["compiler", "kernels", "backend=cuda", f"run.libraries={selection}"],
+    )
+
+    with pytest.raises(ValueError, match="exactly one name in run.libraries"):
+        build_cli.main()

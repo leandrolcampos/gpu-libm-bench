@@ -18,6 +18,10 @@ class Library:
     bitcode_file: Path
 
 
+class LibraryUnavailableError(RuntimeError):
+    pass
+
+
 def resolve_library(
     *,
     library: str,
@@ -52,20 +56,22 @@ def _resolve_llvm_libm(
         bitcode_path = next((path for path in candidates if path.is_file()), None)
         if bitcode_path is None:
             searched = ", ".join(str(path) for path in candidates)
-            raise FileNotFoundError(
+            raise LibraryUnavailableError(
                 f"LLVM-libm bitcode was not found. Searched: {searched}. "
                 "Provide an explicit bitcode_path for a custom installation"
             )
 
     path = bitcode_path.expanduser().resolve()
     if not path.is_file():
-        raise FileNotFoundError(f"LLVM-libm bitcode was not found: {path}")
+        raise LibraryUnavailableError(f"LLVM-libm bitcode was not found: {path}")
 
     ir = run_tool([llvm.llvm_dis, path, "-o", "-"])
     triple = re.search(r'^target triple = "([^"]+)"', ir, re.MULTILINE)
-    if triple is None or triple.group(1) != target.target_triple:
-        actual = triple.group(1) if triple is not None else "missing"
-        raise ValueError(
+    if triple is None:
+        raise ValueError(f"bitcode {path} does not declare a target triple")
+    if triple.group(1) != target.target_triple:
+        actual = triple.group(1)
+        raise LibraryUnavailableError(
             f"bitcode {path} has target triple {actual!r}; "
             f"expected {target.target_triple!r}"
         )
@@ -82,7 +88,7 @@ def _resolve_llvm_libm(
         )
         missing = set(required_symbols) - set(output.splitlines())
         if missing:
-            raise ValueError(
+            raise LibraryUnavailableError(
                 f"bitcode {path} does not define symbols: {', '.join(sorted(missing))}"
             )
 

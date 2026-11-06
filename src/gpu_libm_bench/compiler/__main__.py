@@ -38,8 +38,6 @@ def main() -> None:
 
     register_config_schema()
     excluded = ["~function", "~metric"]
-    if arguments.project == "backend":
-        excluded.append("~library")
 
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
         config = compose(
@@ -65,7 +63,15 @@ def main() -> None:
         return
 
     llvm_config = cast("LLVMConfig", OmegaConf.to_object(config.llvm))
-    library_config = cast("LibraryConfig", OmegaConf.to_object(config.library))
+    selected = config.run.libraries
+    if selected is None or len(selected) != 1:
+        raise ValueError(
+            "kernel compilation requires exactly one name in run.libraries"
+        )
+    name = selected[0]
+    if name not in config.libraries:
+        raise ValueError(f"run.libraries contains an unknown library: {name!r}")
+    library_config = cast("LibraryConfig", OmegaConf.to_object(config.libraries[name]))
     if backend.name not in library_config.backends:
         raise ValueError(
             f"library {library_config.name!r} does not support backend {backend.name!r}"

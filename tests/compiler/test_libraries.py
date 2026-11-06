@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for math library selection and target compatibility."""
+"""Tests for math library resolution and compatibility."""
 
 from pathlib import Path
 
@@ -32,6 +32,7 @@ def test_library_path_selection(
         return "expf\nlogf"
 
     monkeypatch.setattr(libraries, "run_tool", inspect)
+
     result = libraries.resolve_library(
         library="llvm-libm",
         llvm=llvm,
@@ -39,14 +40,21 @@ def test_library_path_selection(
         bitcode_path=custom if override else None,
         required_symbols=("expf",),
     )
+
     assert result.bitcode_file == selected
+
+
+def test_unsupported_library_is_rejected(llvm: LLVMToolchain) -> None:
+    with pytest.raises(ValueError, match="unsupported math library"):
+        libraries.resolve_library(library="unknown", llvm=llvm, target=TARGET)
 
 
 def test_missing_explicit_bitcode_does_not_fall_back(llvm: LLVMToolchain) -> None:
     default = llvm.library_dirs[0] / TARGET.target_triple / "libm.bc"
     default.parent.mkdir(parents=True)
     default.touch()
-    with pytest.raises(FileNotFoundError, match="missing.bc"):
+
+    with pytest.raises(libraries.LibraryUnavailableError, match="missing.bc"):
         libraries.resolve_library(
             library="llvm-libm",
             llvm=llvm,
@@ -55,9 +63,15 @@ def test_missing_explicit_bitcode_does_not_fall_back(llvm: LLVMToolchain) -> Non
         )
 
 
-@pytest.mark.parametrize("triple", ["amdgcn-amd-amdhsa", None])
+@pytest.mark.parametrize(
+    ("triple", "error"),
+    [("amdgcn-amd-amdhsa", libraries.LibraryUnavailableError), (None, ValueError)],
+)
 def test_bitcode_requires_matching_target(
-    monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain, triple: str | None
+    monkeypatch: pytest.MonkeyPatch,
+    llvm: LLVMToolchain,
+    triple: str | None,
+    error: type[Exception],
 ) -> None:
     path = llvm.root / "libm.bc"
     path.touch()
@@ -66,7 +80,8 @@ def test_bitcode_requires_matching_target(
         "run_tool",
         lambda command: f'target triple = "{triple}"' if triple else "",
     )
-    with pytest.raises(ValueError, match="target triple"):
+
+    with pytest.raises(error, match="target triple"):
         libraries.resolve_library(
             library="llvm-libm", llvm=llvm, target=TARGET, bitcode_path=path
         )
@@ -86,7 +101,10 @@ def test_bitcode_must_define_required_function(
             else "logf"
         ),
     )
-    with pytest.raises(ValueError, match="does not define symbols: expf"):
+
+    with pytest.raises(
+        libraries.LibraryUnavailableError, match="does not define symbols: expf"
+    ):
         libraries.resolve_library(
             library="llvm-libm",
             llvm=llvm,
@@ -94,11 +112,3 @@ def test_bitcode_must_define_required_function(
             bitcode_path=path,
             required_symbols=("expf",),
         )
-
-
-@pytest.mark.parametrize("library", ["cuda-math", "hip-math"])
-def test_other_providers_do_not_fall_back_to_llvm_libm(
-    llvm: LLVMToolchain, library: str
-) -> None:
-    with pytest.raises(ValueError, match="unsupported math library"):
-        libraries.resolve_library(library=library, llvm=llvm, target=TARGET)

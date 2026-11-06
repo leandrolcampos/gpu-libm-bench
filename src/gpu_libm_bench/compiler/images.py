@@ -29,6 +29,31 @@ class ImageBuildInfo:
     link_options: tuple[str, ...] = ()
 
 
+def build_kernels(
+    *,
+    library: Library,
+    target: CompilationTarget,
+    llvm: LLVMToolchain,
+    sdk: CUDAToolkit,
+    build_directory: Path | None = None,
+    build_tests: bool = False,
+) -> DeviceImage:
+    build = configure_kernels(
+        library=library,
+        target=target,
+        llvm=llvm,
+        sdk=sdk,
+        build_directory=build_directory,
+        build_tests=build_tests,
+    )
+
+    build.build()
+
+    return resolve_device_image(
+        library.name, target=target, build_root=build.build_directory
+    )
+
+
 def configure_kernels(
     *,
     library: Library,
@@ -41,6 +66,7 @@ def configure_kernels(
     arguments = _image_cmake_arguments(
         library=library, target=target, llvm=llvm, sdk=sdk
     )
+
     project = project_directory()
     toolchain_files: tuple[Path, ...] = (
         llvm.clang,
@@ -71,30 +97,6 @@ def configure_kernels(
 
     build.configure()
     return build
-
-
-def build_kernels(
-    *,
-    library: Library,
-    target: CompilationTarget,
-    llvm: LLVMToolchain,
-    sdk: CUDAToolkit,
-    build_directory: Path | None = None,
-    build_tests: bool = False,
-) -> DeviceImage:
-    build = configure_kernels(
-        library=library,
-        target=target,
-        llvm=llvm,
-        sdk=sdk,
-        build_directory=build_directory,
-        build_tests=build_tests,
-    )
-    build.build()
-
-    return resolve_device_image(
-        library.name, target=target, build_root=build.build_directory
-    )
 
 
 def _image_cmake_arguments(
@@ -142,9 +144,11 @@ def resolve_device_image(
             / library
             / f"math{suffix}"
         )
+
     image = image_path.expanduser().resolve()
     if not image.is_file():
         raise FileNotFoundError(f"device image was not found: {image}")
+
     manifest_path = image.with_suffix(".manifest.json")
     manifest: Path | None = None
     functions: tuple[str, ...] | None = None
@@ -162,8 +166,42 @@ def resolve_device_image(
                 raise ValueError(
                     f"image manifest {manifest} does not match {field}={value!r}"
                 )
+
         if "functions" in metadata:
             functions = tuple(metadata["functions"])
     elif not explicit:
         raise FileNotFoundError(f"device image manifest was not found: {manifest_path}")
+
     return DeviceImage(image, target, library, functions, manifest)
+
+
+def read_registered_functions(
+    build: CMakeBuild, *, library: str, target: CompilationTarget
+) -> tuple[str, ...]:
+    path = (
+        build.build_directory
+        / target.backend
+        / target.architecture
+        / library
+        / "build-plan.json"
+    )
+    metadata = json.loads(path.read_text())
+
+    expected = {
+        "library": library,
+        "backend": target.backend,
+        "target_triple": target.target_triple,
+        "architecture": target.architecture,
+    }
+    for field, value in expected.items():
+        if metadata.get(field) != value:
+            raise ValueError(
+                f"kernel build plan {path} does not match {field}={value!r}"
+            )
+
+    functions = metadata.get("functions")
+    if not isinstance(functions, list) or any(
+        not isinstance(function, str) for function in functions
+    ):
+        raise ValueError(f"kernel build plan {path} must declare a list of functions")
+    return tuple(functions)
