@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class DeviceImage:
-    path: Path
+    image_path: Path
     target: "CompilationTarget"
     library: str
     functions: tuple[str, ...] | None
-    manifest: Path | None
+    manifest_path: Path | None
 
 
 class DeviceKernel:

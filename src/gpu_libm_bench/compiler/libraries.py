@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Math library resolution and artifact validation."""
+"""Math library bitcode resolution and validation."""
 
 import re
 from dataclasses import dataclass
@@ -13,9 +13,9 @@ from .toolchains import LLVMToolchain
 
 
 @dataclass(frozen=True, slots=True)
-class Library:
-    name: str
-    bitcode_file: Path
+class LibraryBitcode:
+    library: str
+    bitcode_path: Path
 
 
 class LibraryUnavailableError(RuntimeError):
@@ -29,7 +29,7 @@ def resolve_library(
     target: CompilationTarget,
     bitcode_path: Path | None = None,
     required_symbols: tuple[str, ...] = (),
-) -> Library:
+) -> LibraryBitcode:
     if library == "llvm-libm":
         return _resolve_llvm_libm(
             llvm=llvm,
@@ -47,7 +47,7 @@ def _resolve_llvm_libm(
     target: CompilationTarget,
     bitcode_path: Path | None,
     required_symbols: tuple[str, ...],
-) -> Library:
+) -> LibraryBitcode:
     if bitcode_path is None:
         candidates = [
             directory / target.target_triple / "libm.bc"
@@ -69,6 +69,7 @@ def _resolve_llvm_libm(
     triple = re.search(r'^target triple = "([^"]+)"', ir, re.MULTILINE)
     if triple is None:
         raise ValueError(f"bitcode {path} does not declare a target triple")
+
     if triple.group(1) != target.target_triple:
         actual = triple.group(1)
         raise LibraryUnavailableError(
@@ -86,10 +87,11 @@ def _resolve_llvm_libm(
                 path,
             ]
         )
+
         missing = set(required_symbols) - set(output.splitlines())
         if missing:
             raise LibraryUnavailableError(
                 f"bitcode {path} does not define symbols: {', '.join(sorted(missing))}"
             )
 
-    return Library("llvm-libm", path)
+    return LibraryBitcode("llvm-libm", path)

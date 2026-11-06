@@ -13,7 +13,7 @@ from rich.console import Console
 
 from gpu_libm_bench import inputs
 from gpu_libm_bench.benchmarks.latency import LatencyMeasurement, LatencyResult
-from gpu_libm_bench.compiler.images import ImageBuildInfo
+from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.configs import (
     ArgumentConfig,
@@ -22,7 +22,7 @@ from gpu_libm_bench.configs import (
     ExperimentConfig,
     FunctionConfig,
     LatencyConfig,
-    LibraryArtifactConfig,
+    LibraryBitcodeConfig,
     LibraryConfig,
     LLVMConfig,
     RandomGeneratorConfig,
@@ -60,17 +60,17 @@ def experiment() -> ExperimentResult:
         BackendConfig("cuda", target.target_triple, target.architecture, 0, "/cuda"),
         {
             "llvm-libm": LibraryConfig(
-                "llvm-libm", {"cuda": LibraryArtifactConfig("/libm.bc")}
+                "llvm-libm", {"cuda": LibraryBitcodeConfig("/libm.bc")}
             ),
             "variant": LibraryConfig(
-                "variant", {"cuda": LibraryArtifactConfig("/variant.bc")}
+                "variant", {"cuda": LibraryBitcodeConfig("/variant.bc")}
             ),
         },
         RunConfig(42, None),
         LLVMConfig("/llvm"),
     )
 
-    image_build_info = ImageBuildInfo(
+    image_build_info = DeviceImageBuildInfo(
         Path("/llvm/bin/clang++"),
         "clang version 24.0.0",
         "CUDA Toolkit",
@@ -121,11 +121,11 @@ def experiment() -> ExperimentResult:
             LatencyResults(
                 replace(
                     image_build_info,
-                    bitcode_file=Path("/variant.bc"),
+                    bitcode_path=Path("/variant.bc"),
                     image=replace(
                         image_build_info.image,
                         library="variant",
-                        path=Path("/variant.cubin"),
+                        image_path=Path("/variant.cubin"),
                     ),
                 ),
                 tuple(
@@ -277,6 +277,7 @@ def test_report_includes_provenance_when_requested(
         "Warmup runs: 10",
     ):
         assert provenance.splitlines().count(f"  {line}") == 1
+
     assert "Domains: central, wide" in provenance
 
     methodology, builds = provenance.split("Library: llvm-libm", 1)

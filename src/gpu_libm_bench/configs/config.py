@@ -73,14 +73,14 @@ class BackendConfig:
 
 
 @dataclass
-class LibraryArtifactConfig:
+class LibraryBitcodeConfig:
     bitcode_path: str | None
 
 
 @dataclass
 class LibraryConfig:
     name: str
-    backends: dict[str, LibraryArtifactConfig]
+    backends: dict[str, LibraryBitcodeConfig]
 
 
 @dataclass

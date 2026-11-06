@@ -68,9 +68,11 @@ def main() -> None:
         raise ValueError(
             "kernel compilation requires exactly one name in run.libraries"
         )
+
     name = selected[0]
     if name not in config.libraries:
         raise ValueError(f"run.libraries contains an unknown library: {name!r}")
+
     library_config = cast("LibraryConfig", OmegaConf.to_object(config.libraries[name]))
     if backend.name not in library_config.backends:
         raise ValueError(
@@ -93,16 +95,18 @@ def main() -> None:
         device_info=device_info,
         sdk=sdk,
     )
-    bitcode = library_config.backends[backend.name].bitcode_path
-    library = resolve_library(
+
+    bitcode_path = library_config.backends[backend.name].bitcode_path
+    bitcode = resolve_library(
         library=library_config.name,
         llvm=llvm,
         target=target,
-        bitcode_path=Path(bitcode) if bitcode is not None else None,
+        bitcode_path=Path(bitcode_path) if bitcode_path is not None else None,
     )
+
     compile_kernels = configure_kernels if arguments.configure_only else build_kernels
     compile_kernels(
-        library=library,
+        bitcode=bitcode,
         target=target,
         llvm=llvm,
         sdk=sdk,

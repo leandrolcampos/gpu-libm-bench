@@ -13,7 +13,7 @@ from hydra import compose, initialize_config_module
 
 from gpu_libm_bench.compiler._cmake import CMakeBuild
 from gpu_libm_bench.compiler.libraries import (
-    Library,
+    LibraryBitcode,
     LibraryUnavailableError,
     resolve_library,
 )
@@ -43,7 +43,11 @@ def config() -> ExperimentConfig:
     return replace(
         config,
         libraries={
-            name: LibraryConfig(name, dict(backends)) for name in ("first", "second")
+            name: LibraryConfig(
+                name,
+                {backend: replace(bitcode) for backend, bitcode in backends.items()},
+            )
+            for name in ("first", "second")
         },
     )
 
@@ -62,14 +66,14 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
     def resolve(*, library, bitcode_path, **kwargs):
-        return Library(library, bitcode_path or tmp_path / f"{library}.bc")
+        return LibraryBitcode(library, bitcode_path or tmp_path / f"{library}.bc")
 
-    def configure(*, library, target, build_directory, **kwargs):
+    def configure(*, bitcode, target, build_directory, **kwargs):
         plan = (
             build_directory
             / target.backend
             / target.architecture
-            / library.name
+            / bitcode.library
             / "build-plan.json"
         )
         plan.parent.mkdir(parents=True)
@@ -77,7 +81,7 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         plan.write_text(
             json.dumps(
                 {
-                    "library": library.name,
+                    "library": bitcode.library,
                     "backend": target.backend,
                     "architecture": target.architecture,
                     "target_triple": target.target_triple,
@@ -102,23 +106,6 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return select
 
 
-@pytest.mark.parametrize("names", [None, ["second", "first"]])
-def test_library_selection_preserves_order_and_artifact_overrides(
-    config: ExperimentConfig,
-    select,
-    names: list[str] | None,
-) -> None:
-    config.run.libraries = names
-    config.libraries["first"].backends["cuda"].bitcode_path = "/custom/first.bc"
-
-    selected = select(config)
-
-    assert [library.name for library in selected] == (names or ["first", "second"])
-    assert next(
-        library for library in selected if library.name == "first"
-    ).bitcode_file == Path("/custom/first.bc")
-
-
 def test_invalid_function_signature_is_rejected_before_preparing_libraries(
     config: ExperimentConfig,
     select,
@@ -130,7 +117,28 @@ def test_invalid_function_signature_is_rejected_before_preparing_libraries(
 
     with pytest.raises(ValueError, match="return type must match"):
         select(config)
+
     resolve.assert_not_called()
+
+
+@pytest.mark.parametrize("names", [None, ["second", "first"]])
+def test_library_selection_preserves_order_and_bitcode_overrides(
+    config: ExperimentConfig,
+    select,
+    names: list[str] | None,
+    tmp_path: Path,
+) -> None:
+    config.run.libraries = names
+    config.libraries["first"].backends["cuda"].bitcode_path = "/custom/first.bc"
+
+    selected = select(config)
+
+    assert [bitcode.library for bitcode in selected] == (names or ["first", "second"])
+    paths = {bitcode.library: bitcode.bitcode_path for bitcode in selected}
+    assert paths == {
+        "first": Path("/custom/first.bc"),
+        "second": tmp_path / "second.bc",
+    }
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -173,7 +181,7 @@ def test_unavailable_library_is_skipped_only_for_automatic_selection(
         ):
             select(config)
     else:
-        assert [library.name for library in select(config)] == ["second"]
+        assert [bitcode.library for bitcode in select(config)] == ["second"]
 
 
 def test_no_eligible_libraries_is_an_error(config: ExperimentConfig, select) -> None:
@@ -214,4 +222,5 @@ def test_unexpected_failures_are_propagated(
 
     with pytest.raises(type(error)) as caught:
         select(config)
+
     assert caught.value is error

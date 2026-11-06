@@ -41,7 +41,8 @@ def test_library_path_selection(
         required_symbols=("expf",),
     )
 
-    assert result.bitcode_file == selected
+    assert result.bitcode_path == selected
+    assert result.library == "llvm-libm"
 
 
 def test_unsupported_library_is_rejected(llvm: LLVMToolchain) -> None:

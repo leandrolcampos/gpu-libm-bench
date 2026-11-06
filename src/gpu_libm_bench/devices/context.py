@@ -134,11 +134,11 @@ class DeviceContext:
         self._ensure_open()
 
         if image.target.backend != self.backend:
-            raise ValueError("image backend does not match the device context")
-        if not image.path.is_file():
-            raise FileNotFoundError(f"device image was not found: {image.path}")
+            raise ValueError("device image backend does not match the device context")
+        if not image.image_path.is_file():
+            raise FileNotFoundError(f"device image was not found: {image.image_path}")
 
-        return DeviceModule(self._native.load_module(str(image.path)), image)
+        return DeviceModule(self._native.load_module(str(image.image_path)), image)
 
     @overload
     def create_buffer[T: Scalar](

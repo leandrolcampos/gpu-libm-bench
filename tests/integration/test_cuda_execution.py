@@ -129,7 +129,7 @@ def test_module_reports_load_and_symbol_errors(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec, tmp_path: Path
 ) -> None:
     with pytest.raises(FileNotFoundError, match="missing.cubin"):
-        context.load_module(replace(image, path=tmp_path / "missing.cubin"))
+        context.load_module(replace(image, image_path=tmp_path / "missing.cubin"))
 
     module = context.load_module(image)
     with pytest.raises(RuntimeError, match="missingKernel"):

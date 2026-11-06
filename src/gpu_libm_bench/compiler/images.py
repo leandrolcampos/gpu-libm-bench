@@ -4,26 +4,28 @@
 """Kernel compilation and device image resolution."""
 
 import json
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from gpu_libm_bench.devices import DeviceImage
 
 from ._cmake import CMakeBuild, project_directory
 from ._commands import run_tool
-from .libraries import Library
+from .libraries import LibraryBitcode
 from .targets import CompilationTarget
 from .toolchains import CUDAToolkit, LLVMToolchain
 
 
 @dataclass(frozen=True, slots=True)
-class ImageBuildInfo:
+class DeviceImageBuildInfo:
     compiler: Path
     compiler_version: str
     sdk_name: str
     sdk_version: str
     sdk_root: Path
-    bitcode_file: Path
+    bitcode_path: Path
     image: DeviceImage
     compile_options: tuple[str, ...] = ()
     link_options: tuple[str, ...] = ()
@@ -31,7 +33,7 @@ class ImageBuildInfo:
 
 def build_kernels(
     *,
-    library: Library,
+    bitcode: LibraryBitcode,
     target: CompilationTarget,
     llvm: LLVMToolchain,
     sdk: CUDAToolkit,
@@ -39,7 +41,7 @@ def build_kernels(
     build_tests: bool = False,
 ) -> DeviceImage:
     build = configure_kernels(
-        library=library,
+        bitcode=bitcode,
         target=target,
         llvm=llvm,
         sdk=sdk,
@@ -50,13 +52,13 @@ def build_kernels(
     build.build()
 
     return resolve_device_image(
-        library.name, target=target, build_root=build.build_directory
+        bitcode.library, target=target, build_root=build.build_directory
     )
 
 
 def configure_kernels(
     *,
-    library: Library,
+    bitcode: LibraryBitcode,
     target: CompilationTarget,
     llvm: LLVMToolchain,
     sdk: CUDAToolkit,
@@ -64,7 +66,7 @@ def configure_kernels(
     build_tests: bool = False,
 ) -> CMakeBuild:
     arguments = _image_cmake_arguments(
-        library=library, target=target, llvm=llvm, sdk=sdk
+        bitcode=bitcode, target=target, llvm=llvm, sdk=sdk
     )
 
     project = project_directory()
@@ -99,32 +101,6 @@ def configure_kernels(
     return build
 
 
-def _image_cmake_arguments(
-    *,
-    library: Library,
-    target: CompilationTarget,
-    llvm: LLVMToolchain,
-    sdk: CUDAToolkit,
-) -> tuple[str, ...]:
-    if isinstance(sdk, CUDAToolkit):
-        if target.backend != "cuda":
-            raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
-    else:
-        raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
-
-    values = {
-        "LLVM_ROOT": str(llvm.root),
-        "CLANG": str(llvm.clang),
-        "SDK_ROOT": str(sdk.root),
-        "SDK_VERSION": sdk.version,
-        "TARGET_TRIPLE": target.target_triple,
-        "ARCHITECTURE": target.architecture,
-        "LIBRARY": library.name,
-        "BITCODE_FILE": str(library.bitcode_file),
-    }
-    return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
-
-
 def resolve_device_image(
     library: str,
     *,
@@ -145,34 +121,88 @@ def resolve_device_image(
             / f"math{suffix}"
         )
 
-    image = image_path.expanduser().resolve()
-    if not image.is_file():
-        raise FileNotFoundError(f"device image was not found: {image}")
+    image_path = image_path.expanduser().resolve()
+    if not image_path.is_file():
+        raise FileNotFoundError(f"device image was not found: {image_path}")
 
-    manifest_path = image.with_suffix(".manifest.json")
-    manifest: Path | None = None
+    manifest_path = image_path.with_suffix(".manifest.json")
+    manifest_exists = manifest_path.is_file()
     functions: tuple[str, ...] | None = None
-    if manifest_path.is_file():
-        manifest = manifest_path
-        metadata = json.loads(manifest_path.read_text())
-        expected = {
-            "library": library,
-            "backend": target.backend,
-            "target_triple": target.target_triple,
-            "architecture": target.architecture,
-        }
-        for field, value in expected.items():
-            if metadata.get(field) != value:
-                raise ValueError(
-                    f"image manifest {manifest} does not match {field}={value!r}"
-                )
+    if manifest_exists:
+        metadata = _read_image_manifest(manifest_path, library=library, target=target)
 
         if "functions" in metadata:
             functions = tuple(metadata["functions"])
     elif not explicit:
         raise FileNotFoundError(f"device image manifest was not found: {manifest_path}")
 
-    return DeviceImage(image, target, library, functions, manifest)
+    return DeviceImage(
+        image_path,
+        target,
+        library,
+        functions,
+        manifest_path if manifest_exists else None,
+    )
+
+
+def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
+    manifest_path = image.manifest_path
+    if manifest_path is None:
+        raise ValueError(f"device image has no build manifest: {image.image_path}")
+    metadata = _read_image_manifest(
+        manifest_path, library=image.library, target=image.target
+    )
+
+    for field in (
+        "image_path",
+        "compiler",
+        "compiler_version",
+        "sdk_root",
+        "sdk_version",
+        "bitcode_path",
+    ):
+        if not isinstance(metadata.get(field), str) or not metadata[field]:
+            raise ValueError(
+                f"device image manifest {manifest_path} must declare {field} as a nonempty string"
+            )
+
+    for field in ("compile_flags", "link_flags"):
+        if not isinstance(metadata.get(field), str):
+            raise ValueError(
+                f"device image manifest {manifest_path} must declare {field} as a string"
+            )
+
+    for field in ("compile_options", "link_options"):
+        values = metadata.get(field)
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) for value in values
+        ):
+            raise ValueError(
+                f"device image manifest {manifest_path} must declare {field} as a list of strings"
+            )
+
+    if Path(metadata["image_path"]).resolve() != image.image_path.resolve():
+        raise ValueError(
+            f"device image manifest {manifest_path} does not match image_path={str(image.image_path)!r}"
+        )
+
+    sdk_names = {"cuda": "CUDA Toolkit", "rocm": "ROCm"}
+    if image.target.backend not in sdk_names:
+        raise ValueError(f"unsupported SDK backend: {image.target.backend!r}")
+
+    return DeviceImageBuildInfo(
+        compiler=Path(metadata["compiler"]),
+        compiler_version=metadata["compiler_version"],
+        sdk_name=sdk_names[image.target.backend],
+        sdk_version=metadata["sdk_version"],
+        sdk_root=Path(metadata["sdk_root"]),
+        bitcode_path=Path(metadata["bitcode_path"]),
+        image=image,
+        compile_options=_expand_options(
+            metadata["compile_flags"], metadata["compile_options"]
+        ),
+        link_options=_expand_options(metadata["link_flags"], metadata["link_options"]),
+    )
 
 
 def read_registered_functions(
@@ -204,4 +234,64 @@ def read_registered_functions(
         not isinstance(function, str) for function in functions
     ):
         raise ValueError(f"kernel build plan {path} must declare a list of functions")
+
     return tuple(functions)
+
+
+def _image_cmake_arguments(
+    *,
+    bitcode: LibraryBitcode,
+    target: CompilationTarget,
+    llvm: LLVMToolchain,
+    sdk: CUDAToolkit,
+) -> tuple[str, ...]:
+    if isinstance(sdk, CUDAToolkit):
+        if target.backend != "cuda":
+            raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
+    else:
+        raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
+
+    values = {
+        "LLVM_ROOT": str(llvm.root),
+        "CLANG": str(llvm.clang),
+        "SDK_ROOT": str(sdk.root),
+        "SDK_VERSION": sdk.version,
+        "TARGET_TRIPLE": target.target_triple,
+        "ARCHITECTURE": target.architecture,
+        "LIBRARY": bitcode.library,
+        "BITCODE_PATH": str(bitcode.bitcode_path),
+    }
+    return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
+
+
+def _read_image_manifest(
+    path: Path, *, library: str, target: CompilationTarget
+) -> dict[str, Any]:
+    metadata = json.loads(path.read_text())
+    if not isinstance(metadata, dict):
+        raise ValueError(f"device image manifest {path} must contain an object")
+
+    expected = {
+        "library": library,
+        "backend": target.backend,
+        "target_triple": target.target_triple,
+        "architecture": target.architecture,
+    }
+    for field, value in expected.items():
+        if metadata.get(field) != value:
+            raise ValueError(
+                f"device image manifest {path} does not match {field}={value!r}"
+            )
+
+    return metadata
+
+
+def _expand_options(flags: str, options: list[str]) -> tuple[str, ...]:
+    arguments = shlex.split(flags)
+    for option in options:
+        if option.startswith("SHELL:"):
+            arguments.extend(shlex.split(option.removeprefix("SHELL:")))
+        else:
+            arguments.append(option)
+
+    return tuple(arguments)

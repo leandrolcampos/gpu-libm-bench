@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from gpu_libm_bench.compiler import __main__ as build_cli
-from gpu_libm_bench.compiler.libraries import Library
+from gpu_libm_bench.compiler.libraries import LibraryBitcode
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 from gpu_libm_bench.devices import DeviceInfo, TimerInfo
@@ -71,12 +71,12 @@ def test_kernel_command_preserves_build_selection(
     target = CompilationTarget(
         "cuda", "nvptx64-nvidia-cuda", architecture or device_info.architecture
     )
-    library = Library("llvm-libm", tmp_path / "custom.bc")
+    bitcode = LibraryBitcode("llvm-libm", tmp_path / "custom.bc")
 
     monkeypatch.setattr(build_cli, "resolve_sdk", Mock(return_value=sdk))
     monkeypatch.setattr(build_cli, "resolve_llvm", Mock(return_value=llvm))
     monkeypatch.setattr(build_cli, "resolve_target", Mock(return_value=target))
-    monkeypatch.setattr(build_cli, "resolve_library", Mock(return_value=library))
+    monkeypatch.setattr(build_cli, "resolve_library", Mock(return_value=bitcode))
     query = Mock(return_value=device_info)
     monkeypatch.setattr(build_cli.DeviceContext, "get_device_info", query)
     image_builder = Mock()
@@ -97,7 +97,7 @@ def test_kernel_command_preserves_build_selection(
             "backend.device_id=3",
             f"backend.architecture={architecture or 'null'}",
             f"llvm.root={llvm.root}",
-            f"libraries.llvm-libm.backends.cuda.bitcode_path={library.bitcode_file}",
+            f"libraries.llvm-libm.backends.cuda.bitcode_path={bitcode.bitcode_path}",
         ],
     )
 
@@ -123,14 +123,14 @@ def test_kernel_command_preserves_build_selection(
     )
 
     build_cli.resolve_library.assert_called_once_with(
-        library=library.name,
+        library=bitcode.library,
         llvm=llvm,
         target=target,
-        bitcode_path=library.bitcode_file,
+        bitcode_path=bitcode.bitcode_path,
     )
 
     image_builder.assert_called_once_with(
-        library=library,
+        bitcode=bitcode,
         target=target,
         llvm=llvm,
         sdk=sdk,

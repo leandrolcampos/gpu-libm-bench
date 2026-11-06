@@ -6,7 +6,7 @@
 from rich.console import Console, Group
 from rich.text import Text
 
-from gpu_libm_bench.compiler.images import ImageBuildInfo
+from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.devices import DeviceInfo
 from gpu_libm_bench.experiment import ExperimentResult
 
@@ -77,11 +77,11 @@ def _configuration_report(experiment: ExperimentResult) -> Group:
 
     libraries = []
     for result in experiment.results:
-        build_info = result.image_build_info
+        image_build_info = result.image_build_info
         libraries.append(
             Group(
-                Text(f"Library: {build_info.image.library}", style="bold"),
-                Indented(_image_details(build_info), bottom=1),
+                Text(f"Library: {image_build_info.image.library}", style="bold"),
+                Indented(_image_details(image_build_info), bottom=1),
             )
         )
 
@@ -115,19 +115,23 @@ def _device_details(info: DeviceInfo) -> Group:
     )
 
 
-def _image_details(build_info: ImageBuildInfo) -> Group:
-    image = build_info.image
+def _image_details(image_build_info: DeviceImageBuildInfo) -> Group:
+    image = image_build_info.image
     target = image.target
 
     return Group(
-        Text(f"Compiler: {build_info.compiler}\n{build_info.compiler_version}"),
         Text(
-            f"SDK: {build_info.sdk_name} {build_info.sdk_version}; root: {build_info.sdk_root}"
+            f"Compiler: {image_build_info.compiler}\n{image_build_info.compiler_version}"
+        ),
+        Text(
+            f"SDK: {image_build_info.sdk_name} {image_build_info.sdk_version}; root: {image_build_info.sdk_root}"
         ),
         Text(f"Target: {target.target_triple}; architecture: {target.architecture}"),
-        Text(f"Bitcode: {build_info.bitcode_file}\nImage: {image.path}"),
         Text(
-            f"Compile options: {' '.join(build_info.compile_options) or '(none)'}\n"
-            f"Link options: {' '.join(build_info.link_options) or '(none)'}"
+            f"Bitcode: {image_build_info.bitcode_path}\nDevice image: {image.image_path}"
+        ),
+        Text(
+            f"Compile options: {' '.join(image_build_info.compile_options) or '(none)'}\n"
+            f"Link options: {' '.join(image_build_info.link_options) or '(none)'}"
         ),
     )
