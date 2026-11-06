@@ -5,13 +5,14 @@ defaults:
   - experiment_schema
   - function: ???
   - metric: ???
-  - library: ???
   - backend: ???
+  - library@libraries.llvm-libm: llvm-libm
   - _self_
 
 run:
   seed: 42
   domains: null
+  libraries: null
 
 llvm:
   root: null

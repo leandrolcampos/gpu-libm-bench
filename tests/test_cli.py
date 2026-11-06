@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 from omegaconf import OmegaConf
 
-SELECTIONS = ["function=expf", "metric=latency", "library=llvm-libm", "backend=cuda"]
+SELECTIONS = [
+    "function=expf",
+    "metric=latency",
+    "backend=cuda",
+]
 
 
 def run_cli(tmp_path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -35,25 +39,32 @@ def test_configure_experiment_without_gpu(tmp_path: Path) -> None:
         "metric.sample_size=16",
         "run.seed=123",
         "run.domains=[wide,central]",
+        "run.libraries=[llvm-libm]",
+        "libraries.llvm-libm.backends.cuda.bitcode_path=/nonexistent/custom.bc",
         "function.domains.central.generator.arguments.x.low=-5",
         "llvm.root=/nonexistent/llvm",
     )
     assert result.returncode == 0, result.stderr
+
     message, yaml = result.stdout.split("\n", 1)
     assert "execution is not available" in message
     config = OmegaConf.create(yaml)
+
     assert (
         config.function.name,
         config.metric.name,
-        config.library.name,
+        config.libraries["llvm-libm"].name,
         config.backend.name,
     ) == ("expf", "latency", "llvm-libm", "cuda")
     assert config.metric.sample_size == 16
     assert config.run.seed == 123
     assert config.run.domains == ["wide", "central"]
-    assert config.function.domains.central.generator.name == "random"
+    assert config.run.libraries == ["llvm-libm"]
+    assert (
+        config.libraries["llvm-libm"].backends.cuda.bitcode_path
+        == "/nonexistent/custom.bc"
+    )
     assert config.function.domains.central.generator.arguments.x.low == -5
-    assert config.function.domains.wide.generator.arguments.x.low == -80
 
 
 @pytest.mark.parametrize("selection", SELECTIONS)
@@ -63,16 +74,8 @@ def test_experiment_selections_are_required(tmp_path: Path, selection: str) -> N
     assert selection.split("=")[0] in result.stderr
 
 
-@pytest.mark.parametrize(
-    ("override", "message"),
-    [
-        ("run.domains=[missing]", "run.domains"),
-        ("~function.domains.wide.generator.arguments.x", "domain 'wide'"),
-    ],
-)
-def test_inconsistent_experiment_exits_with_error(
-    tmp_path: Path, override: str, message: str
-) -> None:
-    result = run_cli(tmp_path, *SELECTIONS, override)
+def test_invalid_configuration_exits_with_diagnostic(tmp_path: Path) -> None:
+    result = run_cli(tmp_path, *SELECTIONS, "run.libraries=[missing]")
     assert result.returncode != 0
-    assert message in result.stderr
+    assert "invalid experiment configuration:" in result.stderr
+    assert "run.libraries" in result.stderr

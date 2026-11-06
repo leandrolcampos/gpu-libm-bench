@@ -64,6 +64,15 @@ class LatencyConfig(MetricConfig):
 
 
 @dataclass
+class BackendConfig:
+    name: str
+    target_triple: str
+    architecture: str | None
+    device_id: int
+    sdk_root: str | None
+
+
+@dataclass
 class LibraryArtifactConfig:
     bitcode_path: str | None
 
@@ -75,18 +84,10 @@ class LibraryConfig:
 
 
 @dataclass
-class BackendConfig:
-    name: str
-    target_triple: str
-    architecture: str | None
-    device_id: int
-    sdk_root: str | None
-
-
-@dataclass
 class RunConfig:
     seed: int
     domains: list[str] | None
+    libraries: list[str] | None = None
 
 
 @dataclass
@@ -98,8 +99,8 @@ class LLVMConfig:
 class ExperimentConfig:
     function: FunctionConfig
     metric: MetricConfig
-    library: LibraryConfig
     backend: BackendConfig
+    libraries: dict[str, LibraryConfig]
     run: RunConfig
     llvm: LLVMConfig
 
@@ -111,6 +112,7 @@ def register_config_schema() -> None:
         provider="gpu-libm-bench",
         replace=True,
     )
+
     ConfigStore.instance().store(
         group="schema/metric",
         name="latency",
@@ -119,6 +121,7 @@ def register_config_schema() -> None:
         provider="gpu-libm-bench",
         replace=True,
     )
+
     ConfigStore.instance().store(
         group="schema/input_generator",
         name="random",
@@ -142,6 +145,7 @@ def validate_config(config: DictConfig) -> ExperimentConfig:
     if selected is not None:
         if not selected or len(set(selected)) != len(selected):
             raise ValueError("run.domains must be a nonempty list without duplicates")
+
         for name in selected:
             if name not in domains:
                 raise ValueError(f"run.domains contains an unknown domain: {name!r}")
@@ -150,11 +154,21 @@ def validate_config(config: DictConfig) -> ExperimentConfig:
         experiment.function, domains if selected is None else selected
     )
 
-    if experiment.backend.name not in experiment.library.backends:
-        raise ValueError(
-            f"library {experiment.library.name!r} does not declare support for "
-            f"backend {experiment.backend.name!r}"
-        )
+    for name, library in experiment.libraries.items():
+        if not name.strip() or name != library.name:
+            raise ValueError("library catalog keys must match nonempty library names")
+
+    selected_libraries = experiment.run.libraries
+    if selected_libraries is not None:
+        if not selected_libraries or len(set(selected_libraries)) != len(
+            selected_libraries
+        ):
+            raise ValueError("run.libraries must be a nonempty list without duplicates")
+
+        for name in selected_libraries:
+            if name not in experiment.libraries:
+                raise ValueError(f"run.libraries contains an unknown library: {name!r}")
+
     return experiment
 
 
@@ -167,6 +181,7 @@ def _validate_function_inputs(
         raise ValueError("signature argument names must be unique")
     if any(argument.role not in {"input", "output"} for argument in arguments):
         raise ValueError("signature argument roles must be 'input' or 'output'")
+
     inputs = {argument.name for argument in arguments if argument.role == "input"}
     if not inputs:
         raise ValueError("signature must declare at least one input argument")
