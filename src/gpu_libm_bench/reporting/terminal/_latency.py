@@ -12,15 +12,18 @@ from rich.table import Table
 from rich.text import Text
 
 from gpu_libm_bench.benchmarks.latency import LatencyResult
-from gpu_libm_bench.experiment import ExperimentResult
+from gpu_libm_bench.experiment import ExperimentResult, LatencyResults
 
 from ._layout import Indented
 
 
 def build_report(experiment: ExperimentResult) -> Group:
-    library = experiment.image_build_info.image.library
     domain_rows = {
-        name: [(library, result)] for name, result in experiment.results.items()
+        name: [
+            (library.image_build_info.image.library, library[name])
+            for library in experiment.results
+        ]
+        for name in experiment.results[0]
     }
 
     sections = [
@@ -35,7 +38,7 @@ def build_report(experiment: ExperimentResult) -> Group:
         for name, table in _build_tables(domain_rows).items()
     ]
 
-    return Group(Text(f"Latency ({LatencyResult.unit})", style="bold"), *sections)
+    return Group(*sections)
 
 
 def _build_tables(
@@ -69,6 +72,7 @@ def _build_tables(
 
         for row in rows:
             table.add_row(*(Text(value) for value in row))
+
         tables[name] = table
 
     return tables
@@ -100,26 +104,37 @@ def _format_number(value: float) -> str:
     return f"{value:.5g}"
 
 
-def build_details(experiment: ExperimentResult) -> Group:
-    methods: dict[str, list[str]] = {}
-    for domain, result in experiment.results.items():
-        method = _methodology(result).plain
-        methods.setdefault(method, []).append(domain)
+def build_details(results: Sequence[LatencyResults]) -> Group:
+    methods: dict[tuple[str, str], list[str]] = {}
+    for domain in results[0]:
+        for library in results:
+            method = _methodology(library[domain]).plain
+            methods.setdefault((domain, method), []).append(
+                library.image_build_info.image.library
+            )
 
-    return Group(
-        *(
-            Group(Text(f"Domains: {', '.join(domains)}"), Text(method))
-            for method, domains in methods.items()
-        )
-    )
+    groups: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+    for (domain, method), library_names in methods.items():
+        groups.setdefault((method, tuple(library_names)), []).append(domain)
+
+    sections = []
+    for (method, libraries), domains in groups.items():
+        section = Group(Text(f"Domains: {', '.join(domains)}"), Text(method))
+        if len(libraries) != len(results):
+            section = Group(Text(f"Libraries: {', '.join(libraries)}"), section)
+        sections.append(section)
+
+    return Group(*sections)
 
 
 def _methodology(result: LatencyResult) -> Text:
     measurement = result.measurement
     repetitions = measurement.elapsed_ticks.shape[1]
     return Text(
-        "Method: dependent-call chain (overhead included); "
-        "estimator: mean of per-sample medians\n"
-        f"Repetitions: {repetitions}; chain length: {measurement.chain_length}; "
-        f"passes: {measurement.pass_count}; warmup runs: {measurement.warmup_runs}"
+        "Method: dependent-call chain (overhead included)\n"
+        "Estimator: mean of per-sample medians\n"
+        f"Repetitions: {repetitions}\n"
+        f"Chain length: {measurement.chain_length}\n"
+        f"Passes: {measurement.pass_count}\n"
+        f"Warmup runs: {measurement.warmup_runs}"
     )

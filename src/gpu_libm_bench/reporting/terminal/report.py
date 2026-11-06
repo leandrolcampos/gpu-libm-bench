@@ -6,6 +6,7 @@
 from rich.console import Console, Group
 from rich.text import Text
 
+from gpu_libm_bench.compiler.images import ImageBuildInfo
 from gpu_libm_bench.devices import DeviceInfo
 from gpu_libm_bench.experiment import ExperimentResult
 
@@ -24,13 +25,21 @@ def print_result(
         console.print("No benchmark results.")
         return
 
+    metric = result.config.metric
     report = Group(
-        Text(_device_label(result.device_info), style="bold"),
-        Indented(_metric_report(result), top=1),
+        Text(f"{metric.name.title()} ({metric.unit})", style="bold"),
+        Indented(
+            Group(
+                Text(_device_label(result.device_info), style="bold"),
+                _metric_report(result),
+            ),
+            top=1,
+        ),
     )
 
     function = result.config.function
     console.rule(Text(function.name, style="bold"))
+
     arguments = ", ".join(
         f"{argument.type} {argument.name}" for argument in function.signature.arguments
     )
@@ -39,7 +48,7 @@ def print_result(
         soft_wrap=True,
     )
 
-    console.print(Indented(report, bottom=1), soft_wrap=True)
+    console.print(Indented(report, top=1, bottom=1), soft_wrap=True)
 
     if show_details:
         console.rule(Text("Configuration and Provenance", style="bold"))
@@ -62,18 +71,34 @@ def _metric_report(experiment: ExperimentResult) -> Group:
 def _configuration_report(experiment: ExperimentResult) -> Group:
     metric = experiment.config.metric.name
     if metric == "latency":
-        metric_details = _latency.build_details(experiment)
+        metric_details = _latency.build_details(experiment.results)
     else:
         raise ValueError(f"unsupported report metric: {metric!r}")
+
+    libraries = []
+    for result in experiment.results:
+        build_info = result.image_build_info
+        libraries.append(
+            Group(
+                Text(f"Library: {build_info.image.library}", style="bold"),
+                Indented(_image_details(build_info), bottom=1),
+            )
+        )
 
     return Group(
         Indented(_device_details(experiment.device_info), top=1, bottom=1),
         Indented(
             Group(
                 Text(f"Seed: {experiment.config.run.seed}"),
-                Text(f"Library: {experiment.image_build_info.image.library}"),
-                metric_details,
-                _experiment_details(experiment),
+                Text(
+                    "Environment: "
+                    + "; ".join(
+                        f"{name}={value}"
+                        for name, value in experiment.environment.items()
+                    )
+                ),
+                Indented(metric_details, left=0, top=1, bottom=1),
+                *libraries,
             )
         ),
     )
@@ -90,18 +115,11 @@ def _device_details(info: DeviceInfo) -> Group:
     )
 
 
-def _experiment_details(experiment: ExperimentResult) -> Group:
-    build_info = experiment.image_build_info
+def _image_details(build_info: ImageBuildInfo) -> Group:
     image = build_info.image
     target = image.target
 
     return Group(
-        Text(
-            "Environment: "
-            + "; ".join(
-                f"{name}={value}" for name, value in experiment.environment.items()
-            )
-        ),
         Text(f"Compiler: {build_info.compiler}\n{build_info.compiler_version}"),
         Text(
             f"SDK: {build_info.sdk_name} {build_info.sdk_version}; root: {build_info.sdk_root}"
