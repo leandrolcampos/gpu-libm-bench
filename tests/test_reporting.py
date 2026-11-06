@@ -30,7 +30,7 @@ from gpu_libm_bench.configs import (
     SignatureConfig,
 )
 from gpu_libm_bench.devices import DeviceImage, DeviceInfo, TimerInfo
-from gpu_libm_bench.experiment import Experiment, ExperimentResult, LatencyResults
+from gpu_libm_bench.experiment import ExperimentResult, LatencyResults
 from gpu_libm_bench.reporting.terminal import print_result
 
 
@@ -57,8 +57,12 @@ def experiment() -> ExperimentResult:
             domains,
         ),
         LatencyConfig("latency", "ns/call", 2, 512, 3, 10),
-        LibraryConfig("llvm-libm", {"cuda": LibraryArtifactConfig("/libm.bc")}),
         BackendConfig("cuda", target.target_triple, target.architecture, 0, "/cuda"),
+        {
+            "llvm-libm": LibraryConfig(
+                "llvm-libm", {"cuda": LibraryArtifactConfig("/libm.bc")}
+            )
+        },
         RunConfig(42, None),
         LLVMConfig("/llvm"),
     )
@@ -75,7 +79,7 @@ def experiment() -> ExperimentResult:
         ("-nostdlib",),
     )
 
-    results = {}
+    results = []
     for name in domains:
         measurement = LatencyMeasurement(
             inputs.InputBatch(
@@ -88,13 +92,15 @@ def experiment() -> ExperimentResult:
             10,
         )
 
-        results[name] = LatencyResult(
-            measurement,
-            np.array([10.123456789, 14.123456789]),
-            12.123456789,
-            stdev=8**0.5,
-            min=10.123456789,
-            max=14.123456789,
+        results.append(
+            LatencyResult(
+                measurement,
+                np.array([10.123456789, 14.123456789]),
+                12.123456789,
+                stdev=8**0.5,
+                min=10.123456789,
+                max=14.123456789,
+            )
         )
 
     return ExperimentResult(
@@ -102,8 +108,8 @@ def experiment() -> ExperimentResult:
         device_info,
         image_build_info,
         {"Python": "3.12", "NumPy": "2.0"},
-        Experiment(config).generator_descriptions,
-        LatencyResults(tuple(results.values())),
+        {"central": "x: uniform(-10, 10)", "wide": "x: uniform(-80, 80)"},
+        LatencyResults(tuple(results)),
     )
 
 
@@ -119,10 +125,10 @@ def _render(
     return output.getvalue()
 
 
-def test_report_presents_domain_statistics_and_provenance(
+def test_report_presents_domain_statistics_without_details(
     experiment: ExperimentResult,
 ) -> None:
-    output = _render(experiment, show_details=True)
+    output = _render(experiment)
 
     assert output.count("float expf(float x)") == 1
     assert output.count("Latency (ns/call)") == 1
@@ -132,6 +138,7 @@ def test_report_presents_domain_statistics_and_provenance(
     central = output.split("Domain: central", 1)[1].split("Domain: wide", 1)[0]
     labels = next(line for line in central.splitlines() if "StDev" in line)
     row = next(line for line in central.splitlines() if "12.123" in line)
+
     assert [cell.strip() for cell in labels.split("│")[1:-1]] == [
         "Library",
         "Mean",
@@ -149,7 +156,17 @@ def test_report_presents_domain_statistics_and_provenance(
         "2",
     ]
 
+    assert "Configuration and Provenance" not in output
+    assert "Compiler:" not in output and "Memory:" not in output
+    assert "Timer:" not in output and "Repetitions:" not in output
+
+
+def test_report_includes_provenance_when_requested(
+    experiment: ExperimentResult,
+) -> None:
+    output = _render(experiment, show_details=True)
     comparisons, provenance = output.split("Configuration and Provenance", 1)
+
     assert "Method:" not in comparisons and "Compiler:" not in comparisons
     assert "CUDA — 0: test GPU (sm_120)" in comparisons
     assert "Memory:" not in comparisons and "Timer:" not in comparisons
@@ -175,13 +192,21 @@ def test_report_presents_domain_statistics_and_provenance(
         assert raw_value not in output
 
 
-def test_report_omits_provenance_by_default(experiment: ExperimentResult) -> None:
-    output = _render(experiment)
+def test_report_uses_recorded_generator_descriptions(
+    experiment: ExperimentResult,
+) -> None:
+    descriptions = {
+        name: f"x: recorded generator for {name}\nrange: recorded range for {name}"
+        for name in experiment.results
+    }
+    result = replace(experiment, generator_descriptions=descriptions)
 
-    assert "Domain: central" in output and "Domain: wide" in output
-    assert "Configuration and Provenance" not in output
-    assert "Compiler:" not in output and "Memory:" not in output
-    assert "Timer:" not in output and "Repetitions:" not in output
+    output = _render(result)
+
+    for name, description in descriptions.items():
+        section = output.split(f"Domain: {name}", 1)[1].split("Domain:", 1)[0]
+        for line in description.splitlines():
+            assert line in section
 
 
 def test_domain_tables_preserve_widths_and_values(experiment: ExperimentResult) -> None:
@@ -205,20 +230,3 @@ def test_domain_tables_preserve_widths_and_values(experiment: ExperimentResult) 
     row = next(line for line in output.splitlines() if "1.2346e+07" in line)
     assert len(row) > 40
     assert "7.6543e+05" in row and "1.5e+07" in row
-
-
-def test_report_uses_recorded_generator_descriptions(
-    experiment: ExperimentResult,
-) -> None:
-    descriptions = {
-        name: f"x: recorded generator for {name}\nrange: recorded range for {name}"
-        for name in experiment.results
-    }
-    result = replace(experiment, generator_descriptions=descriptions)
-
-    output = _render(result)
-
-    for name, description in descriptions.items():
-        section = output.split(f"Domain: {name}", 1)[1].split("Domain:", 1)[0]
-        for line in description.splitlines():
-            assert line in section

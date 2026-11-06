@@ -71,7 +71,7 @@ def _configuration_report(experiment: ExperimentResult) -> Group:
         Indented(
             Group(
                 Text(f"Seed: {experiment.config.run.seed}"),
-                Text(f"Library: {experiment.config.library.name}"),
+                Text(f"Library: {experiment.image_build_info.image.library}"),
                 metric_details,
                 _experiment_details(experiment),
             )

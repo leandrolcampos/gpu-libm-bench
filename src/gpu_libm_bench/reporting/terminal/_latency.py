@@ -18,7 +18,7 @@ from ._layout import Indented
 
 
 def build_report(experiment: ExperimentResult) -> Group:
-    library = experiment.config.library.name
+    library = experiment.image_build_info.image.library
     domain_rows = {
         name: [(library, result)] for name, result in experiment.results.items()
     }
