@@ -50,7 +50,7 @@ def spec() -> KernelSpec:
             overrides=[
                 "function=expf",
                 "metric=latency",
-                "library=llvm-libm",
+                "run.libraries=[llvm-libm]",
                 "backend=cuda",
             ],
         )
@@ -84,6 +84,7 @@ def test_copy_preserves_values_and_destination_tail(
     else:
         source = source * np.float32(0.25) - np.float32(1)
     source.flags.writeable = False
+
     destination = np.full(source.size + 8, 99, dtype=dtype)
     initial = np.full(source.size + 5, 123, dtype=dtype)
 
@@ -96,53 +97,6 @@ def test_copy_preserves_values_and_destination_tail(
     np.testing.assert_array_equal(destination[: source.size], source)
     np.testing.assert_array_equal(destination[source.size : initial.size], initial[-5:])
     assert (destination[initial.size :] == 99).all()
-
-
-@pytest.mark.parametrize(
-    "config",
-    [
-        LaunchConfig(grid=(2, 1, 1), block=(32, 1, 1)),
-        LaunchConfig(grid=(2, 2, 1), block=(5, 3, 1)),
-        LaunchConfig(grid=(2, 2, 2), block=(3, 2, 2)),
-    ],
-)
-def test_evaluate_exp_preserves_tail(
-    context: DeviceContext, image: DeviceImage, spec: KernelSpec, config: LaunchConfig
-) -> None:
-    count = prod(config.grid) * prod(config.block) - 7
-    source = np.linspace(-2, 2, count, dtype=np.float32)
-    destination = np.full(count + 11, np.nan, dtype=np.float32)
-
-    x = context.create_buffer(source.size, dtype=source.dtype)
-    y = context.create_buffer(destination.size, dtype=destination.dtype)
-    context.copy_to_device(x, source)
-    context.copy_to_device(y, destination)
-
-    kernel = load_kernel(context, image, spec)
-    context.launch(kernel, x, y, np.uint64(count), config=config)
-    context.copy_to_host(destination, y)
-
-    np.testing.assert_allclose(destination[:count], np.exp(source), rtol=4e-7)
-    assert np.isnan(destination[count:]).all()
-
-
-def test_launch_observes_the_latest_host_copy(
-    context: DeviceContext, image: DeviceImage, spec: KernelSpec
-) -> None:
-    source = np.empty(1 << 16, dtype=np.float32)
-    destination = np.empty_like(source)
-    x = context.create_buffer(source.size, dtype=source.dtype)
-    y = context.create_buffer(destination.size, dtype=destination.dtype)
-    kernel = load_kernel(context, image, spec)
-    config = LaunchConfig(grid=(source.size // 256, 1, 1), block=(256, 1, 1))
-
-    for value in (-1, 1) * 16:
-        source.fill(value)
-        context.copy_to_device(x, source)
-        context.launch(kernel, x, y, np.uint64(source.size), config=config)
-        context.copy_to_host(destination, y)
-
-        np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
 
 
 def test_copy_rejects_incompatible_arrays(context: DeviceContext) -> None:
@@ -171,6 +125,65 @@ def test_copy_rejects_incompatible_arrays(context: DeviceContext) -> None:
         context.copy_to_host(destination, buffer)
 
 
+def test_module_reports_load_and_symbol_errors(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec, tmp_path: Path
+) -> None:
+    with pytest.raises(FileNotFoundError, match="missing.cubin"):
+        context.load_module(replace(image, path=tmp_path / "missing.cubin"))
+
+    module = context.load_module(image)
+    with pytest.raises(RuntimeError, match="missingKernel"):
+        module.get_kernel("missingKernel", spec=spec)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LaunchConfig(grid=(2, 1, 1), block=(32, 1, 1)),
+        LaunchConfig(grid=(2, 2, 1), block=(5, 3, 1)),
+        LaunchConfig(grid=(2, 2, 2), block=(3, 2, 2)),
+    ],
+)
+def test_evaluate_expf_preserves_tail(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec, config: LaunchConfig
+) -> None:
+    count = prod(config.grid) * prod(config.block) - 7
+    source = np.linspace(-2, 2, count, dtype=np.float32)
+    destination = np.full(count + 11, np.nan, dtype=np.float32)
+
+    x = context.create_buffer(source.size, dtype=source.dtype)
+    y = context.create_buffer(destination.size, dtype=destination.dtype)
+    context.copy_to_device(x, source)
+    context.copy_to_device(y, destination)
+
+    kernel = load_kernel(context, image, spec)
+    context.launch(kernel, x, y, np.uint64(count), config=config)
+    context.copy_to_host(destination, y)
+
+    np.testing.assert_allclose(destination[:count], np.exp(source), rtol=4e-7)
+    assert np.isnan(destination[count:]).all()
+
+
+def test_launch_observes_the_latest_host_copy(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec
+) -> None:
+    source = np.empty(1 << 16, dtype=np.float32)
+    destination = np.empty_like(source)
+
+    x = context.create_buffer(source.size, dtype=source.dtype)
+    y = context.create_buffer(destination.size, dtype=destination.dtype)
+    kernel = load_kernel(context, image, spec)
+    config = LaunchConfig(grid=(source.size // 256, 1, 1), block=(256, 1, 1))
+
+    for value in (-1, 1) * 16:
+        source.fill(value)
+        context.copy_to_device(x, source)
+        context.launch(kernel, x, y, np.uint64(source.size), config=config)
+        context.copy_to_host(destination, y)
+
+        np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
+
+
 def test_launch_rejects_incompatible_arguments(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec
 ) -> None:
@@ -184,17 +197,6 @@ def test_launch_rejects_incompatible_arguments(
         context.launch(kernel, buffer, buffer, np.int32(8), config=config)
     with pytest.raises(TypeError, match="expects a device buffer"):
         context.launch(kernel, np.float32(0), buffer, np.uint64(8), config=config)
-
-
-def test_module_reports_load_and_symbol_errors(
-    context: DeviceContext, image: DeviceImage, spec: KernelSpec, tmp_path: Path
-) -> None:
-    with pytest.raises(FileNotFoundError, match="missing.cubin"):
-        context.load_module(replace(image, path=tmp_path / "missing.cubin"))
-
-    module = context.load_module(image)
-    with pytest.raises(RuntimeError, match="missingKernel"):
-        module.get_kernel("missingKernel", spec=spec)
 
 
 def test_kernel_and_buffer_outlive_the_creating_session(

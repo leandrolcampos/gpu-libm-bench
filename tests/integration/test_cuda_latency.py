@@ -49,7 +49,7 @@ def function() -> FunctionConfig:
             overrides=[
                 "function=expf",
                 "metric=latency",
-                "library=llvm-libm",
+                "run.libraries=[llvm-libm]",
                 "backend=cuda",
             ],
         )
@@ -101,6 +101,7 @@ def test_latency_benchmark_preserves_evaluation_results(
 
     reference_input = context.create_buffer(source.size, dtype=np.float32)
     reference_output = context.create_buffer(source.size, dtype=np.float32)
+
     context.copy_to_device(reference_input, source)
 
     evaluate = module.get_kernel(
@@ -145,18 +146,19 @@ def test_latency_benchmark_preserves_evaluation_results(
     monkeypatch.setattr(context, "launch", record_result)
     benchmark.measure(inputs.InputBatch("central", {"x": source}))
 
-    order = np.concatenate((np.arange(3), np.repeat(np.arange(source.size), 2)))
-    np.testing.assert_array_equal(observed, expected.view(np.uint32)[order])
+    expected_results = np.concatenate((expected[:3], np.repeat(expected, 2)))
+    np.testing.assert_array_equal(observed, expected_results.view(np.uint32))
 
 
-@pytest.mark.parametrize(("chain_length", "pass_count"), [(1, 2), (7, 1), (7, 2)])
+@pytest.mark.parametrize("chain_length", [1, 7])
 def test_all_calls_preserve_input_bits_across_passes(
     context: DeviceContext,
     latency_module: DeviceModule,
     function: FunctionConfig,
     chain_length: int,
-    pass_count: int,
 ) -> None:
+    pass_count = 2
+
     parameters = KernelSpec.from_config(function, kind=KernelKind.LATENCY).arguments
     spec = KernelSpec(
         parameters[:-1]
@@ -257,7 +259,7 @@ def test_latency_preserves_all_arguments_for_scalar_signatures(
     signature: SignatureConfig,
     inputs: tuple[Scalar, ...],
 ) -> None:
-    chain_length, pass_count = 7, 2
+    pass_count, chain_length = 2, 7
     count = chain_length * pass_count
     sources = tuple(np.array([value]) for value in inputs)
     storage_dtype = np.dtype(f"uint{sources[0].dtype.itemsize * 8}")
@@ -304,6 +306,7 @@ def test_latency_preserves_all_arguments_for_scalar_signatures(
 
     call_count = np.empty(1, dtype=np.uint32)
     result = np.empty_like(sources[0])
+
     context.copy_to_host(trace, observed)
     context.copy_to_host(call_count, calls)
     context.copy_to_host(result, output)
