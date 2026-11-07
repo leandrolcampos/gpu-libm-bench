@@ -5,8 +5,10 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from operator import index
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -42,54 +44,62 @@ class InputGenerator(ABC):
     def from_config(
         config: InputGeneratorConfig,
         signature: SignatureConfig,
-        *,
-        domain_name: str,
-        rng: np.random.Generator | None = None,
+        **kwargs: Any,
     ) -> "InputGenerator":
-        if config.name != "random" or not isinstance(config, RandomGeneratorConfig):
-            raise ValueError(f"unknown input generator: {config.name!r}")
-        if rng is None:
-            raise ValueError("random input generation requires an explicit Generator")
-
-        distributions = _distributions_from_config(signature, config.arguments)
-        return RandomGenerator(distributions, rng, domain=domain_name)
-
-    @abstractmethod
-    def generate(self, batch_size: int) -> InputBatch: ...
+        if config.name == "random":
+            return RandomGenerator.from_config(config, signature, **kwargs)
+        raise ValueError(f"unknown input generator: {config.name!r}")
 
     @abstractmethod
     def __str__(self) -> str: ...
 
+    @abstractmethod
     def batches(
-        self, batch_size: int, *, drop_remainder: bool = False
-    ) -> Iterator[InputBatch]:
-        while True:
-            try:
-                batch = self.generate(batch_size)
-            except StopIteration:
-                return
-
-            if drop_remainder and batch.size < batch_size:
-                return
-
-            yield batch
+        self, batch_size: int | None = None, *, drop_remainder: bool = False
+    ) -> Iterator[InputBatch]: ...
 
 
 class RandomGenerator(InputGenerator):
     def __init__(
         self,
         distributions: Mapping[str, Distribution[Scalar]],
-        rng: np.random.Generator,
         *,
+        sample_size: int,
         domain: str,
+        rng: np.random.Generator,
     ) -> None:
         if not distributions:
             raise ValueError("at least one input distribution is required")
 
+        if isinstance(sample_size, (bool, np.bool_)):
+            raise TypeError("sample_size must be an integer")
+        try:
+            sample_size = index(sample_size)
+        except TypeError:
+            raise TypeError("sample_size must be an integer") from None
+        if sample_size <= 0:
+            raise ValueError("sample_size must be positive")
+
+        if not isinstance(rng, np.random.Generator):
+            raise TypeError("rng must be a NumPy Generator")
+
         self._distributions = dict(distributions)
         names = sorted(self._distributions)
         self._rngs = dict(zip(names, rng.spawn(len(names)), strict=True))
+        self._sample_size = sample_size
         self._domain = domain
+
+    @staticmethod
+    def from_config(
+        config: InputGeneratorConfig,
+        signature: SignatureConfig,
+        **kwargs: Any,
+    ) -> "RandomGenerator":
+        if not isinstance(config, RandomGeneratorConfig):
+            raise ValueError("random input generation requires RandomGeneratorConfig")
+
+        distributions = _distributions_from_config(signature, config.arguments)
+        return RandomGenerator(distributions, **kwargs)
 
     def __str__(self) -> str:
         return "\n".join(
@@ -97,21 +107,33 @@ class RandomGenerator(InputGenerator):
             for name, distribution in self._distributions.items()
         )
 
-    def generate(self, batch_size: int) -> InputBatch:
+    def batches(
+        self, batch_size: int | None = None, *, drop_remainder: bool = False
+    ) -> Iterator[InputBatch]:
+        if batch_size is None:
+            batch_size = 1
         if isinstance(batch_size, (bool, np.bool_)):
             raise TypeError("batch_size must be an integer")
-
-        batch_size = index(batch_size)
+        try:
+            batch_size = index(batch_size)
+        except TypeError:
+            raise TypeError("batch_size must be an integer") from None
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
 
-        return InputBatch(
-            domain=self._domain,
-            arguments={
-                name: distribution(self._rngs[name], batch_size)
-                for name, distribution in self._distributions.items()
-            },
-        )
+        rngs = deepcopy(self._rngs)
+        for start in range(0, self._sample_size, batch_size):
+            size = min(batch_size, self._sample_size - start)
+            if drop_remainder and size < batch_size:
+                return
+
+            yield InputBatch(
+                domain=self._domain,
+                arguments={
+                    name: distribution(rngs[name], size)
+                    for name, distribution in self._distributions.items()
+                },
+            )
 
 
 def _distributions_from_config(
