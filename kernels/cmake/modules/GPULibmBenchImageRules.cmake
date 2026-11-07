@@ -24,7 +24,7 @@ function(gpu_libm_bench_configure_library library_target)
     OBJECT_DEPENDS "${bitcode_path}")
 
   set_target_properties(${library_target} PROPERTIES OUTPUT_NAME math)
-  gpu_libm_bench_configure_device_image(${library_target} "${GPU_LIBM_BENCH_LIBRARY}")
+  gpu_libm_bench_configure_device_image(${library_target} "${CMAKE_BINARY_DIR}")
   target_compile_options(${library_target} PRIVATE
     "SHELL:-Xclang -mlink-builtin-bitcode -Xclang \"${bitcode_path}\"")
 
@@ -32,7 +32,7 @@ function(gpu_libm_bench_configure_library library_target)
   gpu_libm_bench_write_device_image_metadata(${library_target} "${directory}")
 endfunction()
 
-function(gpu_libm_bench_configure_device_image image_target subdirectory)
+function(gpu_libm_bench_configure_device_image image_target directory)
   foreach(variable IN ITEMS SDK_ROOT ARCHITECTURE)
     if(NOT GPU_LIBM_BENCH_${variable})
       message(FATAL_ERROR "GPU_LIBM_BENCH_${variable} must be provided")
@@ -45,16 +45,14 @@ function(gpu_libm_bench_configure_device_image image_target subdirectory)
   target_link_options(${image_target} PRIVATE -O3)
 
   if(GPU_LIBM_BENCH_TARGET_TRIPLE STREQUAL "nvptx64-nvidia-cuda")
-    _gpu_libm_bench_configure_cuda_image(${image_target} "${subdirectory}")
+    _gpu_libm_bench_configure_cuda_image(${image_target} "${directory}")
   else()
     message(FATAL_ERROR
       "Unsupported device target: ${GPU_LIBM_BENCH_TARGET_TRIPLE}")
   endif()
 endfunction()
 
-function(_gpu_libm_bench_configure_cuda_image image_target subdirectory)
-  set(directory
-    "${CMAKE_BINARY_DIR}/cuda/${GPU_LIBM_BENCH_ARCHITECTURE}/${subdirectory}")
+function(_gpu_libm_bench_configure_cuda_image image_target directory)
   get_target_property(output_name ${image_target} OUTPUT_NAME)
   set(ptx "${directory}/${output_name}.ptx")
 
