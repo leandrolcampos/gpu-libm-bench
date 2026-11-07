@@ -69,13 +69,7 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         return LibraryBitcode(library, bitcode_path or tmp_path / f"{library}.bc")
 
     def configure(*, bitcode, target, build_directory, **kwargs):
-        plan = (
-            build_directory
-            / target.backend
-            / target.architecture
-            / bitcode.library
-            / "build-plan.json"
-        )
+        plan = build_directory / "build-plan.json"
         plan.parent.mkdir(parents=True)
 
         plan.write_text(
