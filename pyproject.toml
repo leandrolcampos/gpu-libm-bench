@@ -74,9 +74,9 @@ cuda-test = { cmd = "pytest -m 'cuda and not execution'", depends-on = ["cuda-bu
 cuda-tidy = { cmd = "run-clang-tidy -quiet -p build/backends/cuda", depends-on = ["cuda-configure"] }
 
 images-test = { cmd = "pytest -m images", depends-on = ["kernels-build"] }
-kernels-build = "python -m gpu_libm_bench.compiler kernels --build-tests library=llvm-libm backend=cuda"
-kernels-configure = "python -m gpu_libm_bench.compiler kernels --configure-only --build-tests library=llvm-libm backend=cuda"
-kernels-tidy = { cmd = "run-clang-tidy -quiet -p build/kernels", depends-on = ["kernels-configure"] }
+kernels-build = "python -m gpu_libm_bench.compiler kernels --build-tests"
+kernels-configure = "python -m gpu_libm_bench.compiler kernels --configure-only --build-tests"
+kernels-tidy = "python -m gpu_libm_bench.compiler kernels --tidy --build-tests"
 
 list-devices = "python tools/list_devices.py"
 native-format-check = "find backends kernels -regextype posix-extended -type f -regex '.*\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|cu|cuh|hip|inc)' -exec clang-format --dry-run --Werror '{}' +"
@@ -103,3 +103,4 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["B", "E4", "E7", "E9", "F", "I", "UP"]
+extend-select = ["E501"]
