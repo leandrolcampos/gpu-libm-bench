@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Integration tests for compiled device images."""
+"""Integration tests for math library calls, linking, and compiled device images."""
 
 import json
 import os
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.images
 def compiled_image() -> tuple[DeviceImage, LLVMToolchain, dict[str, Any]]:
     configured = os.environ.get("GPU_LIBM_BENCH_DEVICE_IMAGE")
     if configured is not None:
-        image = Path(configured).resolve()
+        image_path = Path(configured).resolve()
     else:
         root = Path(__file__).resolve().parents[2] / "build" / "kernels"
         candidates = list(root.glob("cuda/*/llvm-libm/math.cubin"))
@@ -35,13 +35,15 @@ def compiled_image() -> tuple[DeviceImage, LLVMToolchain, dict[str, Any]]:
             pytest.fail(
                 "Build a device image or set GPU_LIBM_BENCH_DEVICE_IMAGE to select one."
             )
-        image = candidates[0]
+        image_path = candidates[0]
 
-    metadata = json.loads(image.with_suffix(".manifest.json").read_text())
+    metadata = json.loads(image_path.with_suffix(".manifest.json").read_text())
     target = CompilationTarget(
         metadata["backend"], metadata["target_triple"], metadata["architecture"]
     )
-    image = resolve_device_image(metadata["library"], target=target, image_path=image)
+    image = resolve_device_image(
+        metadata["library"], target=target, image_path=image_path
+    )
     llvm = resolve_llvm(Path(metadata["llvm_root"]))
 
     return image, llvm, metadata
@@ -58,7 +60,6 @@ def unlinked_command(
 
     command = []
     index = 0
-
     while index < len(arguments):
         if arguments[index : index + 3] == [
             "-Xclang",
@@ -75,40 +76,6 @@ def unlinked_command(
             index += 1
 
     return command
-
-
-def test_image_exports_registered_kernels(
-    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
-) -> None:
-    image, llvm, metadata = compiled_image
-    symbols = run_tool(
-        [
-            llvm.llvm_nm,
-            "--defined-only",
-            "--extern-only",
-            "--just-symbol-name",
-            image.path,
-        ]
-    ).splitlines()
-
-    ptx = Path(metadata["ptx"]).read_text()
-    assert re.search(
-        rf"^\.target {re.escape(image.target.architecture)}(?:,|\s|$)",
-        ptx,
-        re.MULTILINE,
-    )
-
-    for function in metadata["functions"]:
-        for kind in KernelKind:
-            request = KernelRequest(image.library, function, kind)
-            assert request.symbol in symbols
-            assert re.search(
-                rf"\.visible\s+\.entry\s+{re.escape(request.symbol)}\(", ptx
-            )
-
-    cuobjdump = Path(metadata["sdk_root"]) / "bin" / "cuobjdump"
-    dump = run_tool([cuobjdump, "--dump-sass", image.path])
-    assert f"code for {image.target.architecture}" in dump
 
 
 def test_wrappers_preserve_math_function_calls(
@@ -142,3 +109,37 @@ def test_missing_library_cannot_be_replaced_by_a_builtin(
 
     assert result.returncode != 0
     assert re.search(r"(?:undefined|unresolved)[^\n]*\bexpf\b", result.stderr, re.I)
+
+
+def test_image_exports_registered_kernels(
+    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
+) -> None:
+    image, llvm, metadata = compiled_image
+    symbols = run_tool(
+        [
+            llvm.llvm_nm,
+            "--defined-only",
+            "--extern-only",
+            "--just-symbol-name",
+            image.image_path,
+        ]
+    ).splitlines()
+
+    ptx = Path(metadata["ptx"]).read_text()
+    assert re.search(
+        rf"^\.target {re.escape(image.target.architecture)}(?:,|\s|$)",
+        ptx,
+        re.MULTILINE,
+    )
+
+    for function in metadata["functions"]:
+        for kind in KernelKind:
+            request = KernelRequest(image.library, function, kind)
+            assert request.symbol in symbols
+            assert re.search(
+                rf"\.visible\s+\.entry\s+{re.escape(request.symbol)}\(", ptx
+            )
+
+    cuobjdump = Path(metadata["sdk_root"]) / "bin" / "cuobjdump"
+    dump = run_tool([cuobjdump, "--dump-sass", image.image_path])
+    assert f"code for {image.target.architecture}" in dump
