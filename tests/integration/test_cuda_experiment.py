@@ -37,7 +37,9 @@ def test_experiment_collects_latency_and_reuses_its_image(
             )
         )
 
-    monkeypatch.setattr(experiment_module, "project_directory", lambda: tmp_path)
+    monkeypatch.setattr(
+        experiment_module._paths, "build_root", lambda: tmp_path / "build"
+    )
 
     first = Experiment(config).run()
     image = first.results[0].image_build_info.image

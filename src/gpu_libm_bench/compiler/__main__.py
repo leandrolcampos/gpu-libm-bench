@@ -4,7 +4,6 @@
 """Command-line configuration and compilation of native backends and GPU kernels."""
 
 import argparse
-import os
 import sys
 from collections.abc import Sequence
 from itertools import groupby
@@ -25,7 +24,7 @@ from gpu_libm_bench.configs import (
 )
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 
-from ._cmake import CMakeBuild, project_directory
+from ._cmake import CMakeBuild
 from ._commands import run_tool
 from .backends import BackendNotFoundError, build_backend, configure_backend
 from .images import build_kernels, configure_kernels
@@ -50,7 +49,7 @@ def main() -> None:
     )
     parser.add_argument("project", choices=("backend", "kernels"))
     parser.add_argument(
-        "--build-dir", type=Path, help="Root directory for native builds."
+        "--build-root", type=Path, help="Root directory for native builds."
     )
 
     mode = parser.add_mutually_exclusive_group()
@@ -150,7 +149,7 @@ def _compile_backends(
     *,
     explicit_backend: bool,
 ) -> None:
-    root = arguments.build_dir or project_directory() / "build" / "backends"
+    build_root = arguments.build_root
     compile_backend = configure_backend if arguments.configure_only else build_backend
     completed = 0
 
@@ -170,7 +169,9 @@ def _compile_backends(
         compile_backend(
             backend.name,
             sdk=sdk,
-            build_directory=root / backend.name,
+            build_directory=build_root / backend.name
+            if build_root is not None
+            else None,
             build_tests=arguments.build_tests,
         )
         completed += 1
@@ -285,14 +286,7 @@ def _get_device_info(backend: BackendConfig, *, sdk: CUDAToolkit) -> DeviceInfo 
     try:
         count = DeviceContext.device_count(backend=backend.name)
     except BackendNotFoundError:
-        configured = os.environ.get("GPU_LIBM_BENCH_BACKEND_DIR")
-        build_backend(
-            backend.name,
-            sdk=sdk,
-            build_directory=Path(configured).expanduser() / backend.name
-            if configured is not None
-            else None,
-        )
+        build_backend(backend.name, sdk=sdk)
         count = DeviceContext.device_count(backend=backend.name)
 
     if count == 0:
@@ -324,14 +318,14 @@ def _compile_library_kernels(
         if arguments.configure_only or arguments.tidy
         else build_kernels
     )
-    root = arguments.build_dir
+    build_root = arguments.build_root
     build = compile_kernels(
         bitcode=bitcode,
         target=target,
         llvm=llvm,
         sdk=sdk,
-        build_directory=root / target.backend / target.architecture / library.name
-        if root is not None
+        build_directory=build_root / target.backend / target.architecture / library.name
+        if build_root is not None
         else None,
         build_tests=arguments.build_tests,
     )

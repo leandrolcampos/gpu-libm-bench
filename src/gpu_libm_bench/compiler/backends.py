@@ -12,7 +12,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import ModuleType
 
-from ._cmake import CMakeBuild, project_directory
+from . import _paths
+from ._cmake import CMakeBuild
 from .toolchains import CUDAToolkit
 
 
@@ -30,7 +31,6 @@ def build_backend(
     build = configure_backend(
         backend, sdk=sdk, build_directory=build_directory, build_tests=build_tests
     )
-
     build.build()
 
     directory = build.build_directory.expanduser().resolve() / "python"
@@ -54,19 +54,20 @@ def configure_backend(
     if isinstance(sdk, CUDAToolkit):
         if backend != "cuda":
             raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA backend")
+
         sdk_arguments = (f"-DCUDAToolkit_ROOT={sdk.root}",)
         sdk_files = (sdk.ptxas,)
     else:
         raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
 
     pybind11 = import_module("pybind11")
-    project = project_directory()
+    project = _paths.source_root()
 
     build = CMakeBuild(
         project / "backends" / backend,
         build_directory
         if build_directory is not None
-        else project / "build" / "backends" / backend,
+        else _default_build_directory(backend),
         arguments=(
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DPython_EXECUTABLE={sys.executable}",
@@ -91,26 +92,13 @@ def configure_backend(
 
 def get_backend(backend: str) -> ModuleType:
     module_name = f"gpu_libm_bench.backends._{backend}"
-
     try:
         return import_module(module_name)
     except ModuleNotFoundError as error:
         if error.name != module_name:
             raise
 
-    configured_directory = os.environ.get("GPU_LIBM_BENCH_BACKEND_DIR")
-    if configured_directory is not None:
-        backend_directory = Path(configured_directory).expanduser()
-    else:
-        package_directory = Path(__file__).resolve().parents[1]
-        if package_directory.parent.name != "src":
-            raise BackendNotFoundError(
-                f"native backend {module_name!r} is not installed. "
-                "Set GPU_LIBM_BENCH_BACKEND_DIR to the native backend build directory"
-            )
-        backend_directory = project_directory() / "build" / "backends"
-
-    directory = backend_directory / backend / "python"
+    directory = _default_build_directory(backend) / "python"
     for suffix in EXTENSION_SUFFIXES:
         path = directory / f"_{backend}{suffix}"
         if path.is_file():
@@ -118,9 +106,16 @@ def get_backend(backend: str) -> ModuleType:
 
     raise BackendNotFoundError(
         f"native backend {module_name!r} was not found in {directory}. "
-        f"Build it with 'pixi run -e native {backend}-build', or set "
-        "GPU_LIBM_BENCH_BACKEND_DIR to the native backend build directory"
+        f"Build it with 'python -m gpu_libm_bench.compiler backend backend={backend}', "
+        "or set GPU_LIBM_BENCH_BACKEND_DIR to the native backend build directory"
     )
+
+
+def _default_build_directory(backend: str) -> Path:
+    configured = os.environ.get("GPU_LIBM_BENCH_BACKEND_DIR")
+    if configured is not None:
+        return Path(configured).expanduser() / backend
+    return _paths.build_root() / "backends" / backend
 
 
 def _load_backend(path: Path, *, module_name: str) -> ModuleType:

@@ -31,7 +31,6 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     sdk = CUDAToolkit(tmp_path / "sdk", tmp_path / "sdk/bin/ptxas", "13.4")
     monkeypatch.setattr(build_cli, "resolve_sdk", Mock(return_value=sdk))
     monkeypatch.setattr(build_cli, "resolve_llvm", Mock(return_value=llvm))
-    monkeypatch.setattr(build_cli, "project_directory", lambda: tmp_path)
 
     monkeypatch.setattr(build_cli, "build_backend", Mock())
     monkeypatch.setattr(build_cli, "configure_backend", Mock())
@@ -137,7 +136,7 @@ def test_backend_command_requires_only_backend_config(compiler, tmp_path: Path) 
         "backend",
         "--configure-only",
         "--build-tests",
-        "--build-dir",
+        "--build-root",
         str(tmp_path / "custom"),
         "backend=cuda",
         f"backend.sdk_root={tmp_path / 'sdk'}",
@@ -211,7 +210,7 @@ def test_kernel_discovery_and_filters(
 ) -> None:
     compiler(
         "kernels",
-        "--build-dir",
+        "--build-root",
         str(tmp_path),
         "backend.architecture=sm_90",
         *filters,
@@ -237,7 +236,7 @@ def test_kernel_command_preserves_build_selection(
     bitcode_path = tmp_path / "custom.bc"
     compiler(
         "kernels",
-        "--build-dir",
+        "--build-root",
         str(root),
         "--build-tests",
         "backend=cuda",
@@ -386,10 +385,7 @@ def test_no_device_requires_explicit_architecture(compiler) -> None:
         compiler("kernels", "backend=cuda")
 
 
-def test_architecture_discovery_builds_only_a_missing_backend(
-    compiler, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("GPU_LIBM_BENCH_BACKEND_DIR", str(tmp_path / "backends"))
+def test_architecture_discovery_builds_only_a_missing_backend(compiler) -> None:
     build_cli.DeviceContext.device_count.side_effect = [
         BackendNotFoundError("missing"),
         1,
@@ -400,7 +396,6 @@ def test_architecture_discovery_builds_only_a_missing_backend(
     build_cli.build_backend.assert_called_once_with(
         "cuda",
         sdk=build_cli.resolve_sdk.return_value,
-        build_directory=tmp_path / "backends" / "cuda",
     )
 
 
@@ -411,7 +406,7 @@ def test_configure_and_tidy_use_each_selected_build_directory(
     compiler(
         "kernels",
         "backend=cuda",
-        "--build-dir",
+        "--build-root",
         str(tmp_path),
         mode,
         "--build-tests",

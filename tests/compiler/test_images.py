@@ -90,7 +90,7 @@ def test_kernel_configuration_preserves_tools_and_library(
 def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
     llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(images, "project_directory", lambda: tmp_path)
+    monkeypatch.setattr(images._paths, "build_root", lambda: tmp_path / "build")
     monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
     monkeypatch.setattr(
         images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
@@ -104,6 +104,7 @@ def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
         sdk=sdk,
     )
 
+    assert build.source_directory == images._paths.source_root() / "kernels"
     root = tmp_path / "build" / "kernels"
     assert build.build_directory == root / "cuda" / "sm_120" / "llvm-libm"
     plan = build.build_directory / "build-plan.json"

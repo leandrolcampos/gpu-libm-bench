@@ -153,7 +153,9 @@ def execution(
         Mock(return_value=image_build_info.image.target),
     )
 
-    monkeypatch.setattr(experiment_module, "project_directory", lambda: tmp_path)
+    monkeypatch.setattr(
+        experiment_module._paths, "build_root", lambda: tmp_path / "build"
+    )
     monkeypatch.setattr(
         experiment_module._libraries,
         "select_libraries",
@@ -353,19 +355,7 @@ def test_run_collects_comparable_results_for_each_library(
     context.__exit__.assert_called_once()
 
 
-@pytest.mark.parametrize("custom_directory", [False, True])
-def test_run_builds_a_missing_backend(
-    config: ExperimentConfig,
-    execution,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    custom_directory: bool,
-) -> None:
-    if custom_directory:
-        monkeypatch.setenv("GPU_LIBM_BENCH_BACKEND_DIR", str(tmp_path))
-    else:
-        monkeypatch.delenv("GPU_LIBM_BENCH_BACKEND_DIR", raising=False)
-
+def test_run_builds_a_missing_backend(config: ExperimentConfig, execution) -> None:
     experiment_module.get_backend.side_effect = BackendNotFoundError(
         "extension is missing"
     )
@@ -375,7 +365,6 @@ def test_run_builds_a_missing_backend(
     experiment_module.build_backend.assert_called_once_with(
         "cuda",
         sdk=experiment_module.resolve_sdk.return_value,
-        build_directory=tmp_path / "cuda" if custom_directory else None,
     )
 
 

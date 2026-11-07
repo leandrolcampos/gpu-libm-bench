@@ -13,10 +13,6 @@ from typing import Any
 from ._commands import run_tool
 
 
-def project_directory() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
 @dataclass(frozen=True, slots=True)
 class CMakeBuild:
     source_directory: Path

@@ -11,7 +11,8 @@ from typing import Any
 
 from gpu_libm_bench.devices import DeviceImage
 
-from ._cmake import CMakeBuild, project_directory
+from . import _paths
+from ._cmake import CMakeBuild
 from ._commands import run_tool
 from .libraries import LibraryBitcode
 from .targets import CompilationTarget
@@ -69,7 +70,7 @@ def configure_kernels(
         bitcode=bitcode, target=target, llvm=llvm, sdk=sdk
     )
 
-    project = project_directory()
+    project = _paths.source_root()
     if build_directory is None:
         build_directory = _default_build_directory(bitcode.library, target=target)
 
@@ -262,12 +263,7 @@ def _image_cmake_arguments(
 
 def _default_build_directory(library: str, *, target: CompilationTarget) -> Path:
     return (
-        project_directory()
-        / "build"
-        / "kernels"
-        / target.backend
-        / target.architecture
-        / library
+        _paths.build_root() / "kernels" / target.backend / target.architecture / library
     )
 
 

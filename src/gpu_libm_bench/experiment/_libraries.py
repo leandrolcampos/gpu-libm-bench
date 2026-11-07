@@ -5,7 +5,7 @@
 
 from pathlib import Path
 
-from gpu_libm_bench.compiler._cmake import project_directory
+from gpu_libm_bench.compiler import _paths
 from gpu_libm_bench.compiler.images import configure_kernels, read_registered_functions
 from gpu_libm_bench.compiler.libraries import (
     LibraryBitcode,
@@ -37,7 +37,7 @@ def select_libraries(
     explicit = config.run.libraries is not None
     names = config.libraries if config.run.libraries is None else config.run.libraries
     if build_root is None:
-        build_root = project_directory() / "build" / "kernels" / "libraries"
+        build_root = _paths.build_root() / "kernels" / "libraries"
 
     selected = []
     for name in names:

@@ -3,7 +3,6 @@
 
 """Benchmark experiment orchestration."""
 
-import os
 import platform
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.compiler._cmake import project_directory
+from gpu_libm_bench.compiler import _paths
 from gpu_libm_bench.compiler.backends import (
     BackendNotFoundError,
     build_backend,
@@ -174,14 +173,7 @@ class Experiment:
         try:
             get_backend(backend.name)
         except BackendNotFoundError:
-            backend_root = os.environ.get("GPU_LIBM_BENCH_BACKEND_DIR")
-            build_backend(
-                backend.name,
-                sdk=sdk,
-                build_directory=Path(backend_root).expanduser() / backend.name
-                if backend_root is not None
-                else None,
-            )
+            build_backend(backend.name, sdk=sdk)
 
     def _prepare_images(
         self,
@@ -190,7 +182,7 @@ class Experiment:
         target: CompilationTarget,
         sdk: CUDAToolkit,
     ) -> tuple[DeviceImageBuildInfo, ...]:
-        build_root = project_directory() / "build" / "kernels" / "libraries"
+        build_root = _paths.build_root() / "kernels" / "libraries"
         bitcodes = _libraries.select_libraries(
             self._config, llvm=llvm, target=target, sdk=sdk, build_root=build_root
         )
