@@ -27,8 +27,7 @@ TARGET = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
 @pytest.fixture
 def image_path(tmp_path: Path) -> Path:
-    image_path = tmp_path / "cuda" / "sm_120" / "llvm-libm" / "math.cubin"
-    image_path.parent.mkdir(parents=True)
+    image_path = tmp_path / "math.cubin"
     image_path.touch()
 
     image_path.with_suffix(".manifest.json").write_text(
@@ -59,7 +58,9 @@ def image_path(tmp_path: Path) -> Path:
 
 
 def test_kernel_configuration_preserves_tools_and_library(
-    llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    llvm: LLVMToolchain,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bitcode = LibraryBitcode("llvm-libm", tmp_path / "libm.bc")
     sdk = CUDAToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
@@ -83,6 +84,72 @@ def test_kernel_configuration_preserves_tools_and_library(
     assert "-DGPU_LIBM_BENCH_SDK_ROOT=/custom cuda" in arguments
     assert f"-DGPU_LIBM_BENCH_BITCODE_PATH={bitcode.bitcode_path}" in arguments
     assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
+
+
+def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
+    llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(images, "project_directory", lambda: tmp_path)
+    monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
+    monkeypatch.setattr(
+        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
+    )
+    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
+
+    build = configure_kernels(
+        bitcode=LibraryBitcode("llvm-libm", tmp_path / "libm.bc"),
+        target=TARGET,
+        llvm=llvm,
+        sdk=sdk,
+    )
+
+    root = tmp_path / "build" / "kernels"
+    assert build.build_directory == root / "cuda" / "sm_120" / "llvm-libm"
+    plan = build.build_directory / "build-plan.json"
+    plan.parent.mkdir(parents=True)
+    plan.write_text(
+        json.dumps(
+            {
+                "library": "llvm-libm",
+                "backend": "cuda",
+                "architecture": "sm_120",
+                "target_triple": TARGET.target_triple,
+                "functions": ["expf"],
+            }
+        )
+    )
+    assert read_registered_functions(build, library="llvm-libm", target=TARGET) == (
+        "expf",
+    )
+
+    image_path = plan.with_name("math.cubin")
+    image_path.touch()
+    image_path.with_suffix(".manifest.json").write_text(plan.read_text())
+    image = resolve_device_image("llvm-libm", target=TARGET)
+    assert image.image_path == image_path
+
+
+def test_kernel_build_resolves_images_in_its_build_directory(
+    llvm: LLVMToolchain,
+    tmp_path: Path,
+    image_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
+    monkeypatch.setattr(CMakeBuild, "build", lambda self: None)
+    monkeypatch.setattr(
+        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
+    )
+
+    image = images.build_kernels(
+        bitcode=LibraryBitcode("llvm-libm", tmp_path / "libm.bc"),
+        target=TARGET,
+        llvm=llvm,
+        sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
+        build_directory=tmp_path,
+    )
+
+    assert image.image_path == image_path
 
 
 @pytest.mark.parametrize(
@@ -122,7 +189,7 @@ def test_default_image_preserves_declared_functions(
     metadata["functions"] = functions
     manifest_path.write_text(json.dumps(metadata))
 
-    image = resolve_device_image("llvm-libm", target=TARGET, build_root=tmp_path)
+    image = resolve_device_image("llvm-libm", target=TARGET, build_directory=tmp_path)
 
     assert image.image_path == image_path
     assert image.functions == tuple(functions)
@@ -135,7 +202,7 @@ def test_custom_image_selection_does_not_fall_back(
     custom.touch()
 
     image = resolve_device_image(
-        "llvm-libm", target=TARGET, image_path=custom, build_root=tmp_path
+        "llvm-libm", target=TARGET, image_path=custom, build_directory=tmp_path
     )
 
     assert image.image_path == custom
@@ -144,7 +211,7 @@ def test_custom_image_selection_does_not_fall_back(
     custom.unlink()
     with pytest.raises(FileNotFoundError, match="custom.cubin"):
         resolve_device_image(
-            "llvm-libm", target=TARGET, image_path=custom, build_root=tmp_path
+            "llvm-libm", target=TARGET, image_path=custom, build_directory=tmp_path
         )
 
 

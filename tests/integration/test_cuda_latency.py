@@ -77,13 +77,12 @@ def latency_module(context: DeviceContext) -> DeviceModule:
     info = context.device_info
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", info.architecture)
 
-    root = Path(__file__).resolve().parents[2] / "build" / "kernels"
-    path = Path(
-        os.environ.get(
-            "GPU_LIBM_BENCH_LATENCY_IMAGE",
-            root / "cuda" / info.architecture / "tests" / "latency.cubin",
-        )
-    )
+    configured = os.environ.get("GPU_LIBM_BENCH_LATENCY_IMAGE")
+    if configured is not None:
+        path = Path(configured)
+    else:
+        image = resolve_device_image("llvm-libm", target=target)
+        path = image.image_path.parent / "tests" / "latency.cubin"
 
     return context.load_module(DeviceImage(path, target, "tests", (), None))
 

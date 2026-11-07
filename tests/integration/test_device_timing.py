@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.devices import (
     DeviceContext,
@@ -33,13 +34,12 @@ def timer_module(context: DeviceContext) -> DeviceModule:
     info = context.device_info
     target = CompilationTarget(info.backend, "nvptx64-nvidia-cuda", info.architecture)
 
-    build_root = Path(__file__).resolve().parents[2] / "build" / "kernels"
-    path = Path(
-        os.environ.get(
-            "GPU_LIBM_BENCH_TIMER_IMAGE",
-            build_root / target.backend / target.architecture / "tests" / "timer.cubin",
-        )
-    )
+    configured = os.environ.get("GPU_LIBM_BENCH_TIMER_IMAGE")
+    if configured is not None:
+        path = Path(configured)
+    else:
+        image = resolve_device_image("llvm-libm", target=target)
+        path = image.image_path.parent / "tests" / "timer.cubin"
 
     return context.load_module(DeviceImage(path, target, "tests", (), None))
 

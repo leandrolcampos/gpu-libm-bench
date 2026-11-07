@@ -52,7 +52,7 @@ def build_kernels(
     build.build()
 
     return resolve_device_image(
-        bitcode.library, target=target, build_root=build.build_directory
+        bitcode.library, target=target, build_directory=build.build_directory
     )
 
 
@@ -70,6 +70,9 @@ def configure_kernels(
     )
 
     project = project_directory()
+    if build_directory is None:
+        build_directory = _default_build_directory(bitcode.library, target=target)
+
     toolchain_files: tuple[Path, ...] = (
         llvm.clang,
         project / "kernels" / "cmake" / "modules" / "GPULibmBenchToolchain.cmake",
@@ -83,9 +86,7 @@ def configure_kernels(
 
     build = CMakeBuild(
         project / "kernels",
-        build_directory
-        if build_directory is not None
-        else project / "build" / "kernels",
+        build_directory,
         arguments=(*arguments, f"-DBUILD_TESTING={'ON' if build_tests else 'OFF'}"),
         toolchain=(
             str(llvm.root),
@@ -106,20 +107,17 @@ def resolve_device_image(
     *,
     target: CompilationTarget,
     image_path: Path | None = None,
-    build_root: Path | None = None,
+    build_directory: Path | None = None,
 ) -> DeviceImage:
     explicit = image_path is not None
     if image_path is None:
-        if build_root is None:
-            build_root = project_directory() / "build" / "kernels"
-        suffix = ".cubin" if target.backend == "cuda" else ".hsaco"
-        image_path = (
-            build_root
-            / target.backend
-            / target.architecture
-            / library
-            / f"math{suffix}"
-        )
+        if build_directory is None:
+            build_directory = _default_build_directory(library, target=target)
+
+        if target.backend == "cuda":
+            image_path = build_directory / "math.cubin"
+        else:
+            raise ValueError(f"unsupported device image backend: {target.backend!r}")
 
     image_path = image_path.expanduser().resolve()
     if not image_path.is_file():
@@ -208,13 +206,7 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
 def read_registered_functions(
     build: CMakeBuild, *, library: str, target: CompilationTarget
 ) -> tuple[str, ...]:
-    path = (
-        build.build_directory
-        / target.backend
-        / target.architecture
-        / library
-        / "build-plan.json"
-    )
+    path = build.build_directory / "build-plan.json"
     metadata = json.loads(path.read_text())
 
     expected = {
@@ -262,6 +254,17 @@ def _image_cmake_arguments(
         "BITCODE_PATH": str(bitcode.bitcode_path),
     }
     return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
+
+
+def _default_build_directory(library: str, *, target: CompilationTarget) -> Path:
+    return (
+        project_directory()
+        / "build"
+        / "kernels"
+        / target.backend
+        / target.architecture
+        / library
+    )
 
 
 def _read_image_manifest(
