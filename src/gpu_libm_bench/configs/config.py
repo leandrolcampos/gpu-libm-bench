@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experiment configuration schemas and consistency validation."""
+"""Build and experiment configuration schemas and consistency validation."""
 
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -96,6 +96,13 @@ class LLVMConfig:
 
 
 @dataclass
+class BuildConfig:
+    backend: BackendConfig
+    llvm: LLVMConfig
+    library: LibraryConfig | None = None
+
+
+@dataclass
 class ExperimentConfig:
     function: FunctionConfig
     metric: MetricConfig
@@ -106,6 +113,13 @@ class ExperimentConfig:
 
 
 def register_config_schema() -> None:
+    ConfigStore.instance().store(
+        name="build_schema",
+        node=BuildConfig,
+        provider="gpu-libm-bench",
+        replace=True,
+    )
+
     ConfigStore.instance().store(
         name="experiment_schema",
         node=ExperimentConfig,
@@ -131,9 +145,22 @@ def register_config_schema() -> None:
     )
 
 
-def validate_config(config: DictConfig) -> ExperimentConfig:
+def validate_build_config(config: DictConfig) -> BuildConfig:
+    structured = OmegaConf.merge(OmegaConf.structured(BuildConfig), config)
+    build = cast("BuildConfig", OmegaConf.to_object(structured))
+
+    _validate_backend_config(build.backend)
+    if build.library is not None:
+        _validate_library_config(build.library)
+
+    return build
+
+
+def validate_experiment_config(config: DictConfig) -> ExperimentConfig:
     structured = OmegaConf.merge(OmegaConf.structured(ExperimentConfig), config)
     experiment = cast("ExperimentConfig", OmegaConf.to_object(structured))
+
+    _validate_backend_config(experiment.backend)
 
     domains = experiment.function.domains
     if not domains:
@@ -155,6 +182,7 @@ def validate_config(config: DictConfig) -> ExperimentConfig:
     )
 
     for name, library in experiment.libraries.items():
+        _validate_library_config(library)
         if not name.strip() or name != library.name:
             raise ValueError("library catalog keys must match nonempty library names")
 
@@ -170,6 +198,16 @@ def validate_config(config: DictConfig) -> ExperimentConfig:
                 raise ValueError(f"run.libraries contains an unknown library: {name!r}")
 
     return experiment
+
+
+def _validate_backend_config(backend: BackendConfig) -> None:
+    if not backend.name.strip():
+        raise ValueError("backend.name must not be empty")
+
+
+def _validate_library_config(library: LibraryConfig) -> None:
+    if not library.name.strip():
+        raise ValueError("library.name must not be empty")
 
 
 def _validate_function_inputs(

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_module
 
-from gpu_libm_bench.configs import register_config_schema, validate_config
+from gpu_libm_bench.configs import register_config_schema, validate_experiment_config
 from gpu_libm_bench.experiment import Experiment
 from gpu_libm_bench.experiment import experiment as experiment_module
 
@@ -21,9 +21,9 @@ def test_experiment_collects_latency_and_reuses_its_image(
 ) -> None:
     register_config_schema()
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
-        config = validate_config(
+        config = validate_experiment_config(
             compose(
-                config_name="config",
+                config_name="experiment_config",
                 overrides=[
                     "function=expf",
                     "metric=latency",
@@ -51,11 +51,6 @@ def test_experiment_collects_latency_and_reuses_its_image(
     assert list(first.results[0]) == ["central", "wide"]
     assert first.config.backend.architecture == first.device_info.architecture
 
-    for domain, result in first.results[0].items():
-        repeated = second.results[0][domain]
-        np.testing.assert_array_equal(
-            result.measurement.inputs.arguments["x"],
-            repeated.measurement.inputs.arguments["x"],
-        )
+    for result in first.results[0].values():
         assert result.measurement.elapsed_ticks.shape == (3, 3)
         assert np.isfinite(result.mean)

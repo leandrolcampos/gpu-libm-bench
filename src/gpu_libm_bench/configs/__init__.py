@@ -1,11 +1,12 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experiment configuration schemas and resources."""
+"""Build and experiment configuration schemas and resources."""
 
 from .config import (
     ArgumentConfig,
     BackendConfig,
+    BuildConfig,
     DistributionConfig,
     DomainConfig,
     ExperimentConfig,
@@ -20,12 +21,14 @@ from .config import (
     RunConfig,
     SignatureConfig,
     register_config_schema,
-    validate_config,
+    validate_build_config,
+    validate_experiment_config,
 )
 
 __all__ = [
     "ArgumentConfig",
     "BackendConfig",
+    "BuildConfig",
     "DistributionConfig",
     "DomainConfig",
     "ExperimentConfig",
@@ -40,5 +43,6 @@ __all__ = [
     "RunConfig",
     "SignatureConfig",
     "register_config_schema",
-    "validate_config",
+    "validate_build_config",
+    "validate_experiment_config",
 ]

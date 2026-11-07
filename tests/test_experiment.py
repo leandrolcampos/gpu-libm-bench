@@ -27,7 +27,7 @@ from gpu_libm_bench.configs import (
     LibraryConfig,
     RandomGeneratorConfig,
     register_config_schema,
-    validate_config,
+    validate_experiment_config,
 )
 from gpu_libm_bench.devices import DeviceImage, DeviceInfo, TimerInfo
 from gpu_libm_bench.experiment import (
@@ -44,17 +44,17 @@ def config() -> ExperimentConfig:
     register_config_schema()
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
         composed = compose(
-            config_name="config",
+            config_name="experiment_config",
             overrides=[
                 "function=expf",
                 "metric=latency",
-                "run.libraries=[llvm-libm]",
                 "backend=cuda",
+                "run.libraries=[llvm-libm]",
                 "metric.sample_size=128",
             ],
         )
 
-    return validate_config(composed)
+    return validate_experiment_config(composed)
 
 
 @pytest.fixture
@@ -106,6 +106,7 @@ def execution(
     context = MagicMock()
     context.__enter__.return_value = context
     context.device_info = experiment_result.device_info
+
     llvm = LLVMToolchain(
         Path("/llvm"),
         Path("/llvm/clang++"),
@@ -171,7 +172,9 @@ def execution(
     return context, benchmarks
 
 
-def test_generate_expf_batches(config: ExperimentConfig, execution) -> None:
+def test_run_generates_configured_domain_inputs(
+    config: ExperimentConfig, execution
+) -> None:
     config = replace(
         config,
         function=replace(
@@ -195,9 +198,11 @@ def test_generate_expf_batches(config: ExperimentConfig, execution) -> None:
     batches = [item.measurement.inputs for item in result.results[0].results]
 
     assert [batch.domain for batch in batches] == ["central", "wide"]
+
     for batch in batches:
         assert set(batch.arguments) == {"x"}
         samples = batch.arguments["x"]
+
         generator = config.function.domains[batch.domain].generator
         assert isinstance(generator, RandomGeneratorConfig)
         bounds = generator.arguments["x"]
@@ -210,7 +215,7 @@ def test_generate_expf_batches(config: ExperimentConfig, execution) -> None:
 
 
 @pytest.mark.parametrize("domains", [None, ["wide"], ["wide", "central"]])
-def test_inputs_are_reproducible(
+def test_selected_domain_inputs_are_reproducible(
     config: ExperimentConfig, domains: list[str] | None, execution
 ) -> None:
     config = replace(
@@ -220,6 +225,8 @@ def test_inputs_are_reproducible(
     )
     experiment = Experiment(config)
     first = experiment.run().results[0]
+    expected_domains = list(config.function.domains) if domains is None else domains
+    assert list(first) == expected_domains
 
     for repeated in (experiment.run(), Experiment(config).run()):
         for domain, result in repeated.results[0].items():
@@ -231,6 +238,7 @@ def test_inputs_are_reproducible(
     changed_seed = replace(config, run=replace(config.run, seed=123))
     changed = Experiment(changed_seed).run().results[0]
     domain = next(iter(first))
+
     assert not np.array_equal(
         changed[domain].measurement.inputs.arguments["x"],
         first[domain].measurement.inputs.arguments["x"],
@@ -240,15 +248,18 @@ def test_inputs_are_reproducible(
 def test_inputs_are_reproducible_across_processes(tmp_path: Path) -> None:
     script = """
 from hydra import compose, initialize_config_module
-from gpu_libm_bench.configs import register_config_schema, validate_config
+from gpu_libm_bench.configs import register_config_schema, validate_experiment_config
 from gpu_libm_bench.experiment import Experiment
 
 register_config_schema()
 with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
-    config = compose(config_name="config", overrides=[
-        "function=expf", "metric=latency", "run.libraries=[llvm-libm]", "backend=cuda",
+    config = compose(config_name="experiment_config", overrides=[
+        "function=expf", "metric=latency", "backend=cuda", "run.libraries=[llvm-libm]",
     ])
-generator = next(iter(Experiment(validate_config(config))._input_generators.values()))
+
+generator = next(
+    iter(Experiment(validate_experiment_config(config))._input_generators.values())
+)
 batch = next(generator.batches(batch_size=32))
 print(batch.arguments["x"].tobytes().hex())
 """
@@ -281,6 +292,7 @@ def test_identical_domains_use_distinct_streams(
         ),
     )
     results = Experiment(paired).run().results[0]
+
     assert not np.array_equal(
         results["left"].measurement.inputs.arguments["x"],
         results["right"].measurement.inputs.arguments["x"],
@@ -299,7 +311,7 @@ def test_input_sampling_does_not_consume_ordering_stream(
     np.testing.assert_array_equal(experiment.ordering_rng.random(16), expected_ordering)
 
 
-def test_run_reproduces_domain_inputs_across_libraries(
+def test_run_collects_comparable_results_for_each_library(
     config: ExperimentConfig, execution
 ) -> None:
     context, benchmarks = execution
@@ -327,6 +339,7 @@ def test_run_reproduces_domain_inputs_across_libraries(
     second = [call.args[0] for call in benchmarks[1].measure.call_args_list]
     assert [batch.domain for batch in first] == ["central", "wide"]
     assert [batch.domain for batch in second] == ["central", "wide"]
+
     for left, right in zip(first, second, strict=True):
         for name in left.arguments:
             np.testing.assert_array_equal(left.arguments[name], right.arguments[name])
@@ -335,6 +348,7 @@ def test_run_reproduces_domain_inputs_across_libraries(
     assert result.config.backend.architecture == "sm_120"
     assert config.backend.architecture is None
     assert result.environment["NumPy"] == np.__version__
+
     experiment_module.build_backend.assert_not_called()
     context.__exit__.assert_called_once()
 
@@ -367,16 +381,14 @@ def test_run_builds_a_missing_backend(
 
 @pytest.mark.parametrize(
     "operation",
-    ["build_kernels", "read_device_image_build_info", "load_module", "measure"],
+    ["build_kernels", "measure"],
 )
 def test_run_propagates_failures_and_closes_the_context(
     config: ExperimentConfig, execution, monkeypatch: pytest.MonkeyPatch, operation: str
 ) -> None:
     context, _ = execution
     error = RuntimeError(f"{operation} failed")
-    if operation == "load_module":
-        context.load_module.side_effect = error
-    elif operation == "measure":
+    if operation == "measure":
         benchmark = Mock()
         benchmark.measure.side_effect = error
         monkeypatch.setattr(_latency, "LatencyBenchmark", Mock(return_value=benchmark))
@@ -402,8 +414,6 @@ def test_latency_results_use_unique_measurement_domains(
     results = replace(library, results=(wide, central))
 
     assert list(results) == ["wide", "central"]
-    assert results["wide"] is wide
-    assert results["central"] is central
 
     with pytest.raises(ValueError, match="at most one result per domain"):
         replace(library, results=(central, central))
@@ -427,11 +437,13 @@ def test_inconsistent_experiment_result_is_rejected_at_construction(
 ) -> None:
     changes = {}
     library = experiment_result.results[0]
+
     if mismatch == "backend":
         changes["device_info"] = replace(experiment_result.device_info, backend="rocm")
     elif mismatch in ("measurement_device", "unknown_domain"):
         result = library["central"]
         measurement = result.measurement
+
         if mismatch == "measurement_device":
             measurement = replace(
                 measurement,

@@ -20,7 +20,7 @@ from gpu_libm_bench.configs import (
     FunctionConfig,
     SignatureConfig,
     register_config_schema,
-    validate_config,
+    validate_experiment_config,
 )
 from gpu_libm_bench.devices import (
     DeviceContext,
@@ -45,16 +45,16 @@ def function() -> FunctionConfig:
     register_config_schema()
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
         config = compose(
-            config_name="config",
+            config_name="experiment_config",
             overrides=[
                 "function=expf",
                 "metric=latency",
-                "run.libraries=[llvm-libm]",
                 "backend=cuda",
+                "run.libraries=[llvm-libm]",
             ],
         )
 
-    return validate_config(config).function
+    return validate_experiment_config(config).function
 
 
 @pytest.fixture
@@ -264,6 +264,7 @@ def test_latency_preserves_all_arguments_for_scalar_signatures(
     storage_dtype = np.dtype(f"uint{sources[0].dtype.itemsize * 8}")
 
     buffers = tuple(context.create_buffer(1, dtype=source.dtype) for source in sources)
+
     for buffer, source in zip(buffers, sources, strict=True):
         context.copy_to_device(buffer, source)
 

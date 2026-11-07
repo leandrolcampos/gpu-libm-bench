@@ -16,7 +16,7 @@ from hydra import compose, initialize_config_module
 
 from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.configs import register_config_schema, validate_config
+from gpu_libm_bench.configs import register_config_schema, validate_experiment_config
 from gpu_libm_bench.devices import (
     DeviceContext,
     DeviceImage,
@@ -46,17 +46,17 @@ def spec() -> KernelSpec:
     register_config_schema()
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
         config = compose(
-            config_name="config",
+            config_name="experiment_config",
             overrides=[
                 "function=expf",
                 "metric=latency",
-                "run.libraries=[llvm-libm]",
                 "backend=cuda",
+                "run.libraries=[llvm-libm]",
             ],
         )
 
     return KernelSpec.from_config(
-        validate_config(config).function, kind=KernelKind.EVALUATE
+        validate_experiment_config(config).function, kind=KernelKind.EVALUATE
     )
 
 

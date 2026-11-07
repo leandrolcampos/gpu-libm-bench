@@ -1,0 +1,11 @@
+# Copyright 2026 Leandro Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+defaults:
+  - build_schema
+  - backend: null
+  - library: null
+  - _self_
+
+llvm:
+  root: null

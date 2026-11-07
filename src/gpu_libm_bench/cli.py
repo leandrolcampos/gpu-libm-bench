@@ -9,7 +9,7 @@ import sys
 import hydra
 from omegaconf import DictConfig
 
-from .configs import register_config_schema, validate_config
+from .configs import register_config_schema, validate_experiment_config
 from .experiment import Experiment
 from .reporting.terminal import print_result
 
@@ -21,7 +21,7 @@ def main() -> None:
     parser.add_argument("--details", action="store_true")
     options, hydra_arguments = parser.parse_known_args()
 
-    @hydra.main(config_path="configs/yaml", config_name="config")
+    @hydra.main(config_path="configs/yaml", config_name="experiment_config")
     def run(config: DictConfig) -> None:
         _run_experiment(config, show_details=options.details)
 
@@ -34,7 +34,7 @@ def main() -> None:
 
 
 def _run_experiment(config: DictConfig, *, show_details: bool) -> None:
-    experiment_config = validate_config(config)
+    experiment_config = validate_experiment_config(config)
     result = Experiment(experiment_config).run()
     print_result(result, show_details=show_details)
 

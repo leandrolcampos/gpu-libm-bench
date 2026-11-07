@@ -23,7 +23,7 @@ from gpu_libm_bench.configs import (
     ExperimentConfig,
     LibraryConfig,
     register_config_schema,
-    validate_config,
+    validate_experiment_config,
 )
 from gpu_libm_bench.experiment import _libraries
 
@@ -32,9 +32,9 @@ from gpu_libm_bench.experiment import _libraries
 def config() -> ExperimentConfig:
     register_config_schema()
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
-        config = validate_config(
+        config = validate_experiment_config(
             compose(
-                config_name="config",
+                config_name="experiment_config",
                 overrides=["function=expf", "metric=latency", "backend=cuda"],
             )
         )
@@ -83,6 +83,7 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 }
             )
         )
+
         return CMakeBuild(tmp_path / "kernels", build_directory)
 
     monkeypatch.setattr(_libraries, "resolve_library", resolve)
@@ -128,6 +129,7 @@ def test_library_selection_preserves_order_and_bitcode_overrides(
     selected = select(config)
 
     assert [bitcode.library for bitcode in selected] == (names or ["first", "second"])
+
     paths = {bitcode.library: bitcode.bitcode_path for bitcode in selected}
     assert paths == {
         "first": Path("/custom/first.bc"),
