@@ -67,11 +67,16 @@ def test_target_architecture_must_match_selected_device(
 
 
 @pytest.mark.parametrize(
-    ("triple", "arch", "message"),
+    ("triple", "arch", "error", "message"),
     [
-        ("amdgcn-amd-amdhsa", "sm_120", "does not match backend"),
-        ("nvptx64-nvidia-cuda", None, "selected GPU"),
-        ("nvptx64-nvidia-cuda", "sm_999", "does not support"),
+        ("amdgcn-amd-amdhsa", "sm_120", ValueError, "does not match backend"),
+        ("nvptx64-nvidia-cuda", None, targets.TargetUnavailableError, "selected GPU"),
+        (
+            "nvptx64-nvidia-cuda",
+            "sm_999",
+            targets.TargetUnavailableError,
+            "does not support",
+        ),
     ],
 )
 def test_invalid_compilation_target(
@@ -79,10 +84,11 @@ def test_invalid_compilation_target(
     llvm: LLVMToolchain,
     triple: str,
     arch: str | None,
+    error: type[ValueError],
     message: str,
 ) -> None:
     monkeypatch.setattr(targets, "run_tool", lambda command: "\tsm_120\n")
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(error, match=message):
         targets.resolve_target(
             backend="cuda", target_triple=triple, architecture=arch, llvm=llvm
         )
@@ -99,7 +105,7 @@ def test_assembler_must_also_support_selected_architecture(
             "\tsm_120\n" if command[0] == llvm.clang else "Allowed: 'sm_90'"
         ),
     )
-    with pytest.raises(ValueError, match="CUDA assembler"):
+    with pytest.raises(targets.TargetUnavailableError, match="CUDA assembler"):
         targets.resolve_target(
             backend="cuda",
             target_triple="nvptx64-nvidia-cuda",

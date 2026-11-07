@@ -24,6 +24,10 @@ class CompilationTarget:
     architecture: str
 
 
+class TargetUnavailableError(ValueError):
+    pass
+
+
 def resolve_target(
     *,
     backend: str,
@@ -45,7 +49,7 @@ def resolve_target(
         )
     if architecture is None:
         if device_info is None:
-            raise ValueError(
+            raise TargetUnavailableError(
                 "architecture is unset; provide information for the selected GPU"
             )
         architecture = device_info.architecture
@@ -62,7 +66,7 @@ def resolve_target(
             f"Clang did not report GPU architectures for {target_triple}"
         )
     if architecture not in supported:
-        raise ValueError(
+        raise TargetUnavailableError(
             f"Clang {llvm.clang} does not support GPU architecture {architecture!r}"
         )
 
@@ -72,7 +76,7 @@ def resolve_target(
                 raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
             assembler_help = run_tool([sdk.ptxas, "--help"])
             if architecture not in re.findall(r"'(sm_[\w]+)'", assembler_help):
-                raise ValueError(
+                raise TargetUnavailableError(
                     f"CUDA assembler {sdk.ptxas} does not support {architecture!r}"
                 )
         else:

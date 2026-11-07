@@ -131,7 +131,12 @@ def test_cuda_passes_explicit_selection_to_cmake_and_preserves_it(
         directory = Path(command[command.index("-B") + 1])
         (directory / "cuda-toolkit.json").write_text(
             json.dumps(
-                {"root": str(selected), "ptxas": str(ptxas), "version": "13.4.92"}
+                {
+                    "available": True,
+                    "root": str(selected),
+                    "ptxas": str(ptxas),
+                    "version": "13.4.92",
+                }
             )
         )
         return ""
@@ -150,3 +155,26 @@ def test_cuda_passes_explicit_selection_to_cmake_and_preserves_it(
 def test_unsupported_sdk_backend_is_rejected() -> None:
     with pytest.raises(ValueError, match="unsupported SDK backend: 'rocm'"):
         toolchains.resolve_sdk(backend="rocm")
+
+
+def test_missing_cuda_toolkit_is_distinct_from_probe_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def probe(command: list[str | Path]) -> str:
+        directory = Path(command[command.index("-B") + 1])
+        (directory / "cuda-toolkit.json").write_text('{"available": false}')
+        return ""
+
+    monkeypatch.setattr(toolchains.shutil, "which", lambda name: "cmake")
+    monkeypatch.setattr(toolchains, "run_tool", probe)
+    with pytest.raises(
+        toolchains.SDKUnavailableError, match="CUDA Toolkit was not found"
+    ):
+        toolchains.resolve_sdk(backend="cuda")
+
+    def failed_probe(command):
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(toolchains, "run_tool", failed_probe)
+    with pytest.raises(RuntimeError, match="probe failed"):
+        toolchains.resolve_sdk(backend="cuda")

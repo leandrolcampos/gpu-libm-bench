@@ -32,6 +32,10 @@ class CUDAToolkit:
     version: str
 
 
+class SDKUnavailableError(RuntimeError):
+    pass
+
+
 def resolve_sdk(*, backend: str, root: Path | None = None) -> CUDAToolkit:
     if backend == "cuda":
         return _resolve_cuda(root)
@@ -113,6 +117,9 @@ def _resolve_cuda(root: Path | None = None) -> CUDAToolkit:
             command.append(f"-DCUDAToolkit_ROOT={root}")
         run_tool(command)
         metadata = json.loads((Path(directory) / "cuda-toolkit.json").read_text())
+    if not metadata["available"]:
+        raise SDKUnavailableError("CUDA Toolkit was not found")
+
     selected = Path(metadata["root"]).resolve()
     if root is not None and selected != root:
         raise ValueError(
