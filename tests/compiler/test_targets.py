@@ -13,9 +13,15 @@ from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 from gpu_libm_bench.devices import DeviceInfo, TimerInfo
 
 
-@pytest.mark.parametrize("architecture", [None, "sm_90"])
-def test_architecture_selection_uses_device_only_as_default(
-    monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain, architecture: str | None
+@pytest.mark.parametrize(
+    ("architecture", "device_architecture"),
+    [(None, "sm_120"), ("sm_120", "sm_120"), ("sm_90", None)],
+)
+def test_architecture_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    llvm: LLVMToolchain,
+    architecture: str | None,
+    device_architecture: str | None,
 ) -> None:
     monkeypatch.setattr(targets, "run_tool", lambda command: "\tsm_90\n\tsm_120\n")
     target = targets.resolve_target(
@@ -27,12 +33,37 @@ def test_architecture_selection_uses_device_only_as_default(
             "cuda",
             1,
             "GPU",
-            "sm_120",
+            device_architecture,
             1024,
             TimerInfo("%globaltimer", 64, 1_000_000_000),
-        ),
+        )
+        if device_architecture is not None
+        else None,
     )
-    assert target.architecture == (architecture or "sm_120")
+    assert target.architecture == (architecture or device_architecture)
+
+
+def test_target_architecture_must_match_selected_device(
+    monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain
+) -> None:
+    def unexpected_tool_call(command):
+        pytest.fail("target mismatch must be rejected before querying tools")
+
+    monkeypatch.setattr(targets, "run_tool", unexpected_tool_call)
+    device_info = DeviceInfo(
+        "cuda", 0, "GPU", "sm_120", 1024, TimerInfo("%globaltimer", 64, 10**9)
+    )
+
+    with pytest.raises(
+        ValueError, match="target architecture does not match the selected device"
+    ):
+        targets.resolve_target(
+            backend="cuda",
+            target_triple="nvptx64-nvidia-cuda",
+            architecture="sm_90",
+            llvm=llvm,
+            device_info=device_info,
+        )
 
 
 @pytest.mark.parametrize(

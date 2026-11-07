@@ -50,6 +50,9 @@ def resolve_target(
             )
         architecture = device_info.architecture
 
+    if device_info is not None and architecture != device_info.architecture:
+        raise ValueError("target architecture does not match the selected device")
+
     output = run_tool(
         [llvm.clang, f"--target={target_triple}", "--print-supported-cpus"]
     )
