@@ -16,3 +16,13 @@ run:
 
 llvm:
   root: null
+
+hydra:
+  help:
+    app_name: gpu-libm-bench
+    footer: |-
+      Application options:
+        --details  Include Configuration and Provenance in the benchmark report.
+
+      Use --cfg job --resolve to inspect the configuration without running.
+      Use --hydra-help to view Hydra options.
