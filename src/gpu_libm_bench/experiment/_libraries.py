@@ -46,7 +46,8 @@ def select_libraries(
             bitcode_config = library_config.backends.get(target.backend)
             if bitcode_config is None:
                 raise LibraryUnavailableError(
-                    f"library {name!r} does not declare support for backend {target.backend!r}"
+                    f"library {name!r} does not declare support "
+                    f"for backend {target.backend!r}"
                 )
 
             bitcode = resolve_library(
@@ -72,7 +73,8 @@ def select_libraries(
             functions = read_registered_functions(build, library=name, target=target)
             if config.function.name not in functions:
                 raise LibraryUnavailableError(
-                    f"library {name!r} has no wrappers for function {config.function.name!r} "
+                    f"library {name!r} has no wrappers "
+                    f"for function {config.function.name!r} "
                     f"on backend {target.backend!r}"
                 )
         except LibraryUnavailableError as error:

@@ -48,7 +48,8 @@ def image_path(tmp_path: Path) -> Path:
                 "link_flags": "-nostdlib",
                 "compile_options": [
                     "-O3",
-                    'SHELL:-Xclang -mlink-builtin-bitcode -Xclang "/historical/library with spaces.bc"',
+                    "SHELL:-Xclang -mlink-builtin-bitcode -Xclang "
+                    '"/historical/library with spaces.bc"',
                 ],
                 "link_options": ["-march=sm_120"],
             }

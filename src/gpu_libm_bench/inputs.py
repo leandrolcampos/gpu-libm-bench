@@ -149,7 +149,8 @@ def _distributions_from_config(
             dtype = _INPUT_DTYPES[argument.type]
         except KeyError as error:
             raise ValueError(
-                f"unsupported input type {argument.type!r} for argument {argument.name!r}"
+                f"unsupported input type {argument.type!r} "
+                f"for argument {argument.name!r}"
             ) from error
 
         try:

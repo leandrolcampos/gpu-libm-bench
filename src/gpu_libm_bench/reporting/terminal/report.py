@@ -121,17 +121,20 @@ def _image_details(image_build_info: DeviceImageBuildInfo) -> Group:
 
     return Group(
         Text(
-            f"Compiler: {image_build_info.compiler}\n{image_build_info.compiler_version}"
+            f"Compiler: {image_build_info.compiler}\n"
+            f"{image_build_info.compiler_version}"
         ),
         Text(
-            f"SDK: {image_build_info.sdk_name} {image_build_info.sdk_version}; root: {image_build_info.sdk_root}"
+            f"SDK: {image_build_info.sdk_name} {image_build_info.sdk_version}; "
+            f"root: {image_build_info.sdk_root}"
         ),
         Text(f"Target: {target.target_triple}; architecture: {target.architecture}"),
         Text(
-            f"Bitcode: {image_build_info.bitcode_path}\nDevice image: {image.image_path}"
+            f"Bitcode: {image_build_info.bitcode_path}\n"
+            f"Device image: {image.image_path}"
         ),
         Text(
-            f"Compile options: {' '.join(image_build_info.compile_options) or '(none)'}\n"
-            f"Link options: {' '.join(image_build_info.link_options) or '(none)'}"
+            f"Compile options: {' '.join(image_build_info.compile_options) or '(none)'}"
+            f"\nLink options: {' '.join(image_build_info.link_options) or '(none)'}"
         ),
     )

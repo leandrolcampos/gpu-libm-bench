@@ -161,13 +161,15 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
     ):
         if not isinstance(metadata.get(field), str) or not metadata[field]:
             raise ValueError(
-                f"device image manifest {manifest_path} must declare {field} as a nonempty string"
+                f"device image manifest {manifest_path} "
+                f"must declare {field} as a nonempty string"
             )
 
     for field in ("compile_flags", "link_flags"):
         if not isinstance(metadata.get(field), str):
             raise ValueError(
-                f"device image manifest {manifest_path} must declare {field} as a string"
+                f"device image manifest {manifest_path} "
+                f"must declare {field} as a string"
             )
 
     for field in ("compile_options", "link_options"):
@@ -176,12 +178,14 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
             not isinstance(value, str) for value in values
         ):
             raise ValueError(
-                f"device image manifest {manifest_path} must declare {field} as a list of strings"
+                f"device image manifest {manifest_path} "
+                f"must declare {field} as a list of strings"
             )
 
     if Path(metadata["image_path"]).resolve() != image.image_path.resolve():
         raise ValueError(
-            f"device image manifest {manifest_path} does not match image_path={str(image.image_path)!r}"
+            f"device image manifest {manifest_path} "
+            f"does not match image_path={str(image.image_path)!r}"
         )
 
     sdk_names = {"cuda": "CUDA Toolkit", "rocm": "ROCm"}
