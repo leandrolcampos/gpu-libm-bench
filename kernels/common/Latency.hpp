@@ -23,7 +23,7 @@ inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
 
 template <typename StorageType>
 inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
-  // Keep the result consumer ordered before the timer.
+  // Consume the final chain result before reading the end timestamp.
 #if defined(__NVPTX__)
   State ^= DependencyMask;
   asm volatile("" : : "llr"(State) : "memory");
@@ -70,7 +70,7 @@ void latencyChain(uint32_t PassCount, uint32_t ChainLength,
   for (uint32_t Pass = 0; Pass < PassCount; ++Pass) {
     Start = beginTiming(State, DependencyMask);
 
-#pragma clang loop unroll(disable)
+#pragma clang loop unroll_count(4)
     for (uint32_t Step = 0; Step < ChainLength; ++Step) {
       StorageType DependentInput = XBits ^ StorageType(State & DependencyMask);
       auto Result =
@@ -87,6 +87,8 @@ void latencyChain(uint32_t PassCount, uint32_t ChainLength,
 
 } // namespace detail
 
+// The mixed ABI is intentional: ZeroMask is used on every chain step, so keep
+// it indirect to encourage a single load before the timed loop.
 template <auto Function, typename StorageType, typename FloatType,
           typename... OtherInputTypes>
 void latency(uint32_t PassCount, uint32_t ChainLength,
@@ -96,8 +98,6 @@ void latency(uint32_t PassCount, uint32_t ChainLength,
   if (gpu::globalThreadId() != 0)
     return;
 
-  // Scalar masks generated parameter-memory accesses inside the timed region;
-  // the pointer form kept the mask in a register after loading it beforehand.
   detail::latencyChain<Function>(PassCount, ChainLength, ZeroMask[0],
                                  ElapsedTicks, Output, FirstInput[0],
                                  OtherInputs[0]...);

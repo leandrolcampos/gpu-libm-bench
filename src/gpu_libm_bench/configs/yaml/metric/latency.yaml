@@ -9,6 +9,6 @@ name: latency
 unit: ns/call
 
 sample_size: 8192
-chain_length: 512
+chain_length: 8192
 repetitions: 11
 warmup_runs: 10
