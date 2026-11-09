@@ -4,6 +4,7 @@
 """Benchmark experiment orchestration."""
 
 import platform
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -137,6 +138,9 @@ class Experiment:
             )
 
             image_build_infos = self._prepare_images(llvm=llvm, target=target, sdk=sdk)
+
+            # TODO: Replace this temporary message with progress reporting.
+            print("Running benchmark. This may take a few minutes...", file=sys.stderr)
             results = _latency.run(
                 context,
                 config.function,
