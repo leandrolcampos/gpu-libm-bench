@@ -1,0 +1,235 @@
+# Copyright 2026 Leandro Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+"""Build and experiment configuration schemas and consistency validation."""
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any, cast
+
+from hydra.core.config_store import ConfigStore
+from omegaconf import DictConfig, OmegaConf
+
+
+@dataclass
+class ArgumentConfig:
+    name: str
+    type: str
+    role: str
+
+
+@dataclass
+class SignatureConfig:
+    return_type: str
+    arguments: list[ArgumentConfig]
+
+
+DistributionConfig = dict[str, Any]
+
+
+@dataclass
+class InputGeneratorConfig:
+    name: str
+
+
+@dataclass
+class RandomGeneratorConfig(InputGeneratorConfig):
+    arguments: dict[str, DistributionConfig]
+
+
+@dataclass
+class DomainConfig:
+    generator: InputGeneratorConfig
+
+
+@dataclass
+class FunctionConfig:
+    name: str
+    signature: SignatureConfig
+    domains: dict[str, DomainConfig]
+
+
+@dataclass
+class MetricConfig:
+    name: str
+    unit: str
+
+
+@dataclass
+class LatencyConfig(MetricConfig):
+    sample_size: int
+    chain_length: int
+    repetitions: int
+    warmup_runs: int
+
+
+@dataclass
+class BackendConfig:
+    name: str
+    target_triple: str
+    architecture: str | None
+    device_id: int
+    sdk_root: str | None
+
+
+@dataclass
+class LibraryBitcodeConfig:
+    bitcode_path: str | None
+
+
+@dataclass
+class LibraryConfig:
+    name: str
+    backends: dict[str, LibraryBitcodeConfig]
+
+
+@dataclass
+class RunConfig:
+    seed: int
+    domains: list[str] | None
+    libraries: list[str] | None = None
+
+
+@dataclass
+class LLVMConfig:
+    root: str | None
+
+
+@dataclass
+class BuildConfig:
+    backend: BackendConfig
+    llvm: LLVMConfig
+    library: LibraryConfig | None = None
+
+
+@dataclass
+class ExperimentConfig:
+    function: FunctionConfig
+    metric: MetricConfig
+    backend: BackendConfig
+    libraries: dict[str, LibraryConfig]
+    run: RunConfig
+    llvm: LLVMConfig
+
+
+def register_config_schema() -> None:
+    ConfigStore.instance().store(
+        name="build_schema",
+        node=BuildConfig,
+        provider="gpu-libm-bench",
+        replace=True,
+    )
+
+    ConfigStore.instance().store(
+        name="experiment_schema",
+        node=ExperimentConfig,
+        provider="gpu-libm-bench",
+        replace=True,
+    )
+
+    ConfigStore.instance().store(
+        group="schema/metric",
+        name="latency",
+        node=LatencyConfig,
+        package="metric",
+        provider="gpu-libm-bench",
+        replace=True,
+    )
+
+    ConfigStore.instance().store(
+        group="schema/input_generator",
+        name="random",
+        node=RandomGeneratorConfig,
+        provider="gpu-libm-bench",
+        replace=True,
+    )
+
+
+def validate_build_config(config: DictConfig) -> BuildConfig:
+    structured = OmegaConf.merge(OmegaConf.structured(BuildConfig), config)
+    build = cast("BuildConfig", OmegaConf.to_object(structured))
+
+    _validate_backend_config(build.backend)
+    if build.library is not None:
+        _validate_library_config(build.library)
+
+    return build
+
+
+def validate_experiment_config(config: DictConfig) -> ExperimentConfig:
+    structured = OmegaConf.merge(OmegaConf.structured(ExperimentConfig), config)
+    experiment = cast("ExperimentConfig", OmegaConf.to_object(structured))
+
+    _validate_backend_config(experiment.backend)
+
+    domains = experiment.function.domains
+    if not domains:
+        raise ValueError("function.domains must contain at least one domain")
+    if any(not name.strip() for name in domains):
+        raise ValueError("domain names must not be empty")
+
+    selected = experiment.run.domains
+    if selected is not None:
+        if not selected or len(set(selected)) != len(selected):
+            raise ValueError("run.domains must be a nonempty list without duplicates")
+
+        for name in selected:
+            if name not in domains:
+                raise ValueError(f"run.domains contains an unknown domain: {name!r}")
+
+    _validate_function_inputs(
+        experiment.function, domains if selected is None else selected
+    )
+
+    for name, library in experiment.libraries.items():
+        _validate_library_config(library)
+        if not name.strip() or name != library.name:
+            raise ValueError("library catalog keys must match nonempty library names")
+
+    selected_libraries = experiment.run.libraries
+    if selected_libraries is not None:
+        if not selected_libraries or len(set(selected_libraries)) != len(
+            selected_libraries
+        ):
+            raise ValueError("run.libraries must be a nonempty list without duplicates")
+
+        for name in selected_libraries:
+            if name not in experiment.libraries:
+                raise ValueError(f"run.libraries contains an unknown library: {name!r}")
+
+    return experiment
+
+
+def _validate_backend_config(backend: BackendConfig) -> None:
+    if not backend.name.strip():
+        raise ValueError("backend.name must not be empty")
+
+
+def _validate_library_config(library: LibraryConfig) -> None:
+    if not library.name.strip():
+        raise ValueError("library.name must not be empty")
+
+
+def _validate_function_inputs(
+    function: FunctionConfig, domain_names: Iterable[str]
+) -> None:
+    arguments = function.signature.arguments
+    names = [argument.name for argument in arguments]
+    if len(set(names)) != len(names):
+        raise ValueError("signature argument names must be unique")
+    if any(argument.role not in {"input", "output"} for argument in arguments):
+        raise ValueError("signature argument roles must be 'input' or 'output'")
+
+    inputs = {argument.name for argument in arguments if argument.role == "input"}
+    if not inputs:
+        raise ValueError("signature must declare at least one input argument")
+
+    for name in domain_names:
+        generator = function.domains[name].generator
+        if (
+            isinstance(generator, RandomGeneratorConfig)
+            and set(generator.arguments) != inputs
+        ):
+            raise ValueError(
+                f"domain {name!r} arguments must match the input signature"
+            )

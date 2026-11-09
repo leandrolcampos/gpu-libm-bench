@@ -1,0 +1,8 @@
+CompileFlags:
+  CompilationDatabase: ../../build/backends/cuda
+
+---
+If:
+  PathMatch: tests/.*
+CompileFlags:
+  CompilationDatabase: ../../build/backends/common

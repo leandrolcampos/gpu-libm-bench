@@ -1,0 +1,30 @@
+HeaderFilterRegex: '(^|/)(backends|kernels)/'
+# llvm-header-guard assumes LLVM's include layout and otherwise uses absolute paths.
+Checks: >
+  -*,
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  llvm-*,
+  misc-*,
+  -llvm-header-guard,
+  -misc-const-correctness,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -misc-non-private-member-variables-in-classes,
+  -misc-unused-parameters,
+  -misc-use-anonymous-namespace,
+  -misc-use-internal-linkage,
+  readability-identifier-naming
+WarningsAsErrors: '*'
+CheckOptions:
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.IgnoreMainLikeFunctions: true
+  readability-identifier-naming.MemberCase: CamelCase
+  readability-identifier-naming.ParameterCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.UnionCase: CamelCase
+  readability-identifier-naming.VariableCase: CamelCase

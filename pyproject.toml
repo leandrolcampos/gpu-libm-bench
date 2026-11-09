@@ -3,53 +3,104 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gpu-libm-math"
+name = "gpu-libm-bench"
 version = "0.1.0"
-description = "A benchmarking framework for GPU math libraries"
-authors = [{ name = "Leandro A. Lacerda Campos" }]
+description = "GPU math library benchmarking"
 readme = "README.md"
-requires-python = ">=3.12"
+authors = [{ name = "Leandro Lacerda Campos" }]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-dependencies = ["numpy>=2.0,<3", "hydra-core>=1.4.0rc2,<1.5", "rich>=14,<15"]
+requires-python = ">=3.12"
+dependencies = [
+    "hydra-core>=1.4.0rc2,<1.5",
+    "numpy>=2.0,<3",
+    "omegaconf>=2.4.1rc1,<2.5",
+    "rich>=14,<15",
+]
+
+[project.optional-dependencies]
+native = ["pybind11>=3,<4"]
+
+[project.scripts]
+gpu-libm-bench = "gpu_libm_bench.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gpu_libm_math"]
+packages = ["src/gpu_libm_bench"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
+[tool.pixi.environments]
+default = { solve-group = "default" }
+native = { features = ["native"], solve-group = "default" }
+
 [tool.pixi.dependencies]
 python = "3.12.*"
+mypy = ">=1.14,<2"
 pytest = ">=8,<10"
 ruff = ">=0.9,<1"
-mypy = ">=1.14,<2"
 
 [tool.pixi.pypi-dependencies]
-gpu-libm-math = { path = ".", editable = true }
+gpu-libm-bench = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-test = "pytest"
-lint = "ruff check ."
+check = { depends-on = ["test", "lint", "format-check", "typecheck"] }
 format = "ruff format ."
 format-check = "ruff format --check ."
+lint = "ruff check ."
+test = "pytest"
 typecheck = "mypy"
-check = { depends-on = ["test", "lint", "format-check", "typecheck"] }
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-filterwarnings = ["error"]
+[tool.pixi.feature.native.dependencies]
+clang = ">=19"
+clang-format = ">=19"
+clang-tools = ">=19"
+cmake = ">=3.31,<5"
+ninja = ">=1.12,<2"
 
-[tool.ruff]
-target-version = "py312"
-line-length = 88
+[tool.pixi.feature.native.pypi-dependencies]
+gpu-libm-bench = { path = ".", editable = true, extras = ["native"] }
 
-[tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+[tool.pixi.feature.native.tasks]
+common-build = { cmd = "cmake --build build/backends/common", depends-on = ["common-configure"] }
+common-configure = "cmake -S backends/common/tests -B build/backends/common -G Ninja -DCMAKE_BUILD_TYPE=Release"
+common-test = { cmd = "ctest --test-dir build/backends/common --output-on-failure", depends-on = ["common-build"] }
+
+cuda-build = "python -m gpu_libm_bench.compiler backend backend=cuda"
+cuda-configure = "python -m gpu_libm_bench.compiler backend --configure-only backend=cuda"
+cuda-execution-test = { cmd = "pytest -m 'cuda and execution'", depends-on = ["cuda-build", "kernels-build"] }
+cuda-test = { cmd = "pytest -m 'cuda and not execution'", depends-on = ["cuda-build"] }
+cuda-tidy = { cmd = "run-clang-tidy -quiet -p build/backends/cuda", depends-on = ["cuda-configure"] }
+
+images-test = { cmd = "pytest -m images", depends-on = ["kernels-build"] }
+kernels-build = "python -m gpu_libm_bench.compiler kernels --build-tests"
+kernels-configure = "python -m gpu_libm_bench.compiler kernels --configure-only --build-tests"
+kernels-tidy = "python -m gpu_libm_bench.compiler kernels --tidy --build-tests"
+
+list-devices = "python tools/list_devices.py"
+native-format-check = "find backends kernels -regextype posix-extended -type f -regex '.*\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|cu|cuh|hip|inc)' -exec clang-format --dry-run --Werror '{}' +"
 
 [tool.mypy]
-python_version = "3.12"
-files = ["src/gpu_libm_math"]
 check_untyped_defs = true
+files = ["src/gpu_libm_bench"]
+python_version = "3.12"
 warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+addopts = "-m 'not cuda and not images'"
+filterwarnings = ["error"]
+markers = [
+    "cuda: integration tests requiring the built CUDA backend and NVIDIA driver",
+    "execution: integration tests requiring a native backend, device image, and GPU",
+    "images: integration tests requiring compiled device images and their compiler tools",
+]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E4", "E7", "E9", "F", "I", "UP"]
+extend-select = ["E501"]
