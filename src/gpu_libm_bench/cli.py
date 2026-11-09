@@ -35,6 +35,7 @@ def main() -> None:
 
 def _run_experiment(config: DictConfig, *, show_details: bool) -> None:
     experiment_config = validate_experiment_config(config)
+    print("Running benchmark. This may take a few minutes...", file=sys.stderr)
     result = Experiment(experiment_config).run()
     print_result(result, show_details=show_details)
 
