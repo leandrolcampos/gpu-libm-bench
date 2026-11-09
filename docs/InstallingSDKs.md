@@ -1,152 +1,90 @@
-# Building the LLVM Fork Used by Mage
+# Installing GPU SDKs
 
-This document outlines the steps to configure, build, and test the LLVM fork used by the Mage research project.
+This guide covers GPU SDK installation and the corresponding environment configuration for GPU Libm Bench on Linux. Each section can be followed independently for the corresponding GPU vendor.
+
+The environment setup below assumes Bash.
 
 The process was validated on the following system:
+
 * **OS:** Ubuntu 26.04.1 LTS
-* **Kernel Version:** Linux 7.0.0-31-generic
-* **Hardware Model**: ASUS ProArt X870E-CREATOR WIFI
-* **Processor:** AMD Ryzen 9 9950X (32 cores)
+* **Kernel Version:** Linux 7.0.0-42-generic
+* **Hardware Model:** ASUS ProArt X870E-CREATOR WIFI
+* **Processor:** AMD Ryzen 9 9950X (16 cores, 32 threads)
 * **Memory:** 32 GB
 * **AMD GPU:** AMD Radeon RX 7700 XT (gfx1101)
 * **NVIDIA GPU:** NVIDIA GeForce RTX 5070 (sm_120)
 
-## 1. Prerequisites
+## 1. Install the CUDA Toolkit
 
-Ensure you have already installed a recent NVIDIA driver on your host machine. This guide does not cover this step.
+### Install the SDK
 
-## 2. Install the CUDA Toolkit
+A compatible NVIDIA driver is required and may already be installed by your Linux distribution. Check with `nvidia-smi`. If the driver is missing or incompatible with your chosen CUDA version, follow the [NVIDIA Driver Installation Guide](https://docs.nvidia.com/datacenter/tesla/driver-installation-guide/) to install or update it, then reboot.
 
-Follow the official instructions provided on the [NVIDIA CUDA Downloads](https://developer.nvidia.com/cuda-downloads) page to install the toolkit for your system.
+Install the CUDA Toolkit using the [CUDA Downloads](https://developer.nvidia.com/cuda-downloads) selector and the [CUDA Installation Guide for Linux](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/). Select your operating system and architecture.
 
-Verify that the NVIDIA driver is installed and that the GPU is visible:
+### Configure and Load the Environment
 
-```bash
-nvidia-smi
-```
-
-## 3. Install the AMDGPU Stack
-
-Follow the official instructions in the [AMD ROCm documentation](https://rocm.docs.amd.com/en/latest/install/rocm.html) to install the AMD GPU Driver (amdgpu) and the ROCm Full Suite.
-
-Check if the AMD GPU Driver (amdgpu) is installed:
+Add the following lines to `~/.bashrc`, adjusting `CUDA_HOME` to match your installation:
 
 ```bash
-dkms status
+export CUDA_HOME="/usr/local/cuda"
+export PATH="$CUDA_HOME/bin${PATH:+:$PATH}"
 ```
 
-Check if the GPU is listed as an available agent:
+If you installed the CUDA Toolkit using the standalone `.run` installer, also add its library directory:
 
 ```bash
-rocminfo
+export LD_LIBRARY_PATH="$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
-## 4. Set Up Environment Variables
-
-Append the following paths to your `~/.bashrc` to ensure the build system can locate CUDA and the compiled LLVM toolchain.
-
-```bash
-echo 'export CUDA_HOME="/usr/local/cuda"' >> ~/.bashrc
-echo 'export LLVM_ROOT="$HOME/opt/llvm"' >> ~/.bashrc
-echo 'export PATH="$CUDA_HOME/bin:$LLVM_ROOT/bin${PATH:+:$PATH}"' >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH="/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' >> ~/.bashrc
-```
-
-Activate the changes and confirm the variable is set:
+Load the changes in the current Bash session:
 
 ```bash
 source ~/.bashrc
-echo "$LLVM_ROOT"
 ```
 
-## 5. Install the Basic Toolchain
+### Verify the Installation
 
-Install the minimal host toolchain required to configure, build, and test the necessary LLVM subprojects.
+Run these commands as your regular user:
 
 ```bash
-sudo apt update
-sudo apt -y install \
-  build-essential \
-  ccache \
-  cmake \
-  gcc-multilib \
-  git \
-  libmpfr-dev \
-  ninja-build \
-  python3 \
-  python3-pip
+nvidia-smi
+nvcc --version
 ```
 
-## 6. Check Out the LLVM Fork
+`nvidia-smi` should list the NVIDIA GPU, and `nvcc` should report the installed toolkit version. The CUDA version shown by `nvidia-smi` indicates driver compatibility, not the installed toolkit version.
 
-Clone the specific branch used by the Mage project. A shallow clone (`--depth=1`) is fast and sufficient for users who only need to build the toolchain:
+## 2. Install the ROCm Core SDK
+
+### Install the SDK
+
+A compatible AMD GPU driver (`amdgpu`) is required and may already be installed by your Linux distribution. Follow the [AMD ROCm installation guide](https://rocm.docs.amd.com/en/latest/install/rocm.html) to determine whether it needs to be installed or updated; reboot if you install or update it.
+
+Install the complete ROCm Core SDK using the same guide for your GPU and operating system, selecting the **ROCm Full Suite** use case. Complete its post-installation steps, including GPU access permissions.
+
+### Configure and Load the Environment
+
+Add the following lines to `~/.bashrc`, adjusting `ROCM_PATH` to match your installation:
 
 ```bash
-git clone -b mage-staging --depth=1 https://github.com/leandrolcampos/llvm-project.git
+export ROCM_PATH="/opt/rocm"
+export PATH="$ROCM_PATH/bin${PATH:+:$PATH}"
+export LD_LIBRARY_PATH="$ROCM_PATH/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
-## 7. Configure the LLVM Build
-
-Below is a configuration recipe to generate a Release build of the LLVM subprojects _Clang_, _Offload_ and the _C library_. The C library is configured to target host CPUs, AMD GPUs, and NVIDIA GPUs.
+Load the changes in the current Bash session:
 
 ```bash
-cd llvm-project
-cmake -S llvm -B build -G Ninja \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
-  -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld" \
-  -DLLVM_ENABLE_RUNTIMES="openmp;offload;libc" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_ENABLE_ASSERTIONS=ON \
-  -DLLVM_PARALLEL_LINK_JOBS=1 \
-  -DCMAKE_INSTALL_PREFIX="$LLVM_ROOT" \
-  -DRUNTIMES_amdgcn-amd-amdhsa_LLVM_ENABLE_RUNTIMES=libc \
-  -DRUNTIMES_nvptx64-nvidia-cuda_LLVM_ENABLE_RUNTIMES=libc \
-  -DLLVM_RUNTIME_TARGETS="default;amdgcn-amd-amdhsa;nvptx64-nvidia-cuda"
+source ~/.bashrc
 ```
 
-**Why these options?**
+### Verify the Installation
 
-| CMake flag | Rationale |
-| ---------- | --------- |
-| `CMAKE_C_COMPILER_LAUNCHER=ccache` | Use ccache as a wrapper for the C compiler to speed up incremental builds by caching previous object files. |
-| `CMAKE_CXX_COMPILER_LAUNCHER=ccache` | Use ccache as a wrapper for the C++ compiler to avoid redundant compilation of unchanged source files. |
-| `CMAKE_DISABLE_PRECOMPILE_HEADERS=ON` | Disable precompiled headers to avoid friction with ccache. |
-| `LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld"` | Provide a recent Clang to compile the GPU C library, the `clangd` language server for IDE integration, and LLD to link GPU executables. |
-| `LLVM_ENABLE_RUNTIMES="openmp;offload;libc"` | Include OpenMP (required by Offload), the Offload infrastructure itself, and the C library for the host. |
-| `LLVM_ENABLE_ASSERTIONS=ON` | Keep assertion checks active even in a release build (see _Note_ below). |
-| `LLVM_PARALLEL_LINK_JOBS=1` | Limit concurrent link jobs to prevent out-of-memory issues (see _Important_ below). |
-| `RUNTIMES_amdgcn-amd-amdhsa_LLVM_ENABLE_RUNTIMES=libc` | Build the LLVM C library specifically for the AMD GPU target. |
-| `RUNTIMES_nvptx64-nvidia-cuda_LLVM_ENABLE_RUNTIMES=libc` | Build the LLVM C library specifically for the NVIDIA GPU target. |
-| `LLVM_RUNTIME_TARGETS="default;amdgcn-amd-amdhsa;nvptx64-nvidia-cuda"` | Set the enabled targets to build: the host CPU, the AMD GPU architecture, and the NVIDIA GPU architecture. |
-
-> [!NOTE]
-> `LLVM_ENABLE_ASSERTIONS=ON` keeps assertion checks active even in a release build (the default is `OFF`). Remove this flag if raw compile-time performance matters more than debugging safety.
-
-> [!IMPORTANT]
-> To avoid out-of-memory (OOM) issues during the link phase, configure `LLVM_PARALLEL_LINK_JOBS` to permit only one link job per 15 GB of available RAM on the host machine.
-
-## 8. Build, Install, and Run Tests
-
-After configuring the build system with the CMake command above, compile and install the required LLVM subprojects:
+Run these commands as your regular user:
 
 ```bash
-ninja -C build install -j 8
+rocminfo
+hipcc --version
 ```
 
-> [!NOTE]
-> Running Ninja with high parallelism during the compilation phase can cause spurious failures, out-of-resource errors, or indefinite hangs. Limit the number of jobs with `-j <N>` if you encounter such issues.
-
-Run the Offload API unit tests to ensure host-device communication is working:
-
-```bash
-ninja -C build/runtimes/runtimes-bins check-offload-unit -j 1
-```
-
-Finally, run all the tests for the GPU C library across both GPU architectures:
-
-```bash
-ninja -C build/runtimes/runtimes-amdgcn-amd-amdhsa-bins check-libc -j 1 -k 0
-ninja -C build/runtimes/runtimes-nvptx64-nvidia-cuda-bins check-libc -j 1 -k 0
-```
+`rocminfo` should list the AMD GPU as a GPU agent, confirming that the driver and runtime can access it. `hipcc` should report the installed HIP compiler version.
