@@ -1,6 +1,6 @@
 # Building LLVM for GPU Libm Bench
 
-This guide builds Clang, LLD, development tools, and LLVM libc from the official LLVM repository. LLVM libc supplies the math library used by GPU Libm Bench.
+This guide builds Clang, LLD, development tools, and LLVM-libc from the official LLVM repository. LLVM-libc supplies the math library used by GPU Libm Bench.
 
 The process was validated on the following system:
 
@@ -65,7 +65,7 @@ git rev-parse HEAD
 
 ## 4. Configure the Build
 
-Build the compiler and libraries together, using the new Clang for the libraries. The `default` runtime target builds libc for the host; the other two targets build it for AMD and NVIDIA GPUs. `clang-tools-extra` provides development tools such as `clangd` and `clang-tidy`.
+Build the compiler and libraries together, using the new Clang for the libraries. The `default` runtime target builds LLVM-libc for the host; the other two targets build it for AMD and NVIDIA GPUs. `clang-tools-extra` provides development tools such as `clangd` and `clang-tidy`.
 
 The GPU libraries are cross-compiled, so both GPU targets can remain enabled even without GPU hardware or SDKs installed.
 
@@ -87,7 +87,7 @@ cmake -S llvm -B build -G Ninja \
 
 `ccache` speeds up rebuilds. Assertions remain enabled in the Release build to help diagnose failures, and one concurrent link job limits peak memory use.
 
-For details on the GPU library build, see the [LLVM libc build guide](https://libc.llvm.org/gpu/building.html).
+For details on the GPU library build, see the [LLVM-libc build guide](https://libc.llvm.org/gpu/building.html).
 
 ## 5. Build and Install
 
