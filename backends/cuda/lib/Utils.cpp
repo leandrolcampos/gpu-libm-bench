@@ -60,9 +60,9 @@ detail::DeviceState::~DeviceState() noexcept {
 
 Expected<std::shared_ptr<detail::DeviceState>>
 detail::DeviceState::create(int DeviceID) {
-  auto Info = getDeviceInfo(DeviceID);
-  if (!Info)
-    return std::move(Info).error();
+  auto DeviceInfo = getDeviceInfo(DeviceID);
+  if (!DeviceInfo)
+    return std::move(DeviceInfo).error();
 
   CUdevice Device;
   if (auto Err = check(cuDeviceGet(&Device, DeviceID), "cuDeviceGet"))

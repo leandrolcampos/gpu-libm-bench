@@ -18,22 +18,22 @@
 
 namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND {
 
-struct TimerInfo {
+struct TimerInfoTy {
   std::string Source;
   std::uint32_t CounterBits;
   std::uint64_t FrequencyHz;
 };
 
-struct DeviceInfo {
+struct DeviceInfoTy {
   int ID;
   std::string Name;
   std::string Architecture;
   std::size_t TotalMemoryBytes;
-  TimerInfo Timer;
+  TimerInfoTy TimerInfo;
 };
 
 Expected<int> getDeviceCount();
-Expected<DeviceInfo> getDeviceInfo(int DeviceID);
+Expected<DeviceInfoTy> getDeviceInfo(int DeviceID);
 
 using LaunchArgument = std::variant<const DeviceBuffer *, const void *>;
 

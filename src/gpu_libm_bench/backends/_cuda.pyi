@@ -18,7 +18,7 @@ class DeviceProperties(TypedDict):
     name: str
     architecture: str
     total_memory_bytes: int
-    timer: TimerProperties
+    timer_info: TimerProperties
 
 def device_count() -> int: ...
 def get_device_info(device_id: int = 0) -> DeviceProperties: ...
