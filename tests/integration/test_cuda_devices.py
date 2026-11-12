@@ -19,7 +19,7 @@ def test_query_visible_devices() -> None:
         info = DeviceContext.get_device_info(device_id)
 
         assert info.backend == "cuda"
-        assert info.device_id == device_id
+        assert info.id == device_id
         assert info.name
         assert info.architecture.startswith("sm_")
         assert info.total_memory_bytes > 0

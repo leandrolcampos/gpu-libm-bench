@@ -3,7 +3,7 @@
 //
 // Implements CUDA device information and execution contexts.
 
-#include "DeviceContext.hpp"
+#include "Context.hpp"
 #include "Utils.hpp"
 
 namespace gpu_libm_bench::cuda {
@@ -78,7 +78,7 @@ DeviceContext::DeviceContext(DeviceContext &&Other) noexcept
     : Device(std::move(Other.Device)),
       Stream(std::exchange(Other.Stream, nullptr)) {}
 
-DeviceContext::~DeviceContext() noexcept { reportCleanupError(close()); }
+DeviceContext::~DeviceContext() noexcept { reportCleanupError(release()); }
 
 Expected<DeviceContext> DeviceContext::create(int DeviceID) {
   auto Device = detail::DeviceState::create(DeviceID);
@@ -97,14 +97,14 @@ Expected<DeviceContext> DeviceContext::create(int DeviceID) {
   return DeviceContext(*std::move(Device), Stream);
 }
 
-Error DeviceContext::ensureOpen() const {
-  if (isClosed())
-    return Error{ErrorKind::Runtime, "device context is closed"};
+Error DeviceContext::ensureActive() const {
+  if (isReleased())
+    return Error{ErrorKind::Runtime, "device context has been released"};
   return Error::success();
 }
 
 Error DeviceContext::validateBuffer(const DeviceBuffer &Buffer) const {
-  if (auto Err = ensureOpen())
+  if (auto Err = ensureActive())
     return Err;
   if (!Buffer.Device)
     return Error{ErrorKind::InvalidArgument, "device buffer is invalid"};
@@ -115,7 +115,7 @@ Error DeviceContext::validateBuffer(const DeviceBuffer &Buffer) const {
 }
 
 Error DeviceContext::validateKernel(const DeviceKernel &Kernel) const {
-  if (auto Err = ensureOpen())
+  if (auto Err = ensureActive())
     return Err;
   if (!Kernel.Module)
     return Error{ErrorKind::InvalidArgument, "kernel is invalid"};
@@ -125,8 +125,8 @@ Error DeviceContext::validateKernel(const DeviceKernel &Kernel) const {
   return Error::success();
 }
 
-Error DeviceContext::close() {
-  if (isClosed())
+Error DeviceContext::release() {
+  if (isReleased())
     return Error::success();
 
   Error Failure;
@@ -158,14 +158,14 @@ Error DeviceContext::close() {
 
 Expected<DeviceBuffer>
 DeviceContext::createBuffer(std::size_t ByteCount) const {
-  if (auto Err = ensureOpen())
+  if (auto Err = ensureActive())
     return Err;
   return DeviceBuffer::create(Device, ByteCount);
 }
 
 Expected<DeviceModule>
 DeviceContext::loadModule(const std::string &Path) const {
-  if (auto Err = ensureOpen())
+  if (auto Err = ensureActive())
     return Err;
   return DeviceModule::load(Device, Path);
 }

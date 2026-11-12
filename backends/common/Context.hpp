@@ -3,8 +3,8 @@
 //
 // Device information and execution context interfaces.
 
-#ifndef GPU_LIBM_BENCH_COMMON_DEVICECONTEXT_HPP
-#define GPU_LIBM_BENCH_COMMON_DEVICECONTEXT_HPP
+#ifndef GPU_LIBM_BENCH_COMMON_CONTEXT_HPP
+#define GPU_LIBM_BENCH_COMMON_CONTEXT_HPP
 
 #include "Launch.hpp"
 #include "Memory.hpp"
@@ -25,7 +25,7 @@ struct TimerInfo {
 };
 
 struct DeviceInfo {
-  int DeviceID;
+  int ID;
   std::string Name;
   std::string Architecture;
   std::size_t TotalMemoryBytes;
@@ -47,8 +47,8 @@ public:
 
   static Expected<DeviceContext> create(int DeviceID);
 
-  bool isClosed() const noexcept { return !Device; }
-  Error close();
+  bool isReleased() const noexcept { return !Device; }
+  Error release();
 
   Expected<DeviceBuffer> createBuffer(std::size_t ByteCount) const;
   Expected<DeviceModule> loadModule(const std::string &Path) const;
@@ -65,7 +65,7 @@ public:
 private:
   DeviceContext(std::shared_ptr<detail::DeviceState> Device, void *Stream);
 
-  Error ensureOpen() const;
+  Error ensureActive() const;
   Error validateBuffer(const DeviceBuffer &Buffer) const;
   Error validateKernel(const DeviceKernel &Kernel) const;
 
@@ -75,4 +75,4 @@ private:
 
 } // namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND
 
-#endif // GPU_LIBM_BENCH_COMMON_DEVICECONTEXT_HPP
+#endif // GPU_LIBM_BENCH_COMMON_CONTEXT_HPP
