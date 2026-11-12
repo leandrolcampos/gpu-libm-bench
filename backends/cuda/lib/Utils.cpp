@@ -4,7 +4,7 @@
 // Implements CUDA device state, context activation, and diagnostics.
 
 #include "Utils.hpp"
-#include "DeviceContext.hpp"
+#include "Context.hpp"
 
 #include <cstdio>
 

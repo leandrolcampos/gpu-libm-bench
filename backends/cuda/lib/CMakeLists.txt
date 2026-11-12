@@ -1,7 +1,7 @@
 # Defines the native CUDA backend library.
 
 add_library(GPULibmBenchCUDA STATIC
-  DeviceContext.cpp
+  Context.cpp
   Memory.cpp
   Module.cpp
   Utils.cpp)

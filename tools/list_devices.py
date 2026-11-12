@@ -43,7 +43,7 @@ def main() -> int:
                 info = DeviceContext.get_device_info(device_id, backend=backend)
                 table.add_row(
                     info.backend,
-                    str(info.device_id),
+                    str(info.id),
                     info.name,
                     info.architecture,
                     f"{info.total_memory_bytes / 2**20:,.2f}",

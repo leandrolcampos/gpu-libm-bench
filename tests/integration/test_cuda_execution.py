@@ -206,11 +206,16 @@ def test_kernel_and_buffer_outlive_the_creating_session(
     destination = np.empty_like(source)
 
     with DeviceContext() as original:
+        assert not original.released
         kernel = load_kernel(original, image, spec)
         buffer = original.create_buffer(source.size, dtype=source.dtype)
         original.copy_to_device(buffer, source)
 
-    with pytest.raises(RuntimeError, match="closed"):
+    assert original.released
+    original.release()
+    assert original.released
+
+    with pytest.raises(RuntimeError, match="released"):
         original.create_buffer(1, dtype=np.float32)
 
     with DeviceContext() as context:

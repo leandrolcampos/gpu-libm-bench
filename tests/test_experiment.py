@@ -436,7 +436,7 @@ def test_inconsistent_experiment_result_is_rejected_at_construction(
         if mismatch == "measurement_device":
             measurement = replace(
                 measurement,
-                device_info=replace(experiment_result.device_info, device_id=1),
+                device_info=replace(experiment_result.device_info, id=1),
             )
         else:
             measurement = replace(

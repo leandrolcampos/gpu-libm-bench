@@ -40,7 +40,7 @@ class TimerInfo:
 @dataclass(frozen=True, slots=True)
 class DeviceInfo:
     backend: str
-    device_id: int
+    id: int
     name: str
     architecture: str
     total_memory_bytes: int
@@ -106,14 +106,14 @@ class DeviceContext:
         return self._device_info
 
     @property
-    def closed(self) -> bool:
-        return self._native.closed
+    def released(self) -> bool:
+        return self._native.released
 
-    def close(self) -> None:
-        self._native.close()
+    def release(self) -> None:
+        self._native.release()
 
     def __enter__(self) -> "DeviceContext":
-        self._ensure_open()
+        self._ensure_active()
         return self
 
     def __exit__(
@@ -123,7 +123,7 @@ class DeviceContext:
         traceback: TracebackType | None,
     ) -> None:
         try:
-            self.close()
+            self.release()
         except RuntimeError as error:
             if exc_value is None:
                 raise
@@ -131,7 +131,7 @@ class DeviceContext:
             exc_value.add_note(f"device context cleanup failed: {error}")
 
     def load_module(self, image: DeviceImage) -> DeviceModule:
-        self._ensure_open()
+        self._ensure_active()
 
         if image.target.backend != self.backend:
             raise ValueError("device image backend does not match the device context")
@@ -149,7 +149,7 @@ class DeviceContext:
     def create_buffer(self, size: int, *, dtype: DTypeLike) -> DeviceBuffer[Any]: ...
 
     def create_buffer(self, size: int, *, dtype: DTypeLike) -> DeviceBuffer[Any]:
-        self._ensure_open()
+        self._ensure_active()
 
         size = index(size)
         if size < 0:
@@ -164,7 +164,7 @@ class DeviceContext:
     def copy_to_device[T: Scalar](
         self, destination: DeviceBuffer[T], source: NDArray[T]
     ) -> None:
-        self._ensure_open()
+        self._ensure_active()
 
         if not isinstance(destination, DeviceBuffer):
             raise TypeError("destination must be a DeviceBuffer")
@@ -184,7 +184,7 @@ class DeviceContext:
     def copy_to_host[T: Scalar](
         self, destination: NDArray[T], source: DeviceBuffer[T]
     ) -> None:
-        self._ensure_open()
+        self._ensure_active()
 
         if not isinstance(destination, np.ndarray):
             raise TypeError("destination must be a NumPy array")
@@ -209,7 +209,7 @@ class DeviceContext:
         *arguments: DeviceBuffer[Any] | Scalar,
         config: LaunchConfig,
     ) -> None:
-        self._ensure_open()
+        self._ensure_active()
         kernel._validate_arguments(arguments)
 
         native_arguments = tuple(
@@ -225,9 +225,9 @@ class DeviceContext:
             config.shared_memory_bytes,
         )
 
-    def _ensure_open(self) -> None:
-        if self.closed:
-            raise RuntimeError("device context is closed")
+    def _ensure_active(self) -> None:
+        if self.released:
+            raise RuntimeError("device context has been released")
 
     @staticmethod
     def supported_backends() -> tuple[str, ...]:
@@ -242,7 +242,7 @@ class DeviceContext:
         properties = _load_backend(backend).get_device_info(device_id)
         return DeviceInfo(
             backend=backend,
-            device_id=properties["device_id"],
+            id=properties["id"],
             name=properties["name"],
             architecture=properties["architecture"],
             total_memory_bytes=properties["total_memory_bytes"],

@@ -3,7 +3,7 @@
 //
 // Python bindings for native GPU execution backends.
 
-#include "DeviceContext.hpp"
+#include "Context.hpp"
 
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
@@ -70,7 +70,7 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
         Timer["frequency_hz"] = Info.Timer.FrequencyHz;
 
         py::dict Properties;
-        Properties["device_id"] = Info.DeviceID;
+        Properties["id"] = Info.ID;
         Properties["name"] = Info.Name;
         Properties["architecture"] = Info.Architecture;
         Properties["total_memory_bytes"] = Info.TotalMemoryBytes;
@@ -98,8 +98,8 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
            }),
            py::arg("device_id") = 0)
 
-      .def_property_readonly("closed", &DeviceContext::isClosed)
-      .def("close", [](DeviceContext &Context) { unwrap(Context.close()); })
+      .def_property_readonly("released", &DeviceContext::isReleased)
+      .def("release", [](DeviceContext &Context) { unwrap(Context.release()); })
 
       .def("create_buffer",
            [](const DeviceContext &Context, py::ssize_t ByteCount) {

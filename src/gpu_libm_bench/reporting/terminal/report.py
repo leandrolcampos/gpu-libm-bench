@@ -56,9 +56,7 @@ def print_result(
 
 
 def _device_label(info: DeviceInfo) -> str:
-    return (
-        f"{info.backend.upper()} — {info.device_id}: {info.name} ({info.architecture})"
-    )
+    return f"{info.backend.upper()} — {info.id}: {info.name} ({info.architecture})"
 
 
 def _metric_report(experiment: ExperimentResult) -> Group:
