@@ -30,8 +30,8 @@ pytestmark = [pytest.mark.cuda, pytest.mark.execution]
 
 @pytest.fixture(scope="module")
 def image() -> DeviceImage:
-    info = DeviceContext.get_device_info()
-    target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", info.architecture)
+    device_info = DeviceContext.get_device_info()
+    target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", device_info.architecture)
     configured = os.environ.get("GPU_LIBM_BENCH_DEVICE_IMAGE")
 
     return resolve_device_image(

@@ -230,7 +230,7 @@ class LatencyBenchmark:
 
 
 def analyze(measurement: LatencyMeasurement) -> LatencyResult:
-    times = measurement.device_info.timer.to_nanoseconds(measurement.elapsed_ticks)
+    times = measurement.device_info.timer_info.to_nanoseconds(measurement.elapsed_ticks)
     latencies = np.median(times / measurement.chain_length, axis=1)
 
     return LatencyResult(

@@ -40,13 +40,13 @@ def main() -> int:
     for backend in DeviceContext.supported_backends():
         try:
             for device_id in range(DeviceContext.device_count(backend=backend)):
-                info = DeviceContext.get_device_info(device_id, backend=backend)
+                device_info = DeviceContext.get_device_info(device_id, backend=backend)
                 table.add_row(
-                    info.backend,
-                    str(info.id),
-                    info.name,
-                    info.architecture,
-                    f"{info.total_memory_bytes / 2**20:,.2f}",
+                    device_info.backend,
+                    str(device_info.id),
+                    device_info.name,
+                    device_info.architecture,
+                    f"{device_info.total_memory_bytes / 2**20:,.2f}",
                 )
         except BackendNotFoundError:
             continue

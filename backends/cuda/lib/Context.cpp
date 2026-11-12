@@ -22,7 +22,7 @@ Expected<int> getDeviceCount() {
   return Count;
 }
 
-Expected<DeviceInfo> getDeviceInfo(int DeviceID) {
+Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
   if (DeviceID < 0)
     return Error{ErrorKind::InvalidArgument, "device ID must be nonnegative"};
 
@@ -63,11 +63,11 @@ Expected<DeviceInfo> getDeviceInfo(int DeviceID) {
     return Err;
 
   // %globaltimer reports nanoseconds, independently of the GPU core clock.
-  return DeviceInfo{DeviceID,
-                    Name,
-                    "sm_" + std::to_string(Major) + std::to_string(Minor),
-                    TotalMemoryBytes,
-                    {"%globaltimer", 64, 1'000'000'000}};
+  return DeviceInfoTy{DeviceID,
+                      Name,
+                      "sm_" + std::to_string(Major) + std::to_string(Minor),
+                      TotalMemoryBytes,
+                      {"%globaltimer", 64, 1'000'000'000}};
 }
 
 DeviceContext::DeviceContext(std::shared_ptr<detail::DeviceState> Device,

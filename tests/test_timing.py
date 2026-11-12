@@ -11,10 +11,10 @@ from gpu_libm_bench.devices import TimerInfo
 
 @pytest.mark.parametrize("frequency_hz", [1_000_000_000, 250_000_000, 3_000_000_000])
 def test_ticks_are_converted_using_the_timer_frequency(frequency_hz: int) -> None:
-    timer = TimerInfo("test counter", 64, frequency_hz)
+    timer_info = TimerInfo("test counter", 64, frequency_hz)
     ticks = np.array([[0, 1, 2], [1234, 1_000_000, 9_000_000_000]], dtype=np.uint64)
 
-    elapsed = timer.to_nanoseconds(ticks)
+    elapsed = timer_info.to_nanoseconds(ticks)
 
     expected = [
         [float(value) * 1_000_000_000 / frequency_hz for value in row]

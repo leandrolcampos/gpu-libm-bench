@@ -44,7 +44,7 @@ class DeviceInfo:
     name: str
     architecture: str
     total_memory_bytes: int
-    timer: TimerInfo
+    timer_info: TimerInfo
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,7 +246,7 @@ class DeviceContext:
             name=properties["name"],
             architecture=properties["architecture"],
             total_memory_bytes=properties["total_memory_bytes"],
-            timer=TimerInfo(**properties["timer"]),
+            timer_info=TimerInfo(**properties["timer_info"]),
         )
 
 

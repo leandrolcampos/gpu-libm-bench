@@ -31,8 +31,10 @@ def context() -> Iterator[DeviceContext]:
 
 @pytest.fixture
 def timer_module(context: DeviceContext) -> DeviceModule:
-    info = context.device_info
-    target = CompilationTarget(info.backend, "nvptx64-nvidia-cuda", info.architecture)
+    device_info = context.device_info
+    target = CompilationTarget(
+        device_info.backend, "nvptx64-nvidia-cuda", device_info.architecture
+    )
 
     configured = os.environ.get("GPU_LIBM_BENCH_TIMER_IMAGE")
     if configured is not None:

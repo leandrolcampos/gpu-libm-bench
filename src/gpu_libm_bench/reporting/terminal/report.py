@@ -55,8 +55,11 @@ def print_result(
         console.print(_configuration_report(result), soft_wrap=True)
 
 
-def _device_label(info: DeviceInfo) -> str:
-    return f"{info.backend.upper()} — {info.id}: {info.name} ({info.architecture})"
+def _device_label(device_info: DeviceInfo) -> str:
+    return (
+        f"{device_info.backend.upper()} — {device_info.id}: "
+        f"{device_info.name} ({device_info.architecture})"
+    )
 
 
 def _metric_report(experiment: ExperimentResult) -> Group:
@@ -102,13 +105,14 @@ def _configuration_report(experiment: ExperimentResult) -> Group:
     )
 
 
-def _device_details(info: DeviceInfo) -> Group:
-    timer = info.timer
+def _device_details(device_info: DeviceInfo) -> Group:
+    timer_info = device_info.timer_info
     return Group(
-        Text(_device_label(info), style="bold"),
-        Text(f"Memory: {info.total_memory_bytes / 2**20:,.2f} MiB"),
+        Text(_device_label(device_info), style="bold"),
+        Text(f"Memory: {device_info.total_memory_bytes / 2**20:,.2f} MiB"),
         Text(
-            f"Timer: {timer.source}, {timer.counter_bits} bits, {timer.frequency_hz} Hz"
+            f"Timer: {timer_info.source}, {timer_info.counter_bits} bits, "
+            f"{timer_info.frequency_hz} Hz"
         ),
     )
 

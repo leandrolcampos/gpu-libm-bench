@@ -59,8 +59,8 @@ def function() -> FunctionConfig:
 
 @pytest.fixture
 def module(context: DeviceContext) -> DeviceModule:
-    info = context.device_info
-    target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", info.architecture)
+    device_info = context.device_info
+    target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", device_info.architecture)
 
     configured = os.environ.get("GPU_LIBM_BENCH_DEVICE_IMAGE")
     image = resolve_device_image(
@@ -74,8 +74,8 @@ def module(context: DeviceContext) -> DeviceModule:
 
 @pytest.fixture
 def latency_module(context: DeviceContext) -> DeviceModule:
-    info = context.device_info
-    target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", info.architecture)
+    device_info = context.device_info
+    target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", device_info.architecture)
 
     configured = os.environ.get("GPU_LIBM_BENCH_LATENCY_IMAGE")
     if configured is not None:
