@@ -9,7 +9,9 @@
 #include "Launch.hpp"
 #include "Memory.hpp"
 #include "Module.hpp"
+#include "Profiling.hpp"
 
+#include <set>
 #include <vector>
 
 #ifndef GPU_LIBM_BENCH_BACKEND
@@ -35,7 +37,7 @@ struct DeviceInfoTy {
 Expected<int> getDeviceCount();
 Expected<DeviceInfoTy> getDeviceInfo(int DeviceID);
 
-using LaunchArgument = std::variant<const DeviceBuffer *, const void *>;
+using KernelArgument = std::variant<const DeviceBuffer *, const void *>;
 
 class DeviceContext {
 public:
@@ -59,8 +61,14 @@ public:
                    std::size_t ByteCount) const;
 
   Error launch(const DeviceKernel &Kernel,
-               const std::vector<LaunchArgument> &Arguments,
+               const std::vector<KernelArgument> &KernelArguments,
                const LaunchConfig &Config) const;
+
+  Expected<KernelProfile>
+  profile(const DeviceKernel &Kernel,
+          const std::vector<KernelArgument> &KernelArguments,
+          const LaunchConfig &Config,
+          const std::set<KernelMetric> &Metrics) const;
 
 private:
   DeviceContext(std::shared_ptr<detail::DeviceState> Device, void *Stream);
@@ -68,6 +76,8 @@ private:
   Error ensureActive() const;
   Error validateBuffer(const DeviceBuffer &Buffer) const;
   Error validateKernel(const DeviceKernel &Kernel) const;
+  Error validateKernelArguments(
+      const std::vector<KernelArgument> &KernelArguments) const;
 
   std::shared_ptr<detail::DeviceState> Device;
   void *Stream;

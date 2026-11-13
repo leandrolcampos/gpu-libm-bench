@@ -11,7 +11,12 @@
 
 namespace gpu_libm_bench {
 
-enum class ErrorKind : std::uint8_t { Success, InvalidArgument, Runtime };
+enum class ErrorKind : std::uint8_t {
+  Success,
+  InvalidArgument,
+  Runtime,
+  NotImplemented,
+};
 
 struct [[nodiscard]] Error {
   ErrorKind Kind = ErrorKind::Success;
