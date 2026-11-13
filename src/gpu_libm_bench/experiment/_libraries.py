@@ -5,7 +5,7 @@
 
 from pathlib import Path
 
-from gpu_libm_bench.compiler import _paths
+from gpu_libm_bench.compiler import paths
 from gpu_libm_bench.compiler.images import configure_kernels, read_registered_functions
 from gpu_libm_bench.compiler.libraries import (
     LibraryUnavailableError,
@@ -36,9 +36,6 @@ def select_libraries(
 
     explicit = config.run.libraries is not None
     names = config.libraries if config.run.libraries is None else config.run.libraries
-    if build_root is None:
-        build_root = _paths.build_root() / "kernels" / "libraries"
-
     selected = []
     for name in names:
         library_config = config.libraries[name]
@@ -65,10 +62,12 @@ def select_libraries(
                 target=target,
                 llvm=llvm,
                 sdk=sdk,
-                build_directory=build_root
-                / target.backend
-                / target.architecture
-                / name,
+                build_directory=paths.image_build_directory(
+                    name,
+                    backend=target.backend,
+                    architecture=target.architecture,
+                    root=build_root,
+                ),
             )
             functions = read_registered_functions(build, library=name, target=target)
             if config.function.name not in functions:

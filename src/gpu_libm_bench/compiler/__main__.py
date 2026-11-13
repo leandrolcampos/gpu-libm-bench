@@ -24,6 +24,7 @@ from gpu_libm_bench.configs import (
 )
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 
+from . import paths
 from ._cmake import CMakeBuild
 from ._commands import run_tool
 from .backends import BackendNotFoundError, build_backend, configure_backend
@@ -169,7 +170,7 @@ def _compile_backends(
         compile_backend(
             backend.name,
             sdk=sdk,
-            build_directory=build_root / backend.name
+            build_directory=paths.backend_build_directory(backend.name, root=build_root)
             if build_root is not None
             else None,
             build_tests=arguments.build_tests,
@@ -324,7 +325,12 @@ def _compile_library_kernels(
         target=target,
         llvm=llvm,
         sdk=sdk,
-        build_directory=build_root / target.backend / target.architecture / library.name
+        build_directory=paths.image_build_directory(
+            library.name,
+            backend=target.backend,
+            architecture=target.architecture,
+            root=build_root,
+        )
         if build_root is not None
         else None,
         build_tests=arguments.build_tests,

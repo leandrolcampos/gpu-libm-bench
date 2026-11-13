@@ -38,7 +38,7 @@ def test_experiment_collects_latency_and_reuses_its_image(
         )
 
     monkeypatch.setattr(
-        experiment_module._paths, "build_root", lambda: tmp_path / "build"
+        experiment_module.paths, "build_root", lambda: tmp_path / "build"
     )
 
     first = Experiment(config).run()

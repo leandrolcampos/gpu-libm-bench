@@ -154,7 +154,7 @@ def execution(
     )
 
     monkeypatch.setattr(
-        experiment_module._paths, "build_root", lambda: tmp_path / "build"
+        experiment_module.paths, "build_root", lambda: tmp_path / "build"
     )
     monkeypatch.setattr(
         experiment_module._libraries,
@@ -314,7 +314,7 @@ def test_input_sampling_does_not_consume_ordering_stream(
 
 
 def test_run_collects_comparable_results_for_each_library(
-    config: ExperimentConfig, execution
+    config: ExperimentConfig, execution, tmp_path: Path
 ) -> None:
     context, benchmarks = execution
     config = replace(
@@ -331,6 +331,14 @@ def test_run_collects_comparable_results_for_each_library(
     )
 
     result = Experiment(config).run()
+
+    assert [
+        call.kwargs["build_directory"]
+        for call in experiment_module.build_kernels.call_args_list
+    ] == [
+        tmp_path / "build/kernels/cuda/sm_120" / library
+        for library in ("other", "llvm-libm")
+    ]
 
     assert [library.image_build_info.image.library for library in result.results] == [
         "other",

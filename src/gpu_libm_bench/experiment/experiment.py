@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.compiler import _paths
+from gpu_libm_bench.compiler import paths
 from gpu_libm_bench.compiler.backends import (
     BackendNotFoundError,
     build_backend,
@@ -186,9 +186,8 @@ class Experiment:
         target: CompilationTarget,
         sdk: CUDAToolkit,
     ) -> tuple[DeviceImageBuildInfo, ...]:
-        build_root = _paths.build_root() / "kernels" / "libraries"
         resolved_libraries = _libraries.select_libraries(
-            self._config, llvm=llvm, target=target, sdk=sdk, build_root=build_root
+            self._config, llvm=llvm, target=target, sdk=sdk
         )
 
         image_build_infos = []
@@ -198,10 +197,11 @@ class Experiment:
                 target=target,
                 llvm=llvm,
                 sdk=sdk,
-                build_directory=build_root
-                / target.backend
-                / target.architecture
-                / resolved_library.library,
+                build_directory=paths.image_build_directory(
+                    resolved_library.library,
+                    backend=target.backend,
+                    architecture=target.architecture,
+                ),
             )
             image_build_infos.append(read_device_image_build_info(image))
 
