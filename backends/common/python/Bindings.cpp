@@ -134,6 +134,15 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
       },
       py::arg("device_id") = 0);
 
+  Module.def(
+      "_set_images_build_root",
+      [](const std::string &Root) {
+        unwrap(
+            gpu_libm_bench::GPU_LIBM_BENCH_BACKEND::detail::setImagesBuildRoot(
+                Root));
+      },
+      py::arg("root"));
+
   py::class_<DeviceBuffer>(Module, "DeviceBuffer")
       .def_property_readonly("nbytes", &DeviceBuffer::getByteCount);
 
