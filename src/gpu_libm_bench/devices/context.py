@@ -177,20 +177,20 @@ class DeviceContext:
     def launch(
         self,
         kernel: DeviceKernel,
-        *arguments: DeviceBuffer[Any] | Scalar,
+        *kernel_arguments: DeviceBuffer[Any] | Scalar,
         config: LaunchConfig,
     ) -> None:
         self._ensure_active()
-        kernel._validate_arguments(arguments)
+        kernel._validate_arguments(kernel_arguments)
 
-        native_arguments = tuple(
+        native_kernel_arguments = tuple(
             argument._native if isinstance(argument, DeviceBuffer) else argument
-            for argument in arguments
+            for argument in kernel_arguments
         )
 
         self._native.launch(
             kernel._native,
-            native_arguments,
+            native_kernel_arguments,
             config.grid,
             config.block,
             config.shared_memory_bytes,
@@ -199,7 +199,7 @@ class DeviceContext:
     def profile(
         self,
         kernel: DeviceKernel,
-        *arguments: DeviceBuffer[Any] | Scalar,
+        *kernel_arguments: DeviceBuffer[Any] | Scalar,
         config: LaunchConfig,
         metrics: Set[KernelMetric],
     ) -> KernelProfile:
