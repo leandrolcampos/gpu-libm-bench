@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_module
 
+from gpu_libm_bench.compiler.backends import get_backend
 from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.configs import register_config_schema, validate_experiment_config
@@ -26,6 +27,12 @@ from gpu_libm_bench.devices import (
 from gpu_libm_bench.kernels import KernelKind, KernelRequest, KernelSpec
 
 pytestmark = [pytest.mark.cuda, pytest.mark.execution]
+
+
+@pytest.fixture
+def context() -> Iterator[DeviceContext]:
+    with DeviceContext() as value:
+        yield value
 
 
 @pytest.fixture(scope="module")
@@ -58,12 +65,6 @@ def spec() -> KernelSpec:
     return KernelSpec.from_config(
         validate_experiment_config(config).function, kind=KernelKind.EVALUATE
     )
-
-
-@pytest.fixture
-def context() -> Iterator[DeviceContext]:
-    with DeviceContext() as value:
-        yield value
 
 
 def load_kernel(
@@ -106,12 +107,14 @@ def test_copy_rejects_incompatible_arrays(context: DeviceContext) -> None:
         context.copy_to_device(buffer, np.zeros(8, dtype=np.float64))
     with pytest.raises(ValueError, match="same dtype") as to_host_error:
         context.copy_to_host(np.zeros(8, dtype=np.float64), buffer)
+
     assert str(to_device_error.value) == str(to_host_error.value)
 
     with pytest.raises(ValueError, match="capacity") as to_device_error:
         context.copy_to_device(buffer, np.zeros(9, dtype=np.float32))
     with pytest.raises(ValueError, match="capacity") as to_host_error:
         context.copy_to_host(np.zeros(7, dtype=np.float32), buffer)
+
     assert str(to_device_error.value) == str(to_host_error.value)
 
     with pytest.raises(ValueError, match="source.*contiguous"):
@@ -153,6 +156,7 @@ def test_evaluate_expf_preserves_tail(
 
     x = context.create_buffer(source.size, dtype=source.dtype)
     y = context.create_buffer(destination.size, dtype=destination.dtype)
+
     context.copy_to_device(x, source)
     context.copy_to_device(y, destination)
 
@@ -184,6 +188,40 @@ def test_launch_observes_the_latest_host_copy(
         np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
 
 
+def test_native_execution_accepts_keyword_arguments(
+    context: DeviceContext, image: DeviceImage
+) -> None:
+    native = context._native
+    module = native.load_module(path=str(image.image_path))
+    symbol = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATE).symbol
+    kernel = module.get_kernel(symbol=symbol)
+
+    source = np.array([-1, 0, 1], dtype=np.float32)
+    destination = np.empty_like(source)
+    x = native.create_buffer(byte_count=source.nbytes)
+    y = native.create_buffer(byte_count=destination.nbytes)
+    launch_arguments = {
+        "kernel": kernel,
+        "kernel_arguments": (x, y, np.uint64(source.size)),
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "shared_memory_bytes": 0,
+    }
+
+    native.copy_to_device(destination=x, source=source)
+    native.launch(**launch_arguments)
+    native.copy_to_host(destination=destination, source=y)
+
+    np.testing.assert_allclose(destination, np.exp(source), rtol=4e-7)
+
+    with pytest.raises(ValueError, match="at least one metric"):
+        native.profile(**launch_arguments, metrics=set())
+    with pytest.raises(NotImplementedError, match="kernel profiling"):
+        native.profile(
+            **launch_arguments, metrics={get_backend("cuda").KernelMetric.DURATION}
+        )
+
+
 def test_launch_rejects_incompatible_arguments(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec
 ) -> None:
@@ -197,6 +235,29 @@ def test_launch_rejects_incompatible_arguments(
         context.launch(kernel, buffer, buffer, np.int32(8), config=config)
     with pytest.raises(TypeError, match="expects a device buffer"):
         context.launch(kernel, np.float32(0), buffer, np.uint64(8), config=config)
+
+
+@pytest.mark.parametrize("method", ["launch", "profile"])
+def test_native_launch_and_profile_validate_inputs(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec, method: str
+) -> None:
+    kernel = load_kernel(context, image, spec)._native
+    buffer = context._native.create_buffer(4)
+    kernel_arguments = (buffer, buffer, np.uint64(1))
+    operation = getattr(context._native, method)
+    options = {}
+    if method == "profile":
+        options["metrics"] = {get_backend("cuda").KernelMetric.DURATION}
+
+    with pytest.raises(TypeError, match="NumPy scalars"):
+        operation(kernel, (buffer, buffer, 1), (1, 1, 1), (1, 1, 1), 0, **options)
+
+    object_scalar = np.zeros((), dtype=[("value", object)])[()]
+    with pytest.raises(TypeError, match="Python objects"):
+        operation(kernel, (object_scalar,), (1, 1, 1), (1, 1, 1), 0, **options)
+
+    with pytest.raises(ValueError, match="configuration"):
+        operation(kernel, kernel_arguments, (0, 1, 1), (1, 1, 1), 0, **options)
 
 
 def test_kernel_and_buffer_outlive_the_creating_session(
