@@ -1,5 +1,7 @@
 // Copyright 2026 Leandro Lacerda Campos
 // SPDX-License-Identifier: Apache-2.0
+//
+// Implements support kernels for kernel profiling.
 
 #include "GPU.hpp"
 

@@ -16,8 +16,8 @@ from gpu_libm_bench.compiler import images
 from gpu_libm_bench.compiler._cmake import CMakeBuild
 from gpu_libm_bench.compiler._commands import run_tool
 from gpu_libm_bench.compiler.backends import build_backend
-from gpu_libm_bench.compiler.libraries import LibraryBitcode, resolve_library
-from gpu_libm_bench.compiler.targets import resolve_target
+from gpu_libm_bench.compiler.libraries import ResolvedLibrary, resolve_library
+from gpu_libm_bench.compiler.targets import CompilationTarget, resolve_target
 from gpu_libm_bench.compiler.toolchains import resolve_llvm, resolve_sdk
 
 pytestmark = pytest.mark.images
@@ -106,6 +106,46 @@ def test_backend_build_includes_native_tests(tmp_path: Path) -> None:
     )
 
 
+def test_support_library_builds_image_without_bitcode(tmp_path: Path) -> None:
+    llvm = resolve_llvm()
+    sdk = resolve_sdk(backend="cuda")
+    target = CompilationTarget(
+        "cuda",
+        "nvptx64-nvidia-cuda",
+        os.environ.get("GPU_LIBM_BENCH_ARCHITECTURE", "sm_80"),
+    )
+    resolved_library = resolve_library(library="support", llvm=llvm, target=target)
+    build = images.configure_kernels(
+        resolved_library=resolved_library,
+        target=target,
+        llvm=llvm,
+        sdk=sdk,
+        build_directory=tmp_path,
+    )
+    plan = json.loads((tmp_path / "build-plan.json").read_text())
+    assert not Path(plan["image_path"]).exists()
+
+    build.build()
+
+    image = images.resolve_device_image(
+        "support", target=target, build_directory=tmp_path
+    )
+    build_info = images.read_device_image_build_info(image)
+    assert image.image_path == tmp_path / "support.cubin"
+    assert build_info.bitcode_path is None
+    assert image.functions == ()
+
+    ptx = Path(plan["ptx"]).read_text()
+    assert f".target {target.architecture}" in ptx
+    for symbol in ("blockStream", "readClockCounters"):
+        assert f".entry {symbol}(" in ptx
+
+    timestamp = image.image_path.stat().st_mtime_ns
+    build.configure()
+    build.build()
+    assert image.image_path.stat().st_mtime_ns == timestamp
+
+
 def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
     llvm = resolve_llvm()
     sdk = resolve_sdk(backend="cuda")
@@ -116,18 +156,19 @@ def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
         llvm=llvm,
         sdk=sdk,
     )
-    bitcode = resolve_library(library="llvm-libm", llvm=llvm, target=target)
+    resolved_library = resolve_library(library="llvm-libm", llvm=llvm, target=target)
+    assert resolved_library.bitcode_path is not None
 
     first = tmp_path / "first.bc"
     second = tmp_path / "second.bc"
-    shutil.copyfile(bitcode.bitcode_path, first)
-    shutil.copyfile(bitcode.bitcode_path, second)
+    shutil.copyfile(resolved_library.bitcode_path, first)
+    shutil.copyfile(resolved_library.bitcode_path, second)
 
     build_directory = tmp_path / "build"
 
     def build(bitcode_path: Path):
         return images.build_kernels(
-            bitcode=LibraryBitcode(bitcode.library, bitcode_path),
+            resolved_library=ResolvedLibrary(resolved_library.library, bitcode_path),
             target=target,
             llvm=llvm,
             sdk=sdk,

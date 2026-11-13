@@ -217,6 +217,7 @@ def test_kernel_discovery_and_filters(
     )
 
     calls = build_cli.build_kernels.call_args_list
+    expected = expected | {(backend, "support") for backend, _ in expected}
     assert {
         (call.kwargs["target"].backend, call.kwargs["resolved_library"].library)
         for call in calls
@@ -247,12 +248,16 @@ def test_kernel_command_preserves_build_selection(
         f"library.backends.cuda.bitcode_path={bitcode_path}",
     )
 
-    call = build_cli.build_kernels.call_args.kwargs
+    calls = build_cli.build_kernels.call_args_list
+    support, call = (item.kwargs for item in calls)
     target = call["target"]
     assert target.architecture == (architecture or "sm_90")
     assert call["resolved_library"] == ResolvedLibrary("llvm-libm", bitcode_path)
     assert call["build_directory"] == root / "cuda" / target.architecture / "llvm-libm"
     assert call["build_tests"] is True
+    assert support["resolved_library"] == ResolvedLibrary("support")
+    assert support["target"] == target
+    assert support["build_directory"] == root / "cuda" / target.architecture / "support"
     build_cli.resolve_llvm.assert_called_once_with(llvm.root)
 
     if architecture is None:
@@ -333,7 +338,7 @@ def test_unavailable_library_is_skipped_only_when_selection_can_be_satisfied(
         assert [
             call.kwargs["resolved_library"].library
             for call in build_cli.build_kernels.call_args_list
-        ] == ["llvm-libm"]
+        ] == ["support", "llvm-libm"]
 
 
 def test_explicit_library_must_be_available_on_at_least_one_backend(
@@ -414,7 +419,7 @@ def test_configure_and_tidy_use_each_selected_build_directory(
 
     build_cli.build_kernels.assert_not_called()
     builds = build_cli.configure_kernels.call_args_list
-    assert len(builds) == 2
+    assert len(builds) == 3
     assert all(call.kwargs["build_tests"] for call in builds)
 
     if mode == "--tidy":

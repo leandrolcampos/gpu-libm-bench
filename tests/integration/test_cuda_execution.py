@@ -22,6 +22,7 @@ from gpu_libm_bench.devices import (
     DeviceContext,
     DeviceImage,
     DeviceKernel,
+    KernelMetric,
     LaunchConfig,
 )
 from gpu_libm_bench.kernels import KernelKind, KernelRequest, KernelSpec
@@ -73,6 +74,39 @@ def load_kernel(
     module = context.load_module(image)
     request = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATE)
     return module.get_kernel(request.symbol, spec=spec)
+
+
+def test_kernel_and_buffer_outlive_the_creating_session(
+    image: DeviceImage, spec: KernelSpec
+) -> None:
+    source = np.array([-1, 0, 1], dtype=np.float32)
+    destination = np.empty_like(source)
+
+    with DeviceContext() as original:
+        assert not original.released
+        kernel = load_kernel(original, image, spec)
+        buffer = original.create_buffer(source.size, dtype=source.dtype)
+        original.copy_to_device(buffer, source)
+
+    assert original.released
+    original.release()
+    assert original.released
+
+    with pytest.raises(RuntimeError, match="released"):
+        original.create_buffer(1, dtype=np.float32)
+
+    with DeviceContext() as context:
+        output = context.create_buffer(destination.size, dtype=destination.dtype)
+        context.launch(
+            kernel,
+            buffer,
+            output,
+            np.uint64(source.size),
+            config=LaunchConfig(block=(32, 1, 1)),
+        )
+        context.copy_to_host(destination, output)
+
+    np.testing.assert_allclose(destination, np.exp(source), rtol=4e-7)
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.uint64])
@@ -216,10 +250,11 @@ def test_native_execution_accepts_keyword_arguments(
 
     with pytest.raises(ValueError, match="at least one metric"):
         native.profile(**launch_arguments, metrics=set())
-    with pytest.raises(NotImplementedError, match="kernel profiling"):
-        native.profile(
-            **launch_arguments, metrics={get_backend("cuda").KernelMetric.DURATION}
-        )
+    profile = native.profile(
+        **launch_arguments, metrics={get_backend("cuda").KernelMetric.DURATION}
+    )
+    assert profile["duration_ms"] > 0
+    assert profile["average_frequency_hz"] is None
 
 
 def test_launch_rejects_incompatible_arguments(
@@ -259,38 +294,56 @@ def test_native_launch_and_profile_validate_inputs(
     with pytest.raises(ValueError, match="configuration"):
         operation(kernel, kernel_arguments, (0, 1, 1), (1, 1, 1), 0, **options)
 
+    if method == "profile":
+        profile = operation(
+            kernel, kernel_arguments, (1, 1, 1), (1, 1, 1), 0, **options
+        )
+        assert profile["duration_ms"] > 0
 
-def test_kernel_and_buffer_outlive_the_creating_session(
-    image: DeviceImage, spec: KernelSpec
+
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        {KernelMetric.AVERAGE_FREQUENCY},
+        {KernelMetric.DURATION},
+        set(KernelMetric),
+    ],
+)
+def test_profile_collects_requested_metrics_and_executes_once(
+    context: DeviceContext,
+    image: DeviceImage,
+    spec: KernelSpec,
+    metrics: set[KernelMetric],
 ) -> None:
-    source = np.array([-1, 0, 1], dtype=np.float32)
-    destination = np.empty_like(source)
+    source = np.linspace(-1, 1, 1 << 16, dtype=np.float32)
+    result = np.empty_like(source)
+    buffer = context.create_buffer(source.size, dtype=source.dtype)
+    kernel = load_kernel(context, image, spec)
+    config = LaunchConfig(grid=(source.size // 256, 1, 1), block=(256, 1, 1))
 
-    with DeviceContext() as original:
-        assert not original.released
-        kernel = load_kernel(original, image, spec)
-        buffer = original.create_buffer(source.size, dtype=source.dtype)
-        original.copy_to_device(buffer, source)
-
-    assert original.released
-    original.release()
-    assert original.released
-
-    with pytest.raises(RuntimeError, match="released"):
-        original.create_buffer(1, dtype=np.float32)
-
-    with DeviceContext() as context:
-        output = context.create_buffer(destination.size, dtype=destination.dtype)
-        context.launch(
+    for _ in range(2):
+        context.copy_to_device(buffer, source)
+        profile = context.profile(
             kernel,
             buffer,
-            output,
+            buffer,
             np.uint64(source.size),
-            config=LaunchConfig(block=(32, 1, 1)),
+            config=config,
+            metrics=metrics,
         )
-        context.copy_to_host(destination, output)
+        context.copy_to_host(result, buffer)
 
-    np.testing.assert_allclose(destination, np.exp(source), rtol=4e-7)
+        np.testing.assert_allclose(result, np.exp(source), rtol=4e-7)
+        if KernelMetric.AVERAGE_FREQUENCY in metrics:
+            assert profile.average_frequency_hz is not None
+            assert 1e6 < profile.average_frequency_hz < 1e11
+        else:
+            assert profile.average_frequency_hz is None
+        if KernelMetric.DURATION in metrics:
+            assert profile.duration_ms is not None
+            assert profile.duration_ms > 0
+        else:
+            assert profile.duration_ms is None
 
 
 def test_operations_restore_an_external_cuda_context(
@@ -312,7 +365,14 @@ def test_operations_restore_an_external_cuda_context(
             kernel = load_kernel(context, image, spec)
 
             context.copy_to_device(buffer, source)
-            context.launch(kernel, buffer, buffer, np.uint64(1), config=LaunchConfig())
+            context.profile(
+                kernel,
+                buffer,
+                buffer,
+                np.uint64(1),
+                config=LaunchConfig(),
+                metrics=set(KernelMetric),
+            )
             context.copy_to_host(destination, buffer)
 
             current = ctypes.c_void_p()

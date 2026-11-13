@@ -11,10 +11,10 @@ from typing import Any
 
 from gpu_libm_bench.devices import DeviceImage
 
-from . import _paths
+from . import paths
 from ._cmake import CMakeBuild
 from ._commands import run_tool
-from .libraries import LibraryBitcode
+from .libraries import ResolvedLibrary
 from .targets import CompilationTarget
 from .toolchains import CUDAToolkit, LLVMToolchain
 
@@ -26,7 +26,7 @@ class DeviceImageBuildInfo:
     sdk_name: str
     sdk_version: str
     sdk_root: Path
-    bitcode_path: Path
+    bitcode_path: Path | None
     image: DeviceImage
     compile_options: tuple[str, ...] = ()
     link_options: tuple[str, ...] = ()
@@ -34,7 +34,7 @@ class DeviceImageBuildInfo:
 
 def build_kernels(
     *,
-    bitcode: LibraryBitcode,
+    resolved_library: ResolvedLibrary,
     target: CompilationTarget,
     llvm: LLVMToolchain,
     sdk: CUDAToolkit,
@@ -42,7 +42,7 @@ def build_kernels(
     build_tests: bool = False,
 ) -> DeviceImage:
     build = configure_kernels(
-        bitcode=bitcode,
+        resolved_library=resolved_library,
         target=target,
         llvm=llvm,
         sdk=sdk,
@@ -53,13 +53,13 @@ def build_kernels(
     build.build()
 
     return resolve_device_image(
-        bitcode.library, target=target, build_directory=build.build_directory
+        resolved_library.library, target=target, build_directory=build.build_directory
     )
 
 
 def configure_kernels(
     *,
-    bitcode: LibraryBitcode,
+    resolved_library: ResolvedLibrary,
     target: CompilationTarget,
     llvm: LLVMToolchain,
     sdk: CUDAToolkit,
@@ -67,12 +67,16 @@ def configure_kernels(
     build_tests: bool = False,
 ) -> CMakeBuild:
     arguments = _image_cmake_arguments(
-        bitcode=bitcode, target=target, llvm=llvm, sdk=sdk
+        resolved_library=resolved_library, target=target, llvm=llvm, sdk=sdk
     )
 
-    project = _paths.source_root()
+    project = paths.source_root()
     if build_directory is None:
-        build_directory = _default_build_directory(bitcode.library, target=target)
+        build_directory = paths.image_build_directory(
+            resolved_library.library,
+            backend=target.backend,
+            architecture=target.architecture,
+        )
 
     toolchain_files: tuple[Path, ...] = (
         llvm.clang,
@@ -113,12 +117,22 @@ def resolve_device_image(
     explicit = image_path is not None
     if image_path is None:
         if build_directory is None:
-            build_directory = _default_build_directory(library, target=target)
+            build_directory = paths.image_build_directory(
+                library, backend=target.backend, architecture=target.architecture
+            )
 
-        if target.backend == "cuda":
-            image_path = build_directory / "math.cubin"
-        else:
-            raise ValueError(f"unsupported device image backend: {target.backend!r}")
+        plan = build_directory / "build-plan.json"
+        metadata = _read_image_metadata(
+            plan, library=library, target=target, description="kernel build plan"
+        )
+        if (
+            not isinstance(metadata.get("image_path"), str)
+            or not metadata["image_path"]
+        ):
+            raise ValueError(
+                f"kernel build plan {plan} must declare image_path as a nonempty string"
+            )
+        image_path = Path(metadata["image_path"])
 
     image_path = image_path.expanduser().resolve()
     if not image_path.is_file():
@@ -128,7 +142,7 @@ def resolve_device_image(
     manifest_exists = manifest_path.is_file()
     functions: tuple[str, ...] | None = None
     if manifest_exists:
-        metadata = _read_image_manifest(manifest_path, library=library, target=target)
+        metadata = _read_image_metadata(manifest_path, library=library, target=target)
 
         if "functions" in metadata:
             functions = tuple(metadata["functions"])
@@ -148,7 +162,7 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
     manifest_path = image.manifest_path
     if manifest_path is None:
         raise ValueError(f"device image has no build manifest: {image.image_path}")
-    metadata = _read_image_manifest(
+    metadata = _read_image_metadata(
         manifest_path, library=image.library, target=image.target
     )
 
@@ -158,13 +172,21 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
         "compiler_version",
         "sdk_root",
         "sdk_version",
-        "bitcode_path",
     ):
         if not isinstance(metadata.get(field), str) or not metadata[field]:
             raise ValueError(
                 f"device image manifest {manifest_path} "
                 f"must declare {field} as a nonempty string"
             )
+
+    bitcode_path = metadata.get("bitcode_path")
+    if bitcode_path is not None and (
+        not isinstance(bitcode_path, str) or not bitcode_path
+    ):
+        raise ValueError(
+            f"device image manifest {manifest_path} "
+            "must declare bitcode_path as a nonempty string or null"
+        )
 
     for field in ("compile_flags", "link_flags"):
         if not isinstance(metadata.get(field), str):
@@ -199,7 +221,7 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
         sdk_name=sdk_names[image.target.backend],
         sdk_version=metadata["sdk_version"],
         sdk_root=Path(metadata["sdk_root"]),
-        bitcode_path=Path(metadata["bitcode_path"]),
+        bitcode_path=Path(bitcode_path) if bitcode_path is not None else None,
         image=image,
         compile_options=_expand_options(
             metadata["compile_flags"], metadata["compile_options"]
@@ -212,19 +234,9 @@ def read_registered_functions(
     build: CMakeBuild, *, library: str, target: CompilationTarget
 ) -> tuple[str, ...]:
     path = build.build_directory / "build-plan.json"
-    metadata = json.loads(path.read_text())
-
-    expected = {
-        "library": library,
-        "backend": target.backend,
-        "target_triple": target.target_triple,
-        "architecture": target.architecture,
-    }
-    for field, value in expected.items():
-        if metadata.get(field) != value:
-            raise ValueError(
-                f"kernel build plan {path} does not match {field}={value!r}"
-            )
+    metadata = _read_image_metadata(
+        path, library=library, target=target, description="kernel build plan"
+    )
 
     functions = metadata.get("functions")
     if not isinstance(functions, list) or any(
@@ -237,7 +249,7 @@ def read_registered_functions(
 
 def _image_cmake_arguments(
     *,
-    bitcode: LibraryBitcode,
+    resolved_library: ResolvedLibrary,
     target: CompilationTarget,
     llvm: LLVMToolchain,
     sdk: CUDAToolkit,
@@ -255,24 +267,24 @@ def _image_cmake_arguments(
         "SDK_VERSION": sdk.version,
         "TARGET_TRIPLE": target.target_triple,
         "ARCHITECTURE": target.architecture,
-        "LIBRARY": bitcode.library,
-        "BITCODE_PATH": str(bitcode.bitcode_path),
+        "LIBRARY": resolved_library.library,
+        "BITCODE_PATH": str(resolved_library.bitcode_path)
+        if resolved_library.bitcode_path is not None
+        else "",
     }
     return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
 
 
-def _default_build_directory(library: str, *, target: CompilationTarget) -> Path:
-    return (
-        _paths.build_root() / "kernels" / target.backend / target.architecture / library
-    )
-
-
-def _read_image_manifest(
-    path: Path, *, library: str, target: CompilationTarget
+def _read_image_metadata(
+    path: Path,
+    *,
+    library: str,
+    target: CompilationTarget,
+    description: str = "device image manifest",
 ) -> dict[str, Any]:
     metadata = json.loads(path.read_text())
     if not isinstance(metadata, dict):
-        raise ValueError(f"device image manifest {path} must contain an object")
+        raise ValueError(f"{description} {path} must contain an object")
 
     expected = {
         "library": library,
@@ -282,9 +294,7 @@ def _read_image_manifest(
     }
     for field, value in expected.items():
         if metadata.get(field) != value:
-            raise ValueError(
-                f"device image manifest {path} does not match {field}={value!r}"
-            )
+            raise ValueError(f"{description} {path} does not match {field}={value!r}")
 
     return metadata
 

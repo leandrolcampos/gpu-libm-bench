@@ -337,8 +337,11 @@ def test_run_collects_comparable_results_for_each_library(
         for call in experiment_module.build_kernels.call_args_list
     ] == [
         tmp_path / "build/kernels/cuda/sm_120" / library
-        for library in ("other", "llvm-libm")
+        for library in ("support", "other", "llvm-libm")
     ]
+    support = experiment_module.build_kernels.call_args_list[0].kwargs
+    assert support["resolved_library"] == ResolvedLibrary("support")
+    assert support["target"] == experiment_module.resolve_target.return_value
 
     assert [library.image_build_info.image.library for library in result.results] == [
         "other",

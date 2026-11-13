@@ -22,6 +22,7 @@ from gpu_libm_bench.compiler.images import (
     build_kernels,
     read_device_image_build_info,
 )
+from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget, resolve_target
 from gpu_libm_bench.compiler.toolchains import (
     CUDAToolkit,
@@ -191,7 +192,7 @@ class Experiment:
         )
 
         image_build_infos = []
-        for resolved_library in resolved_libraries:
+        for resolved_library in (ResolvedLibrary("support"), *resolved_libraries):
             image = build_kernels(
                 resolved_library=resolved_library,
                 target=target,
@@ -203,6 +204,7 @@ class Experiment:
                     architecture=target.architecture,
                 ),
             )
-            image_build_infos.append(read_device_image_build_info(image))
+            if resolved_library.library != "support":
+                image_build_infos.append(read_device_image_build_info(image))
 
         return tuple(image_build_infos)

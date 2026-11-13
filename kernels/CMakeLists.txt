@@ -1,4 +1,4 @@
-# Builds device images for GPU math libraries.
+# Builds device images for kernel libraries.
 
 cmake_minimum_required(VERSION 3.31)
 
@@ -14,12 +14,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(GPULibmBenchImageRules)
 
-add_subdirectory(backends)
-
-set(supported_libraries llvm-libm)
+set(supported_libraries llvm-libm support)
 if(GPU_LIBM_BENCH_LIBRARY)
   if(NOT GPU_LIBM_BENCH_LIBRARY IN_LIST supported_libraries)
-    message(FATAL_ERROR "Unsupported math library: ${GPU_LIBM_BENCH_LIBRARY}")
+    message(FATAL_ERROR "Unsupported library: ${GPU_LIBM_BENCH_LIBRARY}")
   endif()
 
   add_subdirectory("${GPU_LIBM_BENCH_LIBRARY}")

@@ -13,7 +13,6 @@ function(gpu_libm_bench_write_device_image_metadata image_target directory)
   set(llvm_root "${GPU_LIBM_BENCH_LLVM_ROOT}")
   set(sdk_root "${GPU_LIBM_BENCH_SDK_ROOT}")
   set(sdk_version "${GPU_LIBM_BENCH_SDK_VERSION}")
-  set(bitcode_path "${GPU_LIBM_BENCH_BITCODE_PATH}")
 
   set(compile_commands "${CMAKE_BINARY_DIR}/compile_commands.json")
   set(compile_flags "${CMAKE_CXX_FLAGS}")
@@ -21,11 +20,17 @@ function(gpu_libm_bench_write_device_image_metadata image_target directory)
 
   set(metadata "{}")
   foreach(field IN ITEMS library backend target_triple architecture image_path
-      compiler llvm_root sdk_root sdk_version bitcode_path compile_commands
+      compiler llvm_root sdk_root sdk_version compile_commands
       compile_flags link_flags)
     _gpu_libm_bench_json_string(encoded "${${field}}")
     string(JSON metadata SET "${metadata}" "${field}" "${encoded}")
   endforeach()
+
+  set(encoded null)
+  if(GPU_LIBM_BENCH_BITCODE_PATH)
+    _gpu_libm_bench_json_string(encoded "${GPU_LIBM_BENCH_BITCODE_PATH}")
+  endif()
+  string(JSON metadata SET "${metadata}" bitcode_path "${encoded}")
 
   get_target_property(ptx ${image_target} GPU_LIBM_BENCH_PTX)
   if(ptx)
@@ -41,6 +46,9 @@ function(gpu_libm_bench_write_device_image_metadata image_target directory)
       string(TOUPPER "${field}" property)
       get_target_property(values ${image_target} "${property}")
     endif()
+    if(NOT values)
+      set(values "")
+    endif()
 
     _gpu_libm_bench_json_array(encoded ${values})
     string(JSON metadata SET "${metadata}" "${field}" "${encoded}")
@@ -53,7 +61,8 @@ function(gpu_libm_bench_write_device_image_metadata image_target directory)
   string(JSON metadata SET "${metadata}" compiler_version "${encoded}")
 
   set(build_plan "${directory}/build-plan.json")
-  set(manifest_path "${directory}/math.manifest.json")
+  get_target_property(output_name ${image_target} OUTPUT_NAME)
+  set(manifest_path "${directory}/${output_name}.manifest.json")
   file(GENERATE OUTPUT "${build_plan}" CONTENT "${metadata}\n")
   set_property(TARGET ${image_target} APPEND PROPERTY LINK_DEPENDS "${build_plan}")
 
