@@ -15,7 +15,7 @@ namespace detail {
 
 template <typename StorageType>
 inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
-  uint64_t Timestamp = gpu::readTimer();
+  uint64_t Timestamp = gpu::readSteadyCounter();
   StorageType Dependency = static_cast<StorageType>(Timestamp) & DependencyMask;
   State ^= Dependency;
   return Timestamp;
@@ -45,7 +45,7 @@ inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
 #error "unsupported GPU target"
 #endif
 
-  return gpu::readTimer();
+  return gpu::readSteadyCounter();
 }
 
 template <auto Function, typename StorageType, typename FloatType,
