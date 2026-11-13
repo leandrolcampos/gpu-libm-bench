@@ -187,21 +187,21 @@ class Experiment:
         sdk: CUDAToolkit,
     ) -> tuple[DeviceImageBuildInfo, ...]:
         build_root = _paths.build_root() / "kernels" / "libraries"
-        bitcodes = _libraries.select_libraries(
+        resolved_libraries = _libraries.select_libraries(
             self._config, llvm=llvm, target=target, sdk=sdk, build_root=build_root
         )
 
         image_build_infos = []
-        for bitcode in bitcodes:
+        for resolved_library in resolved_libraries:
             image = build_kernels(
-                bitcode=bitcode,
+                resolved_library=resolved_library,
                 target=target,
                 llvm=llvm,
                 sdk=sdk,
                 build_directory=build_root
                 / target.backend
                 / target.architecture
-                / bitcode.library,
+                / resolved_library.library,
             )
             image_build_infos.append(read_device_image_build_info(image))
 

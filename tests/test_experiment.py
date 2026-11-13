@@ -17,7 +17,7 @@ from gpu_libm_bench import inputs
 from gpu_libm_bench.benchmarks import latency
 from gpu_libm_bench.compiler.backends import BackendNotFoundError
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
-from gpu_libm_bench.compiler.libraries import LibraryBitcode
+from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 from gpu_libm_bench.configs import (
@@ -117,11 +117,11 @@ def execution(
     )
     sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
 
-    def build(*, bitcode, target, build_directory, **kwargs):
+    def build(*, resolved_library, target, build_directory, **kwargs):
         return replace(
             image_build_info.image,
             image_path=build_directory / "math.cubin",
-            library=bitcode.library,
+            library=resolved_library.library,
             target=target,
         )
 
@@ -160,7 +160,7 @@ def execution(
         experiment_module._libraries,
         "select_libraries",
         Mock(
-            return_value=(LibraryBitcode("llvm-libm", image_build_info.bitcode_path),)
+            return_value=(ResolvedLibrary("llvm-libm", image_build_info.bitcode_path),)
         ),
     )
     monkeypatch.setattr(experiment_module, "build_kernels", Mock(side_effect=build))
@@ -326,8 +326,8 @@ def test_run_collects_comparable_results_for_each_library(
         run=replace(config.run, libraries=["other", "llvm-libm"]),
     )
     experiment_module._libraries.select_libraries.return_value = (
-        LibraryBitcode("other", Path("/other.bc")),
-        LibraryBitcode("llvm-libm", Path("/libm.bc")),
+        ResolvedLibrary("other", Path("/other.bc")),
+        ResolvedLibrary("llvm-libm", Path("/libm.bc")),
     )
 
     result = Experiment(config).run()

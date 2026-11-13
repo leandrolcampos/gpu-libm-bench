@@ -15,7 +15,7 @@ from hydra.errors import ConfigCompositionException
 from gpu_libm_bench.compiler import __main__ as build_cli
 from gpu_libm_bench.compiler._cmake import CMakeBuild
 from gpu_libm_bench.compiler.backends import BackendNotFoundError
-from gpu_libm_bench.compiler.libraries import LibraryBitcode, LibraryUnavailableError
+from gpu_libm_bench.compiler.libraries import LibraryUnavailableError, ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget, TargetUnavailableError
 from gpu_libm_bench.compiler.toolchains import (
     CUDAToolkit,
@@ -60,7 +60,7 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         build_cli,
         "resolve_library",
         Mock(
-            side_effect=lambda **kwargs: LibraryBitcode(
+            side_effect=lambda **kwargs: ResolvedLibrary(
                 kwargs["library"],
                 kwargs["bitcode_path"] or tmp_path / f"{kwargs['library']}.bc",
             )
@@ -218,7 +218,7 @@ def test_kernel_discovery_and_filters(
 
     calls = build_cli.build_kernels.call_args_list
     assert {
-        (call.kwargs["target"].backend, call.kwargs["bitcode"].library)
+        (call.kwargs["target"].backend, call.kwargs["resolved_library"].library)
         for call in calls
     } == expected
     assert len(calls) == len(expected)
@@ -250,7 +250,7 @@ def test_kernel_command_preserves_build_selection(
     call = build_cli.build_kernels.call_args.kwargs
     target = call["target"]
     assert target.architecture == (architecture or "sm_90")
-    assert call["bitcode"] == LibraryBitcode("llvm-libm", bitcode_path)
+    assert call["resolved_library"] == ResolvedLibrary("llvm-libm", bitcode_path)
     assert call["build_directory"] == root / "cuda" / target.architecture / "llvm-libm"
     assert call["build_tests"] is True
     build_cli.resolve_llvm.assert_called_once_with(llvm.root)
@@ -331,7 +331,7 @@ def test_unavailable_library_is_skipped_only_when_selection_can_be_satisfied(
         compiler("kernels", "backend=cuda")
 
         assert [
-            call.kwargs["bitcode"].library
+            call.kwargs["resolved_library"].library
             for call in build_cli.build_kernels.call_args_list
         ] == ["llvm-libm"]
 

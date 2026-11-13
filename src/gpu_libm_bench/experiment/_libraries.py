@@ -8,8 +8,8 @@ from pathlib import Path
 from gpu_libm_bench.compiler import _paths
 from gpu_libm_bench.compiler.images import configure_kernels, read_registered_functions
 from gpu_libm_bench.compiler.libraries import (
-    LibraryBitcode,
     LibraryUnavailableError,
+    ResolvedLibrary,
     resolve_library,
 )
 from gpu_libm_bench.compiler.targets import CompilationTarget
@@ -25,7 +25,7 @@ def select_libraries(
     target: CompilationTarget,
     sdk: CUDAToolkit,
     build_root: Path | None = None,
-) -> tuple[LibraryBitcode, ...]:
+) -> tuple[ResolvedLibrary, ...]:
     if target.backend != config.backend.name:
         raise ValueError("target backend does not match the experiment configuration")
 
@@ -50,7 +50,7 @@ def select_libraries(
                     f"for backend {target.backend!r}"
                 )
 
-            bitcode = resolve_library(
+            resolved_library = resolve_library(
                 library=library_config.name,
                 llvm=llvm,
                 target=target,
@@ -61,7 +61,7 @@ def select_libraries(
             )
 
             build = configure_kernels(
-                bitcode=bitcode,
+                resolved_library=resolved_library,
                 target=target,
                 llvm=llvm,
                 sdk=sdk,
@@ -85,7 +85,7 @@ def select_libraries(
                 ) from error
             continue
 
-        selected.append(bitcode)
+        selected.append(resolved_library)
 
     if not selected:
         raise LibraryUnavailableError(

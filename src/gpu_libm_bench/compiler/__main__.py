@@ -306,7 +306,7 @@ def _compile_library_kernels(
     sdk: CUDAToolkit,
 ) -> None:
     bitcode_path = library.backends[target.backend].bitcode_path
-    bitcode = resolve_library(
+    resolved_library = resolve_library(
         library=library.name,
         llvm=llvm,
         target=target,
@@ -320,7 +320,7 @@ def _compile_library_kernels(
     )
     build_root = arguments.build_root
     build = compile_kernels(
-        bitcode=bitcode,
+        resolved_library=resolved_library,
         target=target,
         llvm=llvm,
         sdk=sdk,

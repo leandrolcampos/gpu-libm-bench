@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Math library bitcode resolution and validation."""
+"""Library resolution and dependency validation."""
 
 import re
 from dataclasses import dataclass
@@ -13,9 +13,9 @@ from .toolchains import LLVMToolchain
 
 
 @dataclass(frozen=True, slots=True)
-class LibraryBitcode:
+class ResolvedLibrary:
     library: str
-    bitcode_path: Path
+    bitcode_path: Path | None = None
 
 
 class LibraryUnavailableError(RuntimeError):
@@ -29,7 +29,7 @@ def resolve_library(
     target: CompilationTarget,
     bitcode_path: Path | None = None,
     required_symbols: tuple[str, ...] = (),
-) -> LibraryBitcode:
+) -> ResolvedLibrary:
     if library == "llvm-libm":
         return _resolve_llvm_libm(
             llvm=llvm,
@@ -37,8 +37,12 @@ def resolve_library(
             bitcode_path=bitcode_path,
             required_symbols=required_symbols,
         )
+    elif library == "support":
+        if bitcode_path is not None or required_symbols:
+            raise ValueError("support does not accept external bitcode or its symbols")
+        return ResolvedLibrary("support")
     else:
-        raise ValueError(f"unsupported math library: {library!r}")
+        raise ValueError(f"unsupported library: {library!r}")
 
 
 def _resolve_llvm_libm(
@@ -47,7 +51,7 @@ def _resolve_llvm_libm(
     target: CompilationTarget,
     bitcode_path: Path | None,
     required_symbols: tuple[str, ...],
-) -> LibraryBitcode:
+) -> ResolvedLibrary:
     if bitcode_path is None:
         candidates = [
             directory / target.target_triple / "libm.bc"
@@ -94,4 +98,4 @@ def _resolve_llvm_libm(
                 f"bitcode {path} does not define symbols: {', '.join(sorted(missing))}"
             )
 
-    return LibraryBitcode("llvm-libm", path)
+    return ResolvedLibrary("llvm-libm", path)
