@@ -1,6 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
+import ctypes
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -84,17 +85,17 @@ def test_block_stream_release_and_timeout(
     assert result[0] == timed_out
 
 
-def test_clock_counters_produce_one_record_per_block(
+def test_clock_counters_read_from_sm_zero(
     context: DeviceContext, profiling_module: DeviceModule
 ) -> None:
-    count = 12
-    steady_counters = np.full(count + 1, np.iinfo(np.uint64).max, dtype=np.uint64)
-    cycle_counters = steady_counters.copy()
-    processor_ids = np.full(count + 1, np.iinfo(np.uint32).max, dtype=np.uint32)
-    arrays = (steady_counters, cycle_counters, processor_ids)
-    buffers = tuple(
-        context.create_buffer(array.size, dtype=array.dtype) for array in arrays
-    )
+    driver = ctypes.CDLL("libcuda.so.1")
+    device = ctypes.c_int()
+    sm_count = ctypes.c_int()
+    assert driver.cuDeviceGet(ctypes.byref(device), context.device_id) == 0
+    assert driver.cuDeviceGetAttribute(ctypes.byref(sm_count), 16, device) == 0
+
+    arrays = (np.zeros(1, dtype=np.uint64), np.zeros(1, dtype=np.uint64))
+    buffers = tuple(context.create_buffer(1, dtype=np.uint64) for _ in arrays)
 
     for buffer, array in zip(buffers, arrays, strict=True):
         context.copy_to_device(buffer, array)
@@ -103,21 +104,16 @@ def test_clock_counters_produce_one_record_per_block(
         "readClockCounters",
         spec=KernelSpec(
             (
-                KernelArgument("steady_counters", "uint64", True),
-                KernelArgument("cycle_counters", "uint64", True),
-                KernelArgument("processor_ids", "uint32", True),
+                KernelArgument("steady_counter", "uint64", True),
+                KernelArgument("cycle_counter", "uint64", True),
             )
         ),
     )
 
-    context.launch(
-        kernel, *buffers, config=LaunchConfig(grid=(2, 3, 2), block=(2, 2, 2))
-    )
+    context.launch(kernel, *buffers, config=LaunchConfig(grid=(sm_count.value, 1, 1)))
 
     for buffer, array in zip(buffers, arrays, strict=True):
         context.copy_to_host(array, buffer)
 
     for array in arrays:
-        sentinel = np.iinfo(array.dtype).max
-        assert (array[:count] != sentinel).all()
-        assert array[count] == sentinel
+        assert array[0] > 0

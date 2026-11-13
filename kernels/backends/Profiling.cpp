@@ -24,19 +24,14 @@ extern "C" __gpu_kernel void blockStream(const volatile uint32_t *Release,
   gpu::systemMemoryFence();
 }
 
-extern "C" __gpu_kernel void readClockCounters(uint64_t *SteadyCounters,
-                                               uint64_t *CycleCounters,
-                                               uint32_t *ProcessorIDs) {
-  if (gpu::threadId() != 0)
+extern "C" __gpu_kernel void readClockCounters(uint64_t *SteadyCounter,
+                                               uint64_t *CycleCounter) {
+  if (gpu::threadId() != 0 || gpu::processorId() != 0)
     return;
 
-  uint64_t Index = gpu::blockId();
+  uint64_t SteadyReading = gpu::readSteadyCounter();
+  uint64_t CycleReading = gpu::readCycleCounter();
 
-  uint64_t SteadyCounter = gpu::readSteadyCounter();
-  uint64_t CycleCounter = gpu::readCycleCounter();
-  uint32_t ProcessorID = gpu::processorId();
-
-  SteadyCounters[Index] = SteadyCounter;
-  CycleCounters[Index] = CycleCounter;
-  ProcessorIDs[Index] = ProcessorID;
+  *SteadyCounter = SteadyReading;
+  *CycleCounter = CycleReading;
 }
