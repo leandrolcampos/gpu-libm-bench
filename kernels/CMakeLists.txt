@@ -14,15 +14,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(GPULibmBenchImageRules)
 
-set(supported_libraries llvm-libm)
-if(NOT GPU_LIBM_BENCH_LIBRARY)
-  message(FATAL_ERROR "GPU_LIBM_BENCH_LIBRARY must be provided")
-endif()
-if(NOT GPU_LIBM_BENCH_LIBRARY IN_LIST supported_libraries)
-  message(FATAL_ERROR "Unsupported math library: ${GPU_LIBM_BENCH_LIBRARY}")
-endif()
+add_subdirectory(backends)
 
-add_subdirectory("${GPU_LIBM_BENCH_LIBRARY}")
+set(supported_libraries llvm-libm)
+if(GPU_LIBM_BENCH_LIBRARY)
+  if(NOT GPU_LIBM_BENCH_LIBRARY IN_LIST supported_libraries)
+    message(FATAL_ERROR "Unsupported math library: ${GPU_LIBM_BENCH_LIBRARY}")
+  endif()
+
+  add_subdirectory("${GPU_LIBM_BENCH_LIBRARY}")
+endif()
 
 option(BUILD_TESTING "Build device validation kernels" OFF)
 if(BUILD_TESTING)
