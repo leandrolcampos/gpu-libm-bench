@@ -4,8 +4,6 @@
 """GPU device inventory for supported backends."""
 
 import argparse
-import os
-from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -18,14 +16,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="List visible devices across all supported GPU backends."
     )
-    parser.add_argument(
-        "--backend-dir",
-        type=Path,
-        help="Override GPU_LIBM_BENCH_BACKEND_DIR for native backend discovery.",
-    )
-    arguments = parser.parse_args()
-    if arguments.backend_dir is not None:
-        os.environ["GPU_LIBM_BENCH_BACKEND_DIR"] = str(arguments.backend_dir)
+    parser.parse_args()
 
     console = Console()
     errors = Console(stderr=True)

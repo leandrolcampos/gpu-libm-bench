@@ -34,6 +34,7 @@ def test_architecture_selection(
             1,
             "GPU",
             device_architecture,
+            2_000_000_000,
             1024,
             TimerInfo("%globaltimer", 64, 1_000_000_000),
         )
@@ -51,7 +52,13 @@ def test_target_architecture_must_match_selected_device(
 
     monkeypatch.setattr(targets, "run_tool", unexpected_tool_call)
     device_info = DeviceInfo(
-        "cuda", 0, "GPU", "sm_120", 1024, TimerInfo("%globaltimer", 64, 10**9)
+        "cuda",
+        0,
+        "GPU",
+        "sm_120",
+        2_000_000_000,
+        1024,
+        TimerInfo("%globaltimer", 64, 10**9),
     )
 
     with pytest.raises(

@@ -1,2 +1,4 @@
+# Configures C++ formatting for the project.
+
 BasedOnStyle: LLVM
 LineEnding: LF

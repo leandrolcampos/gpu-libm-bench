@@ -17,7 +17,7 @@ from gpu_libm_bench import inputs
 from gpu_libm_bench.benchmarks import latency
 from gpu_libm_bench.compiler.backends import BackendNotFoundError
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
-from gpu_libm_bench.compiler.libraries import LibraryBitcode
+from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 from gpu_libm_bench.configs import (
@@ -61,7 +61,13 @@ def config() -> ExperimentConfig:
 def experiment_result(config: ExperimentConfig) -> ExperimentResult:
     assert isinstance(config.metric, LatencyConfig)
     device_info = DeviceInfo(
-        "cuda", 0, "test GPU", "sm_120", 1024, TimerInfo("timer", 64, 10**9)
+        "cuda",
+        0,
+        "test GPU",
+        "sm_120",
+        2_000_000_000,
+        1024,
+        TimerInfo("timer", 64, 10**9),
     )
     measurement = latency.LatencyMeasurement(
         inputs.InputBatch(
@@ -117,11 +123,11 @@ def execution(
     )
     sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
 
-    def build(*, bitcode, target, build_directory, **kwargs):
+    def build(*, resolved_library, target, build_directory, **kwargs):
         return replace(
             image_build_info.image,
             image_path=build_directory / "math.cubin",
-            library=bitcode.library,
+            library=resolved_library.library,
             target=target,
         )
 
@@ -154,13 +160,13 @@ def execution(
     )
 
     monkeypatch.setattr(
-        experiment_module._paths, "build_root", lambda: tmp_path / "build"
+        experiment_module.paths, "build_root", lambda: tmp_path / "build"
     )
     monkeypatch.setattr(
         experiment_module._libraries,
         "select_libraries",
         Mock(
-            return_value=(LibraryBitcode("llvm-libm", image_build_info.bitcode_path),)
+            return_value=(ResolvedLibrary("llvm-libm", image_build_info.bitcode_path),)
         ),
     )
     monkeypatch.setattr(experiment_module, "build_kernels", Mock(side_effect=build))
@@ -314,7 +320,7 @@ def test_input_sampling_does_not_consume_ordering_stream(
 
 
 def test_run_collects_comparable_results_for_each_library(
-    config: ExperimentConfig, execution
+    config: ExperimentConfig, execution, tmp_path: Path
 ) -> None:
     context, benchmarks = execution
     config = replace(
@@ -326,11 +332,22 @@ def test_run_collects_comparable_results_for_each_library(
         run=replace(config.run, libraries=["other", "llvm-libm"]),
     )
     experiment_module._libraries.select_libraries.return_value = (
-        LibraryBitcode("other", Path("/other.bc")),
-        LibraryBitcode("llvm-libm", Path("/libm.bc")),
+        ResolvedLibrary("other", Path("/other.bc")),
+        ResolvedLibrary("llvm-libm", Path("/libm.bc")),
     )
 
     result = Experiment(config).run()
+
+    assert [
+        call.kwargs["build_directory"]
+        for call in experiment_module.build_kernels.call_args_list
+    ] == [
+        tmp_path / "build/kernels/cuda/sm_120" / library
+        for library in ("support", "other", "llvm-libm")
+    ]
+    support = experiment_module.build_kernels.call_args_list[0].kwargs
+    assert support["resolved_library"] == ResolvedLibrary("support")
+    assert support["target"] == experiment_module.resolve_target.return_value
 
     assert [library.image_build_info.image.library for library in result.results] == [
         "other",

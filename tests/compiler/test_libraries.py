@@ -45,8 +45,22 @@ def test_library_path_selection(
     assert result.library == "llvm-libm"
 
 
+def test_support_library_needs_no_external_bitcode(
+    monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain
+) -> None:
+    def unexpected_command(*args, **kwargs):
+        pytest.fail("resolving support must not inspect external bitcode")
+
+    monkeypatch.setattr(libraries, "run_tool", unexpected_command)
+    resolved_library = libraries.resolve_library(
+        library="support", llvm=llvm, target=TARGET
+    )
+
+    assert resolved_library == libraries.ResolvedLibrary("support")
+
+
 def test_unsupported_library_is_rejected(llvm: LLVMToolchain) -> None:
-    with pytest.raises(ValueError, match="unsupported math library"):
+    with pytest.raises(ValueError, match="unsupported library"):
         libraries.resolve_library(library="unknown", llvm=llvm, target=TARGET)
 
 

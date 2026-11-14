@@ -10,23 +10,20 @@ function(gpu_libm_bench_add_function library_target function_name source_file)
 endfunction()
 
 function(gpu_libm_bench_configure_library library_target)
-  if(NOT GPU_LIBM_BENCH_BITCODE_PATH)
-    message(FATAL_ERROR "GPU_LIBM_BENCH_BITCODE_PATH must be provided")
+  if(GPU_LIBM_BENCH_BITCODE_PATH)
+    set(bitcode_path "${GPU_LIBM_BENCH_BITCODE_PATH}")
+    if(NOT EXISTS "${bitcode_path}" OR IS_DIRECTORY "${bitcode_path}")
+      message(FATAL_ERROR "Library bitcode was not found: ${bitcode_path}")
+    endif()
+
+    get_target_property(source_files ${library_target} SOURCES)
+    set_property(SOURCE ${source_files} APPEND PROPERTY
+      OBJECT_DEPENDS "${bitcode_path}")
+    target_compile_options(${library_target} PRIVATE
+      "SHELL:-Xclang -mlink-builtin-bitcode -Xclang \"${bitcode_path}\"")
   endif()
 
-  set(bitcode_path "${GPU_LIBM_BENCH_BITCODE_PATH}")
-  if(NOT EXISTS "${bitcode_path}" OR IS_DIRECTORY "${bitcode_path}")
-    message(FATAL_ERROR "Library bitcode was not found: ${bitcode_path}")
-  endif()
-
-  get_target_property(source_files ${library_target} SOURCES)
-  set_property(SOURCE ${source_files} APPEND PROPERTY
-    OBJECT_DEPENDS "${bitcode_path}")
-
-  set_target_properties(${library_target} PROPERTIES OUTPUT_NAME math)
   gpu_libm_bench_configure_device_image(${library_target} "${CMAKE_BINARY_DIR}")
-  target_compile_options(${library_target} PRIVATE
-    "SHELL:-Xclang -mlink-builtin-bitcode -Xclang \"${bitcode_path}\"")
 
   get_target_property(directory ${library_target} RUNTIME_OUTPUT_DIRECTORY)
   gpu_libm_bench_write_device_image_metadata(${library_target} "${directory}")

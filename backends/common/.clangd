@@ -1,3 +1,5 @@
+# Selects compilation databases for shared backend sources and tests.
+
 CompileFlags:
   CompilationDatabase: ../../build/backends/cuda
 

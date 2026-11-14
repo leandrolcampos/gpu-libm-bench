@@ -13,8 +13,8 @@ from hydra import compose, initialize_config_module
 
 from gpu_libm_bench.compiler._cmake import CMakeBuild
 from gpu_libm_bench.compiler.libraries import (
-    LibraryBitcode,
     LibraryUnavailableError,
+    ResolvedLibrary,
     resolve_library,
 )
 from gpu_libm_bench.compiler.targets import CompilationTarget
@@ -45,7 +45,10 @@ def config() -> ExperimentConfig:
         libraries={
             name: LibraryConfig(
                 name,
-                {backend: replace(bitcode) for backend, bitcode in backends.items()},
+                {
+                    backend: replace(bitcode_config)
+                    for backend, bitcode_config in backends.items()
+                },
             )
             for name in ("first", "second")
         },
@@ -66,16 +69,16 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
     def resolve(*, library, bitcode_path, **kwargs):
-        return LibraryBitcode(library, bitcode_path or tmp_path / f"{library}.bc")
+        return ResolvedLibrary(library, bitcode_path or tmp_path / f"{library}.bc")
 
-    def configure(*, bitcode, target, build_directory, **kwargs):
+    def configure(*, resolved_library, target, build_directory, **kwargs):
         plan = build_directory / "build-plan.json"
         plan.parent.mkdir(parents=True)
 
         plan.write_text(
             json.dumps(
                 {
-                    "library": bitcode.library,
+                    "library": resolved_library.library,
                     "backend": target.backend,
                     "architecture": target.architecture,
                     "target_triple": target.target_triple,
@@ -128,9 +131,14 @@ def test_library_selection_preserves_order_and_bitcode_overrides(
 
     selected = select(config)
 
-    assert [bitcode.library for bitcode in selected] == (names or ["first", "second"])
+    assert [resolved_library.library for resolved_library in selected] == (
+        names or ["first", "second"]
+    )
 
-    paths = {bitcode.library: bitcode.bitcode_path for bitcode in selected}
+    paths = {
+        resolved_library.library: resolved_library.bitcode_path
+        for resolved_library in selected
+    }
     assert paths == {
         "first": Path("/custom/first.bc"),
         "second": tmp_path / "second.bc",
@@ -177,7 +185,9 @@ def test_unavailable_library_is_skipped_only_for_automatic_selection(
         ):
             select(config)
     else:
-        assert [bitcode.library for bitcode in select(config)] == ["second"]
+        assert [resolved_library.library for resolved_library in select(config)] == [
+            "second"
+        ]
 
 
 def test_no_eligible_libraries_is_an_error(config: ExperimentConfig, select) -> None:
@@ -195,7 +205,7 @@ def test_unsupported_library_is_not_skipped_in_automatic_selection(
 ) -> None:
     monkeypatch.setattr(_libraries, "resolve_library", resolve_library)
 
-    with pytest.raises(ValueError, match="unsupported math library: 'first'"):
+    with pytest.raises(ValueError, match="unsupported library: 'first'"):
         select(config)
 
 

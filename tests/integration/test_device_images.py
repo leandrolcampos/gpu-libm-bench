@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from gpu_libm_bench.compiler import _paths
+from gpu_libm_bench.compiler import paths
 from gpu_libm_bench.compiler._commands import run_tool
 from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
@@ -30,7 +30,7 @@ def compiled_image() -> tuple[DeviceImage, LLVMToolchain, dict[str, Any]]:
     if configured is not None:
         image_path = Path(configured).resolve()
     else:
-        root = _paths.build_root() / "kernels"
+        root = paths.images_build_root()
         candidates = list(root.glob("cuda/*/llvm-libm/math.cubin"))
         if len(candidates) != 1:
             pytest.fail(

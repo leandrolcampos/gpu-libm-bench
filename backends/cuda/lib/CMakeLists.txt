@@ -2,6 +2,7 @@
 
 add_library(GPULibmBenchCUDA STATIC
   Context.cpp
+  KernelProfiler.cpp
   Memory.cpp
   Module.cpp
   Utils.cpp)

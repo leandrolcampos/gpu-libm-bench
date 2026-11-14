@@ -18,7 +18,7 @@ from gpu_libm_bench.compiler.images import (
     read_registered_functions,
     resolve_device_image,
 )
-from gpu_libm_bench.compiler.libraries import LibraryBitcode
+from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 
@@ -55,15 +55,21 @@ def image_path(tmp_path: Path) -> Path:
             }
         )
     )
+    image_path.with_name("build-plan.json").write_text(
+        image_path.with_suffix(".manifest.json").read_text()
+    )
     return image_path
 
 
+@pytest.mark.parametrize("library", ["llvm-libm", "support"])
 def test_kernel_configuration_preserves_tools_and_library(
     llvm: LLVMToolchain,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    library: str,
 ) -> None:
-    bitcode = LibraryBitcode("llvm-libm", tmp_path / "libm.bc")
+    bitcode_path = tmp_path / "libm.bc" if library == "llvm-libm" else None
+    resolved_library = ResolvedLibrary(library, bitcode_path)
     sdk = CUDAToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
 
     monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
@@ -72,7 +78,7 @@ def test_kernel_configuration_preserves_tools_and_library(
     )
 
     build = configure_kernels(
-        bitcode=bitcode,
+        resolved_library=resolved_library,
         target=TARGET,
         llvm=llvm,
         sdk=sdk,
@@ -83,14 +89,15 @@ def test_kernel_configuration_preserves_tools_and_library(
     assert f"-DGPU_LIBM_BENCH_LLVM_ROOT={llvm.root}" in arguments
     assert f"-DGPU_LIBM_BENCH_CLANG={llvm.clang}" in arguments
     assert "-DGPU_LIBM_BENCH_SDK_ROOT=/custom cuda" in arguments
-    assert f"-DGPU_LIBM_BENCH_BITCODE_PATH={bitcode.bitcode_path}" in arguments
+    assert f"-DGPU_LIBM_BENCH_LIBRARY={library}" in arguments
+    assert f"-DGPU_LIBM_BENCH_BITCODE_PATH={bitcode_path or ''}" in arguments
     assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
 
 
 def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
     llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(images._paths, "build_root", lambda: tmp_path / "build")
+    monkeypatch.setattr(images.paths, "build_root", lambda: tmp_path / "build")
     monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
     monkeypatch.setattr(
         images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
@@ -98,13 +105,13 @@ def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
     sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
 
     build = configure_kernels(
-        bitcode=LibraryBitcode("llvm-libm", tmp_path / "libm.bc"),
+        resolved_library=ResolvedLibrary("llvm-libm", tmp_path / "libm.bc"),
         target=TARGET,
         llvm=llvm,
         sdk=sdk,
     )
 
-    assert build.source_directory == images._paths.source_root() / "kernels"
+    assert build.source_directory == images.paths.source_root() / "kernels"
     root = tmp_path / "build" / "kernels"
     assert build.build_directory == root / "cuda" / "sm_120" / "llvm-libm"
     plan = build.build_directory / "build-plan.json"
@@ -117,6 +124,7 @@ def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
                 "architecture": "sm_120",
                 "target_triple": TARGET.target_triple,
                 "functions": ["expf"],
+                "image_path": str(plan.with_name("math.cubin")),
             }
         )
     )
@@ -144,7 +152,7 @@ def test_kernel_build_resolves_images_in_its_build_directory(
     )
 
     image = images.build_kernels(
-        bitcode=LibraryBitcode("llvm-libm", tmp_path / "libm.bc"),
+        resolved_library=ResolvedLibrary("llvm-libm", tmp_path / "libm.bc"),
         target=TARGET,
         llvm=llvm,
         sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
@@ -175,7 +183,7 @@ def test_kernel_configuration_rejects_incompatible_sdk(
 ) -> None:
     with pytest.raises(error, match=message):
         configure_kernels(
-            bitcode=LibraryBitcode("llvm-libm", Path("/libm.bc")),
+            resolved_library=ResolvedLibrary("llvm-libm", Path("/libm.bc")),
             target=target,
             llvm=llvm,
             sdk=cast(CUDAToolkit, sdk),
@@ -274,6 +282,7 @@ def test_build_info_uses_recorded_tools_and_all_flags(
         ("compile_options", "-O3"),
         ("image_path", "/other.cubin"),
         ("architecture", "sm_90"),
+        ("bitcode_path", ""),
     ],
 )
 def test_build_info_rejects_invalid_or_incompatible_metadata(

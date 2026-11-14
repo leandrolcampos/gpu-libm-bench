@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.compiler import _paths
+from gpu_libm_bench.compiler import paths
 from gpu_libm_bench.compiler.backends import (
     BackendNotFoundError,
     build_backend,
@@ -22,6 +22,7 @@ from gpu_libm_bench.compiler.images import (
     build_kernels,
     read_device_image_build_info,
 )
+from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget, resolve_target
 from gpu_libm_bench.compiler.toolchains import (
     CUDAToolkit,
@@ -186,23 +187,24 @@ class Experiment:
         target: CompilationTarget,
         sdk: CUDAToolkit,
     ) -> tuple[DeviceImageBuildInfo, ...]:
-        build_root = _paths.build_root() / "kernels" / "libraries"
-        bitcodes = _libraries.select_libraries(
-            self._config, llvm=llvm, target=target, sdk=sdk, build_root=build_root
+        resolved_libraries = _libraries.select_libraries(
+            self._config, llvm=llvm, target=target, sdk=sdk
         )
 
         image_build_infos = []
-        for bitcode in bitcodes:
+        for resolved_library in (ResolvedLibrary("support"), *resolved_libraries):
             image = build_kernels(
-                bitcode=bitcode,
+                resolved_library=resolved_library,
                 target=target,
                 llvm=llvm,
                 sdk=sdk,
-                build_directory=build_root
-                / target.backend
-                / target.architecture
-                / bitcode.library,
+                build_directory=paths.image_build_directory(
+                    resolved_library.library,
+                    backend=target.backend,
+                    architecture=target.architecture,
+                ),
             )
-            image_build_infos.append(read_device_image_build_info(image))
+            if resolved_library.library != "support":
+                image_build_infos.append(read_device_image_build_info(image))
 
         return tuple(image_build_infos)

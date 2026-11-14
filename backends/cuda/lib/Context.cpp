@@ -4,9 +4,16 @@
 // Implements CUDA device information and execution contexts.
 
 #include "Context.hpp"
+#include "KernelProfiler.hpp"
 #include "Utils.hpp"
 
+#include <filesystem>
+
 namespace gpu_libm_bench::cuda {
+
+//
+// Device queries
+//
 
 Expected<int> getDeviceCount() {
   CUresult Result = cuInit(0);
@@ -57,6 +64,13 @@ Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
           "cuDeviceGetAttribute(COMPUTE_CAPABILITY_MINOR)"))
     return Err;
 
+  int ClockFrequencyKHz = 0;
+  if (auto Err =
+          check(cuDeviceGetAttribute(&ClockFrequencyKHz,
+                                     CU_DEVICE_ATTRIBUTE_CLOCK_RATE, Device),
+                "cuDeviceGetAttribute(CLOCK_RATE)"))
+    return Err;
+
   std::size_t TotalMemoryBytes = 0;
   if (auto Err = check(cuDeviceTotalMem(&TotalMemoryBytes, Device),
                        "cuDeviceTotalMem"))
@@ -66,26 +80,55 @@ Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
   return DeviceInfoTy{DeviceID,
                       Name,
                       "sm_" + std::to_string(Major) + std::to_string(Minor),
+                      static_cast<std::uint64_t>(ClockFrequencyKHz) * 1000,
                       TotalMemoryBytes,
                       {"%globaltimer", 64, 1'000'000'000}};
 }
 
-DeviceContext::DeviceContext(std::shared_ptr<detail::DeviceState> Device,
-                             void *Stream)
-    : Device(std::move(Device)), Stream(Stream) {}
+//
+// Support image configuration
+//
 
-DeviceContext::DeviceContext(DeviceContext &&Other) noexcept
-    : Device(std::move(Other.Device)),
-      Stream(std::exchange(Other.Stream, nullptr)) {}
+static std::filesystem::path ImagesBuildRoot;
 
-DeviceContext::~DeviceContext() noexcept { reportCleanupError(release()); }
+static std::string getSupportImagePath(const std::string &Architecture) {
+  if (ImagesBuildRoot.empty())
+    return {};
+
+  return (ImagesBuildRoot / "cuda" / Architecture / "support" / "support.cubin")
+      .string();
+}
+
+Error detail::setImagesBuildRoot(const std::string &Root) {
+  std::filesystem::path Path(Root);
+  if (Path.empty() || !Path.is_absolute())
+    return Error{ErrorKind::InvalidArgument,
+                 "kernel images build root must be an absolute path"};
+
+  Path = Path.lexically_normal();
+  if (!ImagesBuildRoot.empty() && ImagesBuildRoot != Path)
+    return Error{ErrorKind::InvalidArgument,
+                 "kernel images build root is already configured"};
+
+  ImagesBuildRoot = std::move(Path);
+  return Error::success();
+}
+
+//
+// Context lifecycle
+//
 
 Expected<DeviceContext> DeviceContext::create(int DeviceID) {
-  auto Device = detail::DeviceState::create(DeviceID);
-  if (!Device)
-    return std::move(Device).error();
+  auto DeviceState = detail::DeviceStateTy::create(DeviceID);
+  if (!DeviceState)
+    return std::move(DeviceState).error();
 
-  auto Guard = detail::CurrentContextGuard::create((*Device)->getContext());
+  auto DeviceInfo = getDeviceInfo(DeviceID);
+  if (!DeviceInfo)
+    return std::move(DeviceInfo).error();
+
+  auto Guard =
+      detail::CurrentContextGuard::create((*DeviceState)->getContext());
   if (!Guard)
     return std::move(Guard).error();
 
@@ -94,36 +137,18 @@ Expected<DeviceContext> DeviceContext::create(int DeviceID) {
                        "cuStreamCreate"))
     return Err;
 
-  return DeviceContext(*std::move(Device), Stream);
+  return DeviceContext(*std::move(DeviceState), Stream,
+                       DeviceInfo->Architecture);
 }
 
-Error DeviceContext::ensureActive() const {
-  if (isReleased())
-    return Error{ErrorKind::Runtime, "device context has been released"};
-  return Error::success();
-}
+DeviceContext::DeviceContext(DeviceContext &&Other) noexcept
+    : DeviceState(std::move(Other.DeviceState)),
+      Stream(std::exchange(Other.Stream, nullptr)),
+      SupportImagePath(std::move(Other.SupportImagePath)),
+      SupportModule(std::move(Other.SupportModule)),
+      Profiler(std::move(Other.Profiler)) {}
 
-Error DeviceContext::validateBuffer(const DeviceBuffer &Buffer) const {
-  if (auto Err = ensureActive())
-    return Err;
-  if (!Buffer.Device)
-    return Error{ErrorKind::InvalidArgument, "device buffer is invalid"};
-  if (Buffer.Device->getContext() != Device->getContext())
-    return Error{ErrorKind::InvalidArgument,
-                 "device buffer belongs to a different CUDA device"};
-  return Error::success();
-}
-
-Error DeviceContext::validateKernel(const DeviceKernel &Kernel) const {
-  if (auto Err = ensureActive())
-    return Err;
-  if (!Kernel.Module)
-    return Error{ErrorKind::InvalidArgument, "kernel is invalid"};
-  if (Kernel.getDevice()->getContext() != Device->getContext())
-    return Error{ErrorKind::InvalidArgument,
-                 "kernel belongs to a different CUDA device"};
-  return Error::success();
-}
+DeviceContext::~DeviceContext() noexcept { reportCleanupError(release()); }
 
 Error DeviceContext::release() {
   if (isReleased())
@@ -131,12 +156,16 @@ Error DeviceContext::release() {
 
   Error Failure;
   {
-    auto Guard = detail::CurrentContextGuard::create(Device->getContext());
+    auto Guard = detail::CurrentContextGuard::create(DeviceState->getContext());
     if (!Guard)
       return std::move(Guard).error();
 
     Failure = check(cuStreamSynchronize(static_cast<CUstream>(Stream)),
                     "cuStreamSynchronize");
+
+    // The profiler uses the support module and stream during cleanup.
+    Profiler.reset();
+    SupportModule.reset();
 
     auto DestroyFailure = check(cuStreamDestroy(static_cast<CUstream>(Stream)),
                                 "cuStreamDestroy");
@@ -151,23 +180,29 @@ Error DeviceContext::release() {
   }
 
   if (!Stream)
-    Device.reset();
+    DeviceState.reset();
 
   return Failure;
 }
+
+//
+// Resources and memory transfers
+//
 
 Expected<DeviceBuffer>
 DeviceContext::createBuffer(std::size_t ByteCount) const {
   if (auto Err = ensureActive())
     return Err;
-  return DeviceBuffer::create(Device, ByteCount);
+
+  return DeviceBuffer::create(DeviceState, ByteCount);
 }
 
 Expected<DeviceModule>
 DeviceContext::loadModule(const std::string &Path) const {
   if (auto Err = ensureActive())
     return Err;
-  return DeviceModule::load(Device, Path);
+
+  return DeviceModule::load(DeviceState, Path);
 }
 
 Error DeviceContext::copyToDevice(DeviceBuffer &Destination, const void *Source,
@@ -182,7 +217,7 @@ Error DeviceContext::copyToDevice(DeviceBuffer &Destination, const void *Source,
   if (!Source)
     return Error{ErrorKind::InvalidArgument, "copy source is null"};
 
-  auto Guard = detail::CurrentContextGuard::create(Device->getContext());
+  auto Guard = detail::CurrentContextGuard::create(DeviceState->getContext());
   if (!Guard)
     return std::move(Guard).error();
 
@@ -207,7 +242,7 @@ Error DeviceContext::copyToHost(void *Destination, const DeviceBuffer &Source,
   if (!Destination)
     return Error{ErrorKind::InvalidArgument, "copy destination is null"};
 
-  auto Guard = detail::CurrentContextGuard::create(Device->getContext());
+  auto Guard = detail::CurrentContextGuard::create(DeviceState->getContext());
   if (!Guard)
     return std::move(Guard).error();
 
@@ -220,57 +255,173 @@ Error DeviceContext::copyToHost(void *Destination, const DeviceBuffer &Source,
                "cuStreamSynchronize");
 }
 
+//
+// Kernel execution
+//
+
 Error DeviceContext::launch(const DeviceKernel &Kernel,
-                            const std::vector<LaunchArgument> &Arguments,
+                            const std::vector<KernelArgument> &KernelArguments,
                             const LaunchConfig &Config) const {
+  if (auto Err = ensureActive())
+    return Err;
+
+  auto Guard = detail::CurrentContextGuard::create(DeviceState->getContext());
+  if (!Guard)
+    return std::move(Guard).error();
+
+  if (auto Err = enqueueKernel(Kernel, KernelArguments, Config))
+    return Err;
+
+  return check(cuStreamSynchronize(static_cast<CUstream>(Stream)),
+               "cuStreamSynchronize");
+}
+
+Expected<KernelProfile>
+DeviceContext::profile(const DeviceKernel &Kernel,
+                       const std::vector<KernelArgument> &KernelArguments,
+                       const LaunchConfig &Config,
+                       const std::set<KernelMetric> &Metrics) const {
+  if (auto Err = validateKernel(Kernel))
+    return Err;
+
+  auto Guard = detail::CurrentContextGuard::create(DeviceState->getContext());
+  if (!Guard)
+    return std::move(Guard).error();
+
+  if (!Profiler) {
+    if (auto Err = detail::KernelProfiler::validateMetrics(Metrics))
+      return Err;
+
+    auto Module = getSupportModule();
+    if (!Module)
+      return std::move(Module).error();
+
+    auto Created = detail::KernelProfiler::create(
+        DeviceState->getContext(), static_cast<CUstream>(Stream), **Module);
+    if (!Created)
+      return std::move(Created).error();
+
+    Profiler = *std::move(Created);
+  }
+
+  return Profiler->profile(
+      [&] { return enqueueKernel(Kernel, KernelArguments, Config); }, Metrics);
+}
+
+//
+// Internal helpers
+//
+
+DeviceContext::DeviceContext(std::shared_ptr<detail::DeviceStateTy> DeviceState,
+                             void *Stream, const std::string &Architecture)
+    : DeviceState(std::move(DeviceState)), Stream(Stream),
+      SupportImagePath(getSupportImagePath(Architecture)) {}
+
+Expected<const DeviceModule *> DeviceContext::getSupportModule() const {
+  if (auto Err = ensureActive())
+    return Err;
+
+  if (!SupportModule) {
+    if (SupportImagePath.empty())
+      return Error{ErrorKind::Runtime,
+                   "kernel images build root is not configured"};
+
+    auto Module = loadModule(SupportImagePath);
+    if (!Module)
+      return std::move(Module).error();
+
+    SupportModule.emplace(*std::move(Module));
+  }
+
+  return &*SupportModule;
+}
+
+Error DeviceContext::enqueueKernel(
+    const DeviceKernel &Kernel,
+    const std::vector<KernelArgument> &KernelArguments,
+    const LaunchConfig &Config) const {
   if (auto Err = validateKernel(Kernel))
     return Err;
   if (!Config.isValid())
     return Error{ErrorKind::InvalidArgument,
                  "invalid kernel launch configuration"};
+  if (auto Err = validateKernelArguments(KernelArguments))
+    return Err;
 
-  std::vector<CUdeviceptr> DevicePointers(Arguments.size());
+  // Keep device pointer values alive while the driver copies the arguments.
+  std::vector<CUdeviceptr> DevicePointers(KernelArguments.size());
   std::vector<void *> Pointers;
-  Pointers.reserve(Arguments.size());
+  Pointers.reserve(KernelArguments.size());
 
-  for (std::size_t Index = 0; Index < Arguments.size(); ++Index) {
+  for (std::size_t Index = 0; Index < KernelArguments.size(); ++Index) {
     if (const auto *Buffer =
-            std::get_if<const DeviceBuffer *>(&Arguments[Index])) {
-      if (!*Buffer)
-        return Error{ErrorKind::InvalidArgument,
-                     "kernel argument has a null buffer"};
-      if (auto Err = validateBuffer(**Buffer))
-        return Err;
-
+            std::get_if<const DeviceBuffer *>(&KernelArguments[Index])) {
       DevicePointers[Index] = (*Buffer)->Pointer;
       Pointers.push_back(&DevicePointers[Index]);
     } else {
-      const void *Scalar = std::get<const void *>(Arguments[Index]);
-      if (!Scalar)
-        return Error{ErrorKind::InvalidArgument,
-                     "kernel scalar storage is null"};
-
+      const void *Scalar = std::get<const void *>(KernelArguments[Index]);
       // The driver reads argument values through a non-const C interface.
       Pointers.push_back(const_cast<void *>(Scalar));
     }
   }
 
-  auto Guard = detail::CurrentContextGuard::create(Device->getContext());
-  if (!Guard)
-    return std::move(Guard).error();
+  return check(
+      cuLaunchKernel(static_cast<CUfunction>(Kernel.Function), Config.Grid.X,
+                     Config.Grid.Y, Config.Grid.Z, Config.Block.X,
+                     Config.Block.Y, Config.Block.Z,
+                     static_cast<unsigned int>(Config.SharedMemoryBytes),
+                     static_cast<CUstream>(Stream), Pointers.data(), nullptr),
+      "cuLaunchKernel");
+}
 
-  if (auto Err =
-          check(cuLaunchKernel(
-                    static_cast<CUfunction>(Kernel.Function), Config.Grid.X,
-                    Config.Grid.Y, Config.Grid.Z, Config.Block.X,
-                    Config.Block.Y, Config.Block.Z,
-                    static_cast<unsigned int>(Config.SharedMemoryBytes),
-                    static_cast<CUstream>(Stream), Pointers.data(), nullptr),
-                "cuLaunchKernel"))
+Error DeviceContext::ensureActive() const {
+  if (isReleased())
+    return Error{ErrorKind::Runtime, "device context has been released"};
+
+  return Error::success();
+}
+
+Error DeviceContext::validateBuffer(const DeviceBuffer &Buffer) const {
+  if (auto Err = ensureActive())
     return Err;
 
-  return check(cuStreamSynchronize(static_cast<CUstream>(Stream)),
-               "cuStreamSynchronize");
+  if (!Buffer.DeviceState)
+    return Error{ErrorKind::InvalidArgument, "device buffer is invalid"};
+  if (Buffer.DeviceState->getContext() != DeviceState->getContext())
+    return Error{ErrorKind::InvalidArgument,
+                 "device buffer belongs to a different CUDA device"};
+
+  return Error::success();
+}
+
+Error DeviceContext::validateKernel(const DeviceKernel &Kernel) const {
+  if (auto Err = ensureActive())
+    return Err;
+
+  if (!Kernel.Module)
+    return Error{ErrorKind::InvalidArgument, "kernel is invalid"};
+  if (Kernel.getDeviceState()->getContext() != DeviceState->getContext())
+    return Error{ErrorKind::InvalidArgument,
+                 "kernel belongs to a different CUDA device"};
+
+  return Error::success();
+}
+
+Error DeviceContext::validateKernelArguments(
+    const std::vector<KernelArgument> &KernelArguments) const {
+  for (const auto &Argument : KernelArguments) {
+    if (const auto *Buffer = std::get_if<const DeviceBuffer *>(&Argument)) {
+      if (!*Buffer)
+        return Error{ErrorKind::InvalidArgument,
+                     "kernel argument has a null buffer"};
+      if (auto Err = validateBuffer(**Buffer))
+        return Err;
+    } else if (!std::get<const void *>(Argument)) {
+      return Error{ErrorKind::InvalidArgument, "kernel scalar storage is null"};
+    }
+  }
+
+  return Error::success();
 }
 
 } // namespace gpu_libm_bench::cuda

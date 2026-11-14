@@ -53,13 +53,13 @@ detail::CurrentContextGuard::create(CUcontext Context) {
   return CurrentContextGuard();
 }
 
-detail::DeviceState::~DeviceState() noexcept {
+detail::DeviceStateTy::~DeviceStateTy() noexcept {
   reportCleanupError(
       check(cuDevicePrimaryCtxRelease(Device), "cuDevicePrimaryCtxRelease"));
 }
 
-Expected<std::shared_ptr<detail::DeviceState>>
-detail::DeviceState::create(int DeviceID) {
+Expected<std::shared_ptr<detail::DeviceStateTy>>
+detail::DeviceStateTy::create(int DeviceID) {
   auto DeviceInfo = getDeviceInfo(DeviceID);
   if (!DeviceInfo)
     return std::move(DeviceInfo).error();
@@ -73,7 +73,7 @@ detail::DeviceState::create(int DeviceID) {
                        "cuDevicePrimaryCtxRetain"))
     return Err;
 
-  return std::shared_ptr<DeviceState>(new DeviceState(Device, Context));
+  return std::shared_ptr<DeviceStateTy>(new DeviceStateTy(Device, Context));
 }
 
 } // namespace gpu_libm_bench::cuda

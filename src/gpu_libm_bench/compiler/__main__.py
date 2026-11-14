@@ -24,11 +24,12 @@ from gpu_libm_bench.configs import (
 )
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 
+from . import paths
 from ._cmake import CMakeBuild
 from ._commands import run_tool
 from .backends import BackendNotFoundError, build_backend, configure_backend
 from .images import build_kernels, configure_kernels
-from .libraries import LibraryUnavailableError, resolve_library
+from .libraries import LibraryUnavailableError, ResolvedLibrary, resolve_library
 from .targets import CompilationTarget, TargetUnavailableError, resolve_target
 from .toolchains import (
     CUDAToolkit,
@@ -169,7 +170,7 @@ def _compile_backends(
         compile_backend(
             backend.name,
             sdk=sdk,
-            build_directory=build_root / backend.name
+            build_directory=paths.backend_build_directory(backend.name, root=build_root)
             if build_root is not None
             else None,
             build_tests=arguments.build_tests,
@@ -232,10 +233,27 @@ def _compile_kernels(
             print(f"Skipping {backend.name}: {error}", file=sys.stderr)
             continue
 
+        _compile_library_kernels(
+            ResolvedLibrary("support"),
+            arguments,
+            llvm=llvm,
+            target=target,
+            sdk=sdk,
+        )
+
         for library in libraries:
             try:
+                bitcode_path = library.backends[target.backend].bitcode_path
+                resolved_library = resolve_library(
+                    library=library.name,
+                    llvm=llvm,
+                    target=target,
+                    bitcode_path=Path(bitcode_path)
+                    if bitcode_path is not None
+                    else None,
+                )
                 _compile_library_kernels(
-                    library,
+                    resolved_library,
                     arguments,
                     llvm=llvm,
                     target=target,
@@ -298,21 +316,13 @@ def _get_device_info(backend: BackendConfig, *, sdk: CUDAToolkit) -> DeviceInfo 
 
 
 def _compile_library_kernels(
-    library: LibraryConfig,
+    resolved_library: ResolvedLibrary,
     arguments: argparse.Namespace,
     *,
     llvm: LLVMToolchain,
     target: CompilationTarget,
     sdk: CUDAToolkit,
 ) -> None:
-    bitcode_path = library.backends[target.backend].bitcode_path
-    bitcode = resolve_library(
-        library=library.name,
-        llvm=llvm,
-        target=target,
-        bitcode_path=Path(bitcode_path) if bitcode_path is not None else None,
-    )
-
     compile_kernels = (
         configure_kernels
         if arguments.configure_only or arguments.tidy
@@ -320,11 +330,16 @@ def _compile_library_kernels(
     )
     build_root = arguments.build_root
     build = compile_kernels(
-        bitcode=bitcode,
+        resolved_library=resolved_library,
         target=target,
         llvm=llvm,
         sdk=sdk,
-        build_directory=build_root / target.backend / target.architecture / library.name
+        build_directory=paths.image_build_directory(
+            resolved_library.library,
+            backend=target.backend,
+            architecture=target.architecture,
+            root=build_root,
+        )
         if build_root is not None
         else None,
         build_tests=arguments.build_tests,

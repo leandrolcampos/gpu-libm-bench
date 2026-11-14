@@ -1,2 +1,4 @@
+# Selects the compilation database for device kernel sources.
+
 CompileFlags:
   CompilationDatabase: ../build/kernels

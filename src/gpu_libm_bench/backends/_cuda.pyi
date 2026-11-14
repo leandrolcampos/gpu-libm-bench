@@ -3,25 +3,37 @@
 
 """Python interface to the CUDA backend."""
 
+from collections.abc import Set
+from enum import Enum
 from typing import TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
 
-class TimerProperties(TypedDict):
+class KernelMetric(Enum):
+    CLOCK_FREQUENCY = ...
+    DURATION = ...
+
+class KernelProfile(TypedDict):
+    clock_frequency_hz: float | None
+    duration_ms: float | None
+
+class TimerInfo(TypedDict):
     source: str
     counter_bits: int
     frequency_hz: int
 
-class DeviceProperties(TypedDict):
+class DeviceInfo(TypedDict):
     id: int
     name: str
     architecture: str
+    default_clock_frequency_hz: int
     total_memory_bytes: int
-    timer_info: TimerProperties
+    timer_info: TimerInfo
 
 def device_count() -> int: ...
-def get_device_info(device_id: int = 0) -> DeviceProperties: ...
+def get_device_info(device_id: int = 0) -> DeviceInfo: ...
+def _set_images_build_root(root: str) -> None: ...
 
 class DeviceBuffer:
     @property
@@ -48,8 +60,17 @@ class DeviceContext:
     def launch(
         self,
         kernel: DeviceKernel,
-        arguments: tuple[DeviceBuffer | np.generic, ...],
+        kernel_arguments: tuple[DeviceBuffer | np.generic, ...],
         grid: tuple[int, int, int],
         block: tuple[int, int, int],
         shared_memory_bytes: int,
     ) -> None: ...
+    def profile(
+        self,
+        kernel: DeviceKernel,
+        kernel_arguments: tuple[DeviceBuffer | np.generic, ...],
+        grid: tuple[int, int, int],
+        block: tuple[int, int, int],
+        shared_memory_bytes: int,
+        metrics: Set[KernelMetric],
+    ) -> KernelProfile: ...

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from . import _paths
+from . import paths
 from ._commands import executable, run_tool
 
 
@@ -66,7 +66,7 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
         raise FileNotFoundError(
             "CMake was not found on PATH; it is required to discover LLVM"
         )
-    probe = _paths.source_root() / "cmake" / "probes" / "llvm"
+    probe = paths.source_root() / "cmake" / "probes" / "llvm"
     if not (probe / "CMakeLists.txt").is_file():
         raise FileNotFoundError(f"LLVM discovery project was not found: {probe}")
     with TemporaryDirectory(prefix="gpu-libm-bench-llvm-") as directory:
@@ -100,7 +100,7 @@ def _resolve_cuda(root: Path | None = None) -> CUDAToolkit:
             "CMake was not found on PATH; it is required to discover the CUDA Toolkit"
         )
 
-    probe = _paths.source_root() / "cmake" / "probes" / "cuda"
+    probe = paths.source_root() / "cmake" / "probes" / "cuda"
     if not (probe / "CMakeLists.txt").is_file():
         raise FileNotFoundError(
             f"CUDA Toolkit discovery project was not found: {probe}"

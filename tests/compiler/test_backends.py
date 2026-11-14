@@ -17,6 +17,38 @@ from gpu_libm_bench.compiler.toolchains import CUDAToolkit
 
 
 @pytest.mark.parametrize(
+    ("build_directory", "expected_directory"),
+    [
+        (None, "build/backends/cuda"),
+        ("custom", "custom"),
+    ],
+)
+def test_backend_build_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    build_directory: str | None,
+    expected_directory: str,
+) -> None:
+    pybind11 = SimpleNamespace(__version__="3.0", get_cmake_dir=lambda: "/pybind")
+    monkeypatch.setattr(backends, "import_module", lambda _: pybind11)
+    monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
+    monkeypatch.setattr(backends.paths, "build_root", lambda: tmp_path / "build")
+
+    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
+    build = configure_backend(
+        "cuda",
+        sdk=sdk,
+        build_directory=tmp_path / build_directory
+        if build_directory is not None
+        else None,
+    )
+
+    expected = tmp_path / expected_directory
+    assert build.source_directory == backends.paths.source_root() / "backends/cuda"
+    assert build.build_directory == expected
+
+
+@pytest.mark.parametrize(
     ("backend", "sdk", "error", "message"),
     [
         ("cuda", object(), TypeError, "unsupported SDK type: object"),
@@ -35,56 +67,19 @@ def test_backend_configuration_rejects_incompatible_sdk(
         configure_backend(backend, sdk=cast(CUDAToolkit, sdk))
 
 
-@pytest.mark.parametrize(
-    ("backend_root", "build_directory", "expected_directory"),
-    [
-        (None, None, "build/backends/cuda"),
-        ("native", None, "native/cuda"),
-        ("native", "custom", "custom"),
-    ],
-)
-def test_backend_build_directory_precedence_and_discovery(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    backend_root: str | None,
-    build_directory: str | None,
-    expected_directory: str,
+def test_backend_initialization_retries_failures_and_reuses_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def import_module(name: str):
-        if name == "pybind11":
-            return SimpleNamespace(__version__="3.0", get_cmake_dir=lambda: "/pybind")
-        raise ModuleNotFoundError(name=name)
+    module = ModuleType("gpu_libm_bench.backends._cuda")
+    initialize = Mock(side_effect=[RuntimeError("initialization failed"), None])
+    module._set_images_build_root = initialize
+    monkeypatch.setattr(backends, "import_module", lambda _: module)
+    monkeypatch.setattr(backends.paths, "build_root", lambda: tmp_path / "build")
 
-    monkeypatch.setattr(backends, "import_module", import_module)
-    monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
-    monkeypatch.setattr(backends._paths, "build_root", lambda: tmp_path / "build")
-    if backend_root is None:
-        monkeypatch.delenv("GPU_LIBM_BENCH_BACKEND_DIR", raising=False)
-    else:
-        monkeypatch.setenv("GPU_LIBM_BENCH_BACKEND_DIR", str(tmp_path / backend_root))
+    with pytest.raises(RuntimeError, match="initialization failed"):
+        backends.get_backend("cuda")
 
-    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
-
-    build = configure_backend(
-        "cuda",
-        sdk=sdk,
-        build_directory=tmp_path / build_directory
-        if build_directory is not None
-        else None,
-    )
-
-    expected = tmp_path / expected_directory
-    assert build.source_directory == backends._paths.source_root() / "backends/cuda"
-    assert build.build_directory == expected
-
-    if build_directory is None:
-        path = expected / "python" / f"_cuda{backends.EXTENSION_SUFFIXES[0]}"
-        path.parent.mkdir(parents=True)
-        path.touch()
-
-        module = ModuleType("gpu_libm_bench.backends._cuda")
-        loader = Mock(return_value=module)
-        monkeypatch.setattr(backends, "_load_backend", loader)
-
-        assert backends.get_backend("cuda") is module
-        loader.assert_called_once_with(path, module_name=module.__name__)
+    assert backends.get_backend("cuda") is module
+    assert backends.get_backend("cuda") is module
+    assert initialize.call_count == 2
+    initialize.assert_called_with(str(tmp_path / "build/kernels"))
