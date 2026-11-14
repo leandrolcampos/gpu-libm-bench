@@ -1,4 +1,4 @@
-# Resolves the Python binding and CUDA Driver API dependencies of the backend.
+# Resolves Python, pybind11, and CUDA Toolkit dependencies.
 
 include_guard(GLOBAL)
 

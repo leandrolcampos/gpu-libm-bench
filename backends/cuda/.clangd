@@ -1,2 +1,4 @@
+# Selects the compilation database for CUDA backend sources.
+
 CompileFlags:
   CompilationDatabase: ../../build/backends/cuda

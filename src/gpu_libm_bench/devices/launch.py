@@ -1,6 +1,8 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
+"""GPU kernel launch configurations."""
+
 from dataclasses import dataclass
 from operator import index
 

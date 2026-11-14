@@ -1,4 +1,4 @@
-# Defines shared support for native GPU backends.
+# Defines shared build requirements for native GPU backends.
 
 add_library(GPULibmBenchCommon INTERFACE)
 

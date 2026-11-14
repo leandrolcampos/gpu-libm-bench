@@ -1,7 +1,7 @@
 // Copyright 2026 Leandro Lacerda Campos
 // SPDX-License-Identifier: Apache-2.0
 //
-// Recoverable errors shared by native GPU backends.
+// Error categories and messages shared by native GPU backends.
 
 #ifndef GPU_LIBM_BENCH_COMMON_ERROR_HPP
 #define GPU_LIBM_BENCH_COMMON_ERROR_HPP
