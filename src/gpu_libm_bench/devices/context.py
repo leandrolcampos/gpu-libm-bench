@@ -46,6 +46,7 @@ class DeviceInfo:
     id: int
     name: str
     architecture: str
+    default_clock_frequency_hz: int
     total_memory_bytes: int
     timer_info: TimerInfo
 
@@ -236,6 +237,7 @@ class DeviceContext:
             id=properties["id"],
             name=properties["name"],
             architecture=properties["architecture"],
+            default_clock_frequency_hz=properties["default_clock_frequency_hz"],
             total_memory_bytes=properties["total_memory_bytes"],
             timer_info=TimerInfo(**properties["timer_info"]),
         )

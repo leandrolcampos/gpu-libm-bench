@@ -33,6 +33,7 @@ struct DeviceInfoTy {
   int ID;
   std::string Name;
   std::string Architecture;
+  std::uint64_t DefaultClockFrequencyHz;
   std::size_t TotalMemoryBytes;
   TimerInfoTy TimerInfo;
 };

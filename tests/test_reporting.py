@@ -38,7 +38,13 @@ from gpu_libm_bench.reporting.terminal import print_result
 def experiment() -> ExperimentResult:
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
     device_info = DeviceInfo(
-        "cuda", 0, "test GPU", "sm_120", 2**30, TimerInfo("%globaltimer", 64, 10**9)
+        "cuda",
+        0,
+        "test GPU",
+        "sm_120",
+        2_000_000_000,
+        2**30,
+        TimerInfo("%globaltimer", 64, 10**9),
     )
 
     domains = {

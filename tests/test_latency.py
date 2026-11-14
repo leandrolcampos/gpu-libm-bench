@@ -71,7 +71,13 @@ def test_measurement_preserves_input_association_and_excludes_warmup(
 ) -> None:
     context = Mock(spec=DeviceContext)
     context.device_info = DeviceInfo(
-        "cuda", 3, "test device", "sm_120", 1024, TimerInfo("test timer", 64, 10**9)
+        "cuda",
+        3,
+        "test device",
+        "sm_120",
+        2_000_000_000,
+        1024,
+        TimerInfo("test timer", 64, 10**9),
     )
     context.create_buffer.side_effect = lambda size, *, dtype: Mock(
         spec=DeviceBuffer, size=size, dtype=np.dtype(dtype)
@@ -280,6 +286,7 @@ def test_analysis_summarizes_sample_medians() -> None:
             0,
             "test device",
             "sm_120",
+            2_000_000_000,
             1024,
             TimerInfo("test timer", 64, 500_000_000),
         ),
@@ -301,7 +308,13 @@ def test_single_sample_has_no_sample_standard_deviation() -> None:
         inputs.InputBatch("central", {"x": np.ones(1, dtype=np.float32)}),
         np.array([[2, 4, 1000]], dtype=np.uint64),
         DeviceInfo(
-            "cuda", 0, "test GPU", "sm_120", 1024, TimerInfo("timer", 64, 10**9)
+            "cuda",
+            0,
+            "test GPU",
+            "sm_120",
+            2_000_000_000,
+            1024,
+            TimerInfo("timer", 64, 10**9),
         ),
         pass_count=2,
         chain_length=2,

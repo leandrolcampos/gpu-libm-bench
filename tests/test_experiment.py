@@ -61,7 +61,13 @@ def config() -> ExperimentConfig:
 def experiment_result(config: ExperimentConfig) -> ExperimentResult:
     assert isinstance(config.metric, LatencyConfig)
     device_info = DeviceInfo(
-        "cuda", 0, "test GPU", "sm_120", 1024, TimerInfo("timer", 64, 10**9)
+        "cuda",
+        0,
+        "test GPU",
+        "sm_120",
+        2_000_000_000,
+        1024,
+        TimerInfo("timer", 64, 10**9),
     )
     measurement = latency.LatencyMeasurement(
         inputs.InputBatch(

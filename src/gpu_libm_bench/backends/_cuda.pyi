@@ -27,6 +27,7 @@ class DeviceInfo(TypedDict):
     id: int
     name: str
     architecture: str
+    default_clock_frequency_hz: int
     total_memory_bytes: int
     timer_info: TimerInfo
 

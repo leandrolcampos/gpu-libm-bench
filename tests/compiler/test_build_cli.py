@@ -41,7 +41,13 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         "get_device_info",
         Mock(
             return_value=DeviceInfo(
-                "cuda", 3, "GPU", "sm_90", 1024, TimerInfo("timer", 64, 10**9)
+                "cuda",
+                3,
+                "GPU",
+                "sm_90",
+                2_000_000_000,
+                1024,
+                TimerInfo("timer", 64, 10**9),
             )
         ),
     )

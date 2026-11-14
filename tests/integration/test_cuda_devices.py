@@ -22,6 +22,7 @@ def test_query_visible_devices() -> None:
         assert device_info.id == device_id
         assert device_info.name
         assert device_info.architecture.startswith("sm_")
+        assert device_info.default_clock_frequency_hz > 0
         assert device_info.total_memory_bytes > 0
 
         assert device_info.timer_info.source == "%globaltimer"

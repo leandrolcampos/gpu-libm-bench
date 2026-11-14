@@ -127,6 +127,8 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
         Properties["id"] = DeviceInfo.ID;
         Properties["name"] = DeviceInfo.Name;
         Properties["architecture"] = DeviceInfo.Architecture;
+        Properties["default_clock_frequency_hz"] =
+            DeviceInfo.DefaultClockFrequencyHz;
         Properties["total_memory_bytes"] = DeviceInfo.TotalMemoryBytes;
         Properties["timer_info"] = TimerInfo;
 
