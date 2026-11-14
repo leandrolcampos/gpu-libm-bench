@@ -11,11 +11,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 class KernelMetric(Enum):
-    AVERAGE_FREQUENCY = ...
+    CLOCK_FREQUENCY = ...
     DURATION = ...
 
 class KernelProfile(TypedDict):
-    average_frequency_hz: float | None
+    clock_frequency_hz: float | None
     duration_ms: float | None
 
 class TimerInfo(TypedDict):

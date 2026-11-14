@@ -34,17 +34,17 @@ private:
   bool Active = true;
 };
 
-class DeviceState {
+class DeviceStateTy {
 public:
-  ~DeviceState() noexcept;
-  DeviceState(const DeviceState &) = delete;
-  DeviceState &operator=(const DeviceState &) = delete;
+  ~DeviceStateTy() noexcept;
+  DeviceStateTy(const DeviceStateTy &) = delete;
+  DeviceStateTy &operator=(const DeviceStateTy &) = delete;
 
-  static Expected<std::shared_ptr<DeviceState>> create(int DeviceID);
+  static Expected<std::shared_ptr<DeviceStateTy>> create(int DeviceID);
   CUcontext getContext() const noexcept { return Context; }
 
 private:
-  DeviceState(CUdevice Device, CUcontext Context)
+  DeviceStateTy(CUdevice Device, CUcontext Context)
       : Device(Device), Context(Context) {}
 
   CUdevice Device;

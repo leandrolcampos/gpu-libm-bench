@@ -11,7 +11,10 @@
 #include "Module.hpp"
 #include "Profiling.hpp"
 
+#include <memory>
+#include <optional>
 #include <set>
+#include <string>
 #include <vector>
 
 #ifndef GPU_LIBM_BENCH_BACKEND
@@ -37,19 +40,25 @@ struct DeviceInfoTy {
 Expected<int> getDeviceCount();
 Expected<DeviceInfoTy> getDeviceInfo(int DeviceID);
 
+namespace detail {
+class KernelProfiler;
+Error setImagesBuildRoot(const std::string &Root);
+} // namespace detail
+
 using KernelArgument = std::variant<const DeviceBuffer *, const void *>;
 
 class DeviceContext {
 public:
-  ~DeviceContext() noexcept;
-  DeviceContext(const DeviceContext &) = delete;
-  DeviceContext &operator=(const DeviceContext &) = delete;
-  DeviceContext(DeviceContext &&Other) noexcept;
-  DeviceContext &operator=(DeviceContext &&) = delete;
-
   static Expected<DeviceContext> create(int DeviceID);
 
-  bool isReleased() const noexcept { return !Device; }
+  DeviceContext(DeviceContext &&Other) noexcept;
+  ~DeviceContext() noexcept;
+
+  DeviceContext(const DeviceContext &) = delete;
+  DeviceContext &operator=(const DeviceContext &) = delete;
+  DeviceContext &operator=(DeviceContext &&) = delete;
+
+  bool isReleased() const noexcept { return !DeviceState; }
   Error release();
 
   Expected<DeviceBuffer> createBuffer(std::size_t ByteCount) const;
@@ -71,7 +80,14 @@ public:
           const std::set<KernelMetric> &Metrics) const;
 
 private:
-  DeviceContext(std::shared_ptr<detail::DeviceState> Device, void *Stream);
+  DeviceContext(std::shared_ptr<detail::DeviceStateTy> DeviceState,
+                void *Stream, const std::string &Architecture);
+
+  Expected<const DeviceModule *> getSupportModule() const;
+
+  Error enqueueKernel(const DeviceKernel &Kernel,
+                      const std::vector<KernelArgument> &KernelArguments,
+                      const LaunchConfig &Config) const;
 
   Error ensureActive() const;
   Error validateBuffer(const DeviceBuffer &Buffer) const;
@@ -79,8 +95,11 @@ private:
   Error validateKernelArguments(
       const std::vector<KernelArgument> &KernelArguments) const;
 
-  std::shared_ptr<detail::DeviceState> Device;
+  std::shared_ptr<detail::DeviceStateTy> DeviceState;
   void *Stream;
+  std::string SupportImagePath;
+  mutable std::optional<DeviceModule> SupportModule;
+  mutable std::unique_ptr<detail::KernelProfiler> Profiler;
 };
 
 } // namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND

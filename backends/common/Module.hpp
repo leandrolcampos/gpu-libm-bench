@@ -17,7 +17,8 @@
 namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND {
 
 namespace detail {
-class DeviceState;
+class DeviceStateTy;
+class KernelProfiler;
 class ModuleState;
 } // namespace detail
 
@@ -31,9 +32,10 @@ public:
 private:
   friend class DeviceContext;
   friend class DeviceModule;
+  friend class detail::KernelProfiler;
 
   DeviceKernel(std::shared_ptr<detail::ModuleState> Module, void *Function);
-  const std::shared_ptr<detail::DeviceState> &getDevice() const;
+  const std::shared_ptr<detail::DeviceStateTy> &getDeviceState() const;
 
   std::shared_ptr<detail::ModuleState> Module;
   void *Function;
@@ -50,10 +52,12 @@ public:
 
 private:
   friend class DeviceContext;
+  friend class detail::KernelProfiler;
 
   explicit DeviceModule(std::shared_ptr<detail::ModuleState> Storage);
   static Expected<DeviceModule>
-  load(std::shared_ptr<detail::DeviceState> Device, const std::string &Path);
+  load(std::shared_ptr<detail::DeviceStateTy> DeviceState,
+       const std::string &Path);
 
   std::shared_ptr<detail::ModuleState> Storage;
 };

@@ -60,6 +60,24 @@ class DeviceContext:
         self._device_id = device_id
         self._device_info: DeviceInfo | None = None
 
+    def __enter__(self) -> "DeviceContext":
+        self._ensure_active()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        try:
+            self.release()
+        except RuntimeError as error:
+            if exc_value is None:
+                raise
+
+            exc_value.add_note(f"device context cleanup failed: {error}")
+
     @property
     def backend(self) -> str:
         return self._backend
@@ -83,34 +101,6 @@ class DeviceContext:
     def release(self) -> None:
         self._native.release()
 
-    def __enter__(self) -> "DeviceContext":
-        self._ensure_active()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        try:
-            self.release()
-        except RuntimeError as error:
-            if exc_value is None:
-                raise
-
-            exc_value.add_note(f"device context cleanup failed: {error}")
-
-    def load_module(self, image: DeviceImage) -> DeviceModule:
-        self._ensure_active()
-
-        if image.target.backend != self.backend:
-            raise ValueError("device image backend does not match the device context")
-        if not image.image_path.is_file():
-            raise FileNotFoundError(f"device image was not found: {image.image_path}")
-
-        return DeviceModule(self._native.load_module(str(image.image_path)), image)
-
     @overload
     def create_buffer[T: Scalar](
         self, size: int, *, dtype: type[T] | np.dtype[T]
@@ -131,6 +121,16 @@ class DeviceContext:
         return DeviceBuffer(
             self._native.create_buffer(size * resolved.itemsize), resolved
         )
+
+    def load_module(self, image: DeviceImage) -> DeviceModule:
+        self._ensure_active()
+
+        if image.target.backend != self.backend:
+            raise ValueError("device image backend does not match the device context")
+        if not image.image_path.is_file():
+            raise FileNotFoundError(f"device image was not found: {image.image_path}")
+
+        return DeviceModule(self._native.load_module(str(image.image_path)), image)
 
     def copy_to_device[T: Scalar](
         self, destination: DeviceBuffer[T], source: NDArray[T]
@@ -180,12 +180,8 @@ class DeviceContext:
         *kernel_arguments: DeviceBuffer[Any] | Scalar,
         config: LaunchConfig,
     ) -> None:
-        self._ensure_active()
-        kernel._validate_arguments(kernel_arguments)
-
-        native_kernel_arguments = tuple(
-            argument._native if isinstance(argument, DeviceBuffer) else argument
-            for argument in kernel_arguments
+        native_kernel_arguments = self._prepare_kernel_arguments(
+            kernel, kernel_arguments
         )
 
         self._native.launch(
@@ -208,11 +204,21 @@ class DeviceContext:
         if any(not isinstance(metric, KernelMetric) for metric in metrics):
             raise TypeError("kernel profiling metrics must be KernelMetric values")
 
-        raise NotImplementedError("kernel profiling is not implemented")
+        native_kernel_arguments = self._prepare_kernel_arguments(
+            kernel, kernel_arguments
+        )
+        backend = _load_backend(self.backend)
+        native_metrics = {backend.KernelMetric[metric.name] for metric in metrics}
 
-    def _ensure_active(self) -> None:
-        if self.released:
-            raise RuntimeError("device context has been released")
+        result = self._native.profile(
+            kernel._native,
+            native_kernel_arguments,
+            config.grid,
+            config.block,
+            config.shared_memory_bytes,
+            native_metrics,
+        )
+        return KernelProfile(**result)
 
     @staticmethod
     def supported_backends() -> tuple[str, ...]:
@@ -233,6 +239,23 @@ class DeviceContext:
             total_memory_bytes=properties["total_memory_bytes"],
             timer_info=TimerInfo(**properties["timer_info"]),
         )
+
+    def _prepare_kernel_arguments(
+        self,
+        kernel: DeviceKernel,
+        kernel_arguments: tuple[DeviceBuffer[Any] | Scalar, ...],
+    ) -> "tuple[_cuda.DeviceBuffer | Scalar, ...]":
+        self._ensure_active()
+        kernel._validate_arguments(kernel_arguments)
+
+        return tuple(
+            argument._native if isinstance(argument, DeviceBuffer) else argument
+            for argument in kernel_arguments
+        )
+
+    def _ensure_active(self) -> None:
+        if self.released:
+            raise RuntimeError("device context has been released")
 
 
 def _load_backend(backend: str) -> ModuleType:

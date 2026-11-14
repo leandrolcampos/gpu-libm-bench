@@ -18,7 +18,7 @@
 namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND {
 
 namespace detail {
-class DeviceState;
+class DeviceStateTy;
 } // namespace detail
 
 class DeviceBuffer {
@@ -35,11 +35,12 @@ private:
   friend class DeviceContext;
 
   static Expected<DeviceBuffer>
-  create(std::shared_ptr<detail::DeviceState> Device, std::size_t ByteCount);
-  DeviceBuffer(std::shared_ptr<detail::DeviceState> Device,
+  create(std::shared_ptr<detail::DeviceStateTy> DeviceState,
+         std::size_t ByteCount);
+  DeviceBuffer(std::shared_ptr<detail::DeviceStateTy> DeviceState,
                std::size_t ByteCount);
 
-  std::shared_ptr<detail::DeviceState> Device;
+  std::shared_ptr<detail::DeviceStateTy> DeviceState;
   std::uint64_t Pointer;
   std::size_t ByteCount;
 };

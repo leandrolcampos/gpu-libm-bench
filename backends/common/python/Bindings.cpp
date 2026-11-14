@@ -107,7 +107,7 @@ struct LaunchArguments {
 
 PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
   py::native_enum<KernelMetric>(Module, "KernelMetric", "enum.Enum")
-      .value("AVERAGE_FREQUENCY", KernelMetric::AverageFrequency)
+      .value("CLOCK_FREQUENCY", KernelMetric::ClockFrequency)
       .value("DURATION", KernelMetric::Duration)
       .finalize();
 
@@ -241,7 +241,7 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
                 Kernel, Arguments.KernelArguments, Arguments.Config, Metrics));
 
             py::dict Result;
-            Result["average_frequency_hz"] = Profile.AverageFrequencyHz;
+            Result["clock_frequency_hz"] = Profile.ClockFrequencyHz;
             Result["duration_ms"] = Profile.DurationMs;
 
             return Result;

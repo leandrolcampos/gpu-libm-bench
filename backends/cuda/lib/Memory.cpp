@@ -1,26 +1,27 @@
 // Copyright 2026 Leandro Lacerda Campos
 // SPDX-License-Identifier: Apache-2.0
 //
-// Implements device memory allocation and release.
+// Implements CUDA device memory allocation and release.
 
 #include "Memory.hpp"
 #include "Utils.hpp"
 
 namespace gpu_libm_bench::cuda {
 
-DeviceBuffer::DeviceBuffer(std::shared_ptr<detail::DeviceState> Device,
+DeviceBuffer::DeviceBuffer(std::shared_ptr<detail::DeviceStateTy> DeviceState,
                            std::size_t ByteCount)
-    : Device(std::move(Device)), Pointer(0), ByteCount(ByteCount) {}
+    : DeviceState(std::move(DeviceState)), Pointer(0), ByteCount(ByteCount) {}
 
 DeviceBuffer::DeviceBuffer(DeviceBuffer &&Other) noexcept
-    : Device(std::move(Other.Device)), Pointer(std::exchange(Other.Pointer, 0)),
+    : DeviceState(std::move(Other.DeviceState)),
+      Pointer(std::exchange(Other.Pointer, 0)),
       ByteCount(std::exchange(Other.ByteCount, 0)) {}
 
 DeviceBuffer::~DeviceBuffer() noexcept {
   if (!Pointer)
     return;
 
-  auto Guard = detail::CurrentContextGuard::create(Device->getContext());
+  auto Guard = detail::CurrentContextGuard::create(DeviceState->getContext());
   if (!Guard) {
     reportCleanupError(Guard.error());
     return;
@@ -30,10 +31,11 @@ DeviceBuffer::~DeviceBuffer() noexcept {
 }
 
 Expected<DeviceBuffer>
-DeviceBuffer::create(std::shared_ptr<detail::DeviceState> Device,
+DeviceBuffer::create(std::shared_ptr<detail::DeviceStateTy> DeviceState,
                      std::size_t ByteCount) {
-  DeviceBuffer Buffer(std::move(Device), ByteCount);
-  auto Guard = detail::CurrentContextGuard::create(Buffer.Device->getContext());
+  DeviceBuffer Buffer(std::move(DeviceState), ByteCount);
+  auto Guard =
+      detail::CurrentContextGuard::create(Buffer.DeviceState->getContext());
   if (!Guard)
     return std::move(Guard).error();
 

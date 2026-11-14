@@ -122,10 +122,8 @@ def test_copy_preserves_values_and_destination_tail(
 
     destination = np.full(source.size + 8, 99, dtype=dtype)
     initial = np.full(source.size + 5, 123, dtype=dtype)
-
     buffer = context.create_buffer(initial.size, dtype=source.dtype)
     context.copy_to_device(buffer, initial)
-
     context.copy_to_device(buffer, source)
     context.copy_to_host(destination, buffer)
 
@@ -190,7 +188,6 @@ def test_evaluate_expf_preserves_tail(
 
     x = context.create_buffer(source.size, dtype=source.dtype)
     y = context.create_buffer(destination.size, dtype=destination.dtype)
-
     context.copy_to_device(x, source)
     context.copy_to_device(y, destination)
 
@@ -220,41 +217,6 @@ def test_launch_observes_the_latest_host_copy(
         context.copy_to_host(destination, y)
 
         np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
-
-
-def test_native_execution_accepts_keyword_arguments(
-    context: DeviceContext, image: DeviceImage
-) -> None:
-    native = context._native
-    module = native.load_module(path=str(image.image_path))
-    symbol = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATE).symbol
-    kernel = module.get_kernel(symbol=symbol)
-
-    source = np.array([-1, 0, 1], dtype=np.float32)
-    destination = np.empty_like(source)
-    x = native.create_buffer(byte_count=source.nbytes)
-    y = native.create_buffer(byte_count=destination.nbytes)
-    launch_arguments = {
-        "kernel": kernel,
-        "kernel_arguments": (x, y, np.uint64(source.size)),
-        "grid": (1, 1, 1),
-        "block": (32, 1, 1),
-        "shared_memory_bytes": 0,
-    }
-
-    native.copy_to_device(destination=x, source=source)
-    native.launch(**launch_arguments)
-    native.copy_to_host(destination=destination, source=y)
-
-    np.testing.assert_allclose(destination, np.exp(source), rtol=4e-7)
-
-    with pytest.raises(ValueError, match="at least one metric"):
-        native.profile(**launch_arguments, metrics=set())
-    profile = native.profile(
-        **launch_arguments, metrics={get_backend("cuda").KernelMetric.DURATION}
-    )
-    assert profile["duration_ms"] > 0
-    assert profile["average_frequency_hz"] is None
 
 
 def test_launch_rejects_incompatible_arguments(
@@ -295,19 +257,45 @@ def test_native_launch_and_profile_validate_inputs(
         operation(kernel, kernel_arguments, (0, 1, 1), (1, 1, 1), 0, **options)
 
     if method == "profile":
-        profile = operation(
-            kernel, kernel_arguments, (1, 1, 1), (1, 1, 1), 0, **options
-        )
-        assert profile["duration_ms"] > 0
+        with pytest.raises(ValueError, match="at least one metric"):
+            operation(kernel, kernel_arguments, (1, 1, 1), (1, 1, 1), 0, metrics=set())
+
+
+def test_native_execution_accepts_keyword_arguments(
+    context: DeviceContext, image: DeviceImage
+) -> None:
+    native = context._native
+    module = native.load_module(path=str(image.image_path))
+    symbol = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATE).symbol
+    kernel = module.get_kernel(symbol=symbol)
+
+    source = np.array([-1, 0, 1], dtype=np.float32)
+    destination = np.empty_like(source)
+    x = native.create_buffer(byte_count=source.nbytes)
+    y = native.create_buffer(byte_count=destination.nbytes)
+    launch_arguments = {
+        "kernel": kernel,
+        "kernel_arguments": (x, y, np.uint64(source.size)),
+        "grid": (1, 1, 1),
+        "block": (32, 1, 1),
+        "shared_memory_bytes": 0,
+    }
+
+    native.copy_to_device(destination=x, source=source)
+    native.launch(**launch_arguments)
+    native.copy_to_host(destination=destination, source=y)
+
+    np.testing.assert_allclose(destination, np.exp(source), rtol=4e-7)
+
+    profile = native.profile(
+        **launch_arguments, metrics={get_backend("cuda").KernelMetric.DURATION}
+    )
+    assert profile["duration_ms"] > 0
+    assert profile["clock_frequency_hz"] is None
 
 
 @pytest.mark.parametrize(
-    "metrics",
-    [
-        {KernelMetric.AVERAGE_FREQUENCY},
-        {KernelMetric.DURATION},
-        set(KernelMetric),
-    ],
+    "metrics", [{KernelMetric.CLOCK_FREQUENCY}, {KernelMetric.DURATION}]
 )
 def test_profile_collects_requested_metrics_and_executes_once(
     context: DeviceContext,
@@ -321,7 +309,7 @@ def test_profile_collects_requested_metrics_and_executes_once(
     kernel = load_kernel(context, image, spec)
     config = LaunchConfig(grid=(source.size // 256, 1, 1), block=(256, 1, 1))
 
-    for _ in range(2):
+    for requested_metrics in (metrics, set(KernelMetric), metrics):
         context.copy_to_device(buffer, source)
         profile = context.profile(
             kernel,
@@ -329,17 +317,17 @@ def test_profile_collects_requested_metrics_and_executes_once(
             buffer,
             np.uint64(source.size),
             config=config,
-            metrics=metrics,
+            metrics=requested_metrics,
         )
         context.copy_to_host(result, buffer)
 
         np.testing.assert_allclose(result, np.exp(source), rtol=4e-7)
-        if KernelMetric.AVERAGE_FREQUENCY in metrics:
-            assert profile.average_frequency_hz is not None
-            assert 1e6 < profile.average_frequency_hz < 1e11
+        if KernelMetric.CLOCK_FREQUENCY in requested_metrics:
+            assert profile.clock_frequency_hz is not None
+            assert 1e6 < profile.clock_frequency_hz < 1e11
         else:
-            assert profile.average_frequency_hz is None
-        if KernelMetric.DURATION in metrics:
+            assert profile.clock_frequency_hz is None
+        if KernelMetric.DURATION in requested_metrics:
             assert profile.duration_ms is not None
             assert profile.duration_ms > 0
         else:

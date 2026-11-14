@@ -1,7 +1,7 @@
 // Copyright 2026 Leandro Lacerda Campos
 // SPDX-License-Identifier: Apache-2.0
 //
-// Implements device image loading and kernel resolution.
+// Implements CUDA device module loading and kernel preparation.
 
 #include "Module.hpp"
 #include "Utils.hpp"
@@ -12,11 +12,11 @@ namespace detail {
 
 class ModuleState {
 public:
-  ModuleState(std::shared_ptr<DeviceState> Device, CUmodule Module)
-      : Device(std::move(Device)), Module(Module) {}
+  ModuleState(std::shared_ptr<DeviceStateTy> DeviceState, CUmodule Module)
+      : DeviceState(std::move(DeviceState)), Module(Module) {}
 
   ~ModuleState() noexcept {
-    auto Guard = CurrentContextGuard::create(Device->getContext());
+    auto Guard = CurrentContextGuard::create(DeviceState->getContext());
     if (!Guard) {
       reportCleanupError(Guard.error());
       return;
@@ -28,7 +28,7 @@ public:
   ModuleState(const ModuleState &) = delete;
   ModuleState &operator=(const ModuleState &) = delete;
 
-  std::shared_ptr<DeviceState> Device;
+  std::shared_ptr<DeviceStateTy> DeviceState;
   CUmodule Module;
 };
 
@@ -38,17 +38,18 @@ DeviceKernel::DeviceKernel(std::shared_ptr<detail::ModuleState> Module,
                            void *Function)
     : Module(std::move(Module)), Function(Function) {}
 
-const std::shared_ptr<detail::DeviceState> &DeviceKernel::getDevice() const {
-  return Module->Device;
+const std::shared_ptr<detail::DeviceStateTy> &
+DeviceKernel::getDeviceState() const {
+  return Module->DeviceState;
 }
 
 DeviceModule::DeviceModule(std::shared_ptr<detail::ModuleState> Storage)
     : Storage(std::move(Storage)) {}
 
 Expected<DeviceModule>
-DeviceModule::load(std::shared_ptr<detail::DeviceState> Device,
+DeviceModule::load(std::shared_ptr<detail::DeviceStateTy> DeviceState,
                    const std::string &Path) {
-  auto Guard = detail::CurrentContextGuard::create(Device->getContext());
+  auto Guard = detail::CurrentContextGuard::create(DeviceState->getContext());
   if (!Guard)
     return std::move(Guard).error();
 
@@ -58,7 +59,7 @@ DeviceModule::load(std::shared_ptr<detail::DeviceState> Device,
     return Err;
 
   return DeviceModule(
-      std::make_shared<detail::ModuleState>(std::move(Device), Module));
+      std::make_shared<detail::ModuleState>(std::move(DeviceState), Module));
 }
 
 Expected<DeviceKernel>
@@ -70,7 +71,7 @@ DeviceModule::getKernel(const std::string &Symbol) const {
     return Error{ErrorKind::InvalidArgument, "invalid kernel symbol"};
 
   auto Guard =
-      detail::CurrentContextGuard::create(Storage->Device->getContext());
+      detail::CurrentContextGuard::create(Storage->DeviceState->getContext());
   if (!Guard)
     return std::move(Guard).error();
 
@@ -79,6 +80,10 @@ DeviceModule::getKernel(const std::string &Symbol) const {
   if (auto Err =
           check(cuModuleGetFunction(&Function, Storage->Module, Symbol.c_str()),
                 Operation.c_str()))
+    return Err;
+
+  Operation = "cuFuncLoad(" + Symbol + ")";
+  if (auto Err = check(cuFuncLoad(Function), Operation.c_str()))
     return Err;
 
   return DeviceKernel(Storage, Function);

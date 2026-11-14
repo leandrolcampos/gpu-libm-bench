@@ -1,5 +1,7 @@
 // Copyright 2026 Leandro Lacerda Campos
 // SPDX-License-Identifier: Apache-2.0
+//
+// Kernel profiling metrics and results.
 
 #ifndef GPU_LIBM_BENCH_COMMON_PROFILING_HPP
 #define GPU_LIBM_BENCH_COMMON_PROFILING_HPP
@@ -10,12 +12,12 @@
 namespace gpu_libm_bench {
 
 enum class KernelMetric : std::uint8_t {
-  AverageFrequency,
+  ClockFrequency,
   Duration,
 };
 
 struct KernelProfile {
-  std::optional<double> AverageFrequencyHz;
+  std::optional<double> ClockFrequencyHz;
   std::optional<double> DurationMs;
 };
 
