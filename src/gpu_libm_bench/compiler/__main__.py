@@ -27,16 +27,16 @@ from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 from . import paths
 from ._cmake import CMakeBuild
 from ._commands import run_tool
-from .backends import BackendNotFoundError, build_backend, configure_backend
+from .backends import BackendModuleNotFoundError, build_backend, configure_backend
 from .images import build_kernels, configure_kernels
 from .libraries import LibraryUnavailableError, ResolvedLibrary, resolve_library
 from .targets import CompilationTarget, TargetUnavailableError, resolve_target
 from .toolchains import (
-    CUDAToolkit,
+    BackendSDK,
+    BackendSDKUnavailableError,
     LLVMToolchain,
-    SDKUnavailableError,
+    resolve_backend_sdk,
     resolve_llvm,
-    resolve_sdk,
 )
 
 
@@ -157,11 +157,11 @@ def _compile_backends(
     for config in configs:
         backend = config.backend
         try:
-            sdk = resolve_sdk(
+            backend_sdk = resolve_backend_sdk(
                 backend=backend.name,
                 root=Path(backend.sdk_root) if backend.sdk_root is not None else None,
             )
-        except SDKUnavailableError as error:
+        except BackendSDKUnavailableError as error:
             if explicit_backend:
                 raise
             print(f"Skipping {backend.name}: {error}", file=sys.stderr)
@@ -169,7 +169,7 @@ def _compile_backends(
 
         compile_backend(
             backend.name,
-            sdk=sdk,
+            backend_sdk=backend_sdk,
             build_directory=paths.backend_build_directory(backend.name, root=build_root)
             if build_root is not None
             else None,
@@ -208,7 +208,7 @@ def _compile_kernels(
             continue
 
         try:
-            sdk = resolve_sdk(
+            backend_sdk = resolve_backend_sdk(
                 backend=backend.name,
                 root=Path(backend.sdk_root) if backend.sdk_root is not None else None,
             )
@@ -218,16 +218,16 @@ def _compile_kernels(
                     Path(llvm_config.root) if llvm_config.root is not None else None
                 )
 
-            device_info = _get_device_info(backend, sdk=sdk)
+            device_info = _get_device_info(backend, backend_sdk=backend_sdk)
             target = resolve_target(
                 backend=backend.name,
                 target_triple=backend.target_triple,
                 architecture=backend.architecture,
                 llvm=llvm,
                 device_info=device_info,
-                sdk=sdk,
+                backend_sdk=backend_sdk,
             )
-        except (SDKUnavailableError, TargetUnavailableError) as error:
+        except (BackendSDKUnavailableError, TargetUnavailableError) as error:
             if explicit_backend:
                 raise
             print(f"Skipping {backend.name}: {error}", file=sys.stderr)
@@ -238,7 +238,7 @@ def _compile_kernels(
             arguments,
             llvm=llvm,
             target=target,
-            sdk=sdk,
+            backend_sdk=backend_sdk,
         )
 
         for library in libraries:
@@ -257,7 +257,7 @@ def _compile_kernels(
                     arguments,
                     llvm=llvm,
                     target=target,
-                    sdk=sdk,
+                    backend_sdk=backend_sdk,
                 )
             except LibraryUnavailableError as error:
                 if explicit_backend and explicit_library:
@@ -297,14 +297,16 @@ def _select_libraries(configs: Sequence[BuildConfig]) -> list[LibraryConfig]:
     return libraries
 
 
-def _get_device_info(backend: BackendConfig, *, sdk: CUDAToolkit) -> DeviceInfo | None:
+def _get_device_info(
+    backend: BackendConfig, *, backend_sdk: BackendSDK
+) -> DeviceInfo | None:
     if backend.architecture is not None:
         return None
 
     try:
         count = DeviceContext.device_count(backend=backend.name)
-    except BackendNotFoundError:
-        build_backend(backend.name, sdk=sdk)
+    except BackendModuleNotFoundError:
+        build_backend(backend.name, backend_sdk=backend_sdk)
         count = DeviceContext.device_count(backend=backend.name)
 
     if count == 0:
@@ -321,7 +323,7 @@ def _compile_library_kernels(
     *,
     llvm: LLVMToolchain,
     target: CompilationTarget,
-    sdk: CUDAToolkit,
+    backend_sdk: BackendSDK,
 ) -> None:
     compile_kernels = (
         configure_kernels
@@ -333,7 +335,7 @@ def _compile_library_kernels(
         resolved_library=resolved_library,
         target=target,
         llvm=llvm,
-        sdk=sdk,
+        backend_sdk=backend_sdk,
         build_directory=paths.image_build_directory(
             resolved_library.library,
             backend=target.backend,

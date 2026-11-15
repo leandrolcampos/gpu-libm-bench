@@ -5,6 +5,8 @@
 
 from pathlib import Path
 
+from gpu_libm_bench.backends import Backend
+
 
 def package_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -34,14 +36,16 @@ def images_build_root() -> Path:
     return build_root() / "kernels"
 
 
-def backend_build_directory(backend: str, *, root: Path | None = None) -> Path:
+def backend_build_directory(
+    backend: Backend | str, *, root: Path | None = None
+) -> Path:
     return (backends_build_root() if root is None else root) / backend
 
 
 def image_build_directory(
     library: str,
     *,
-    backend: str,
+    backend: Backend | str,
     architecture: str,
     root: Path | None = None,
 ) -> Path:

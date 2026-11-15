@@ -57,7 +57,7 @@ def print_result(
 
 def _device_label(device_info: DeviceInfo) -> str:
     return (
-        f"{device_info.backend.upper()} — {device_info.id}: "
+        f"{device_info.backend} — {device_info.id}: "
         f"{device_info.name} ({device_info.architecture})"
     )
 
@@ -120,14 +120,13 @@ def _device_details(device_info: DeviceInfo) -> Group:
 def _image_details(image_build_info: DeviceImageBuildInfo) -> Group:
     image = image_build_info.image
     target = image.target
-
     return Group(
         Text(
             f"Compiler: {image_build_info.compiler}\n"
             f"{image_build_info.compiler_version}"
         ),
         Text(
-            f"SDK: {image_build_info.sdk_name} {image_build_info.sdk_version}; "
+            f"Backend SDK: {image_build_info.sdk_name} {image_build_info.sdk_version}; "
             f"root: {image_build_info.sdk_root}"
         ),
         Text(f"Target: {target.target_triple}; architecture: {target.architecture}"),

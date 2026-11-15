@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_module
 
-from gpu_libm_bench.compiler.backends import get_backend
+from gpu_libm_bench.compiler.backends import get_backend_module
 from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.configs import register_config_schema, validate_experiment_config
@@ -244,7 +244,7 @@ def test_native_launch_and_profile_validate_inputs(
     operation = getattr(context._native, method)
     options = {}
     if method == "profile":
-        options["metrics"] = {get_backend("cuda").KernelMetric.DURATION}
+        options["metrics"] = {get_backend_module("cuda").KernelMetric.DURATION}
 
     with pytest.raises(TypeError, match="NumPy scalars"):
         operation(kernel, (buffer, buffer, 1), (1, 1, 1), (1, 1, 1), 0, **options)
@@ -288,7 +288,7 @@ def test_native_execution_accepts_keyword_arguments(
     np.testing.assert_allclose(destination, np.exp(source), rtol=4e-7)
 
     profile = native.profile(
-        **launch_arguments, metrics={get_backend("cuda").KernelMetric.DURATION}
+        **launch_arguments, metrics={get_backend_module("cuda").KernelMetric.DURATION}
     )
     assert profile["duration_ms"] > 0
     assert profile["clock_frequency_hz"] is None

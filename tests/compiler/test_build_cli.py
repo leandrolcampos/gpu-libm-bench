@@ -14,13 +14,14 @@ from hydra.errors import ConfigCompositionException
 
 from gpu_libm_bench.compiler import __main__ as build_cli
 from gpu_libm_bench.compiler._cmake import CMakeBuild
-from gpu_libm_bench.compiler.backends import BackendNotFoundError
+from gpu_libm_bench.compiler.backends import BackendModuleNotFoundError
 from gpu_libm_bench.compiler.libraries import LibraryUnavailableError, ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget, TargetUnavailableError
 from gpu_libm_bench.compiler.toolchains import (
+    BackendSDKUnavailableError,
     CUDAToolkit,
     LLVMToolchain,
-    SDKUnavailableError,
+    ROCmCoreSDK,
 )
 from gpu_libm_bench.configs import BackendConfig, LibraryBitcodeConfig, LibraryConfig
 from gpu_libm_bench.devices import DeviceInfo, TimerInfo
@@ -28,8 +29,21 @@ from gpu_libm_bench.devices import DeviceInfo, TimerInfo
 
 @pytest.fixture
 def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    sdk = CUDAToolkit(tmp_path / "sdk", tmp_path / "sdk/bin/ptxas", "13.4")
-    monkeypatch.setattr(build_cli, "resolve_sdk", Mock(return_value=sdk))
+    backend_sdk = CUDAToolkit(
+        tmp_path / "backend_sdk", tmp_path / "backend_sdk/bin/ptxas", "13.4"
+    )
+    monkeypatch.setattr(
+        build_cli,
+        "resolve_backend_sdk",
+        Mock(
+            return_value=backend_sdk,
+            side_effect=lambda **kwargs: (
+                backend_sdk
+                if kwargs["backend"] == "cuda"
+                else ROCmCoreSDK(tmp_path / "rocm", "test")
+            ),
+        ),
+    )
     monkeypatch.setattr(build_cli, "resolve_llvm", Mock(return_value=llvm))
 
     monkeypatch.setattr(build_cli, "build_backend", Mock())
@@ -100,7 +114,7 @@ def catalogue(monkeypatch: pytest.MonkeyPatch):
         group="backend",
         name="_test_other",
         package="backend",
-        node=BackendConfig("other", "amdgcn-amd-amdhsa", "gfx1100", 0, None),
+        node=BackendConfig("hip", "amdgcn-amd-amdhsa", "gfx1100", 0, None),
         replace=True,
     )
     store.store(
@@ -108,7 +122,7 @@ def catalogue(monkeypatch: pytest.MonkeyPatch):
         name="variant",
         node=LibraryConfig(
             "variant",
-            {backend: LibraryBitcodeConfig(None) for backend in ("cuda", "other")},
+            {backend: LibraryBitcodeConfig(None) for backend in ("cuda", "hip")},
         ),
         replace=True,
     )
@@ -125,7 +139,8 @@ def catalogue(monkeypatch: pytest.MonkeyPatch):
 def test_invalid_selection_is_rejected(compiler, selection: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         compiler("kernels", selection)
-    build_cli.resolve_sdk.assert_not_called()
+
+    build_cli.resolve_backend_sdk.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -134,7 +149,8 @@ def test_invalid_selection_is_rejected(compiler, selection: str, message: str) -
 def test_experiment_settings_are_rejected(compiler, override: str) -> None:
     with pytest.raises(ConfigCompositionException):
         compiler("kernels", "backend=cuda", override)
-    build_cli.resolve_sdk.assert_not_called()
+
+    build_cli.resolve_backend_sdk.assert_not_called()
 
 
 def test_backend_command_requires_only_backend_config(compiler, tmp_path: Path) -> None:
@@ -145,13 +161,15 @@ def test_backend_command_requires_only_backend_config(compiler, tmp_path: Path) 
         "--build-root",
         str(tmp_path / "custom"),
         "backend=cuda",
-        f"backend.sdk_root={tmp_path / 'sdk'}",
+        f"backend.sdk_root={tmp_path / 'backend_sdk'}",
     )
 
-    build_cli.resolve_sdk.assert_called_once_with(backend="cuda", root=tmp_path / "sdk")
+    build_cli.resolve_backend_sdk.assert_called_once_with(
+        backend="cuda", root=tmp_path / "backend_sdk"
+    )
     build_cli.configure_backend.assert_called_once_with(
         "cuda",
-        sdk=build_cli.resolve_sdk.return_value,
+        backend_sdk=build_cli.resolve_backend_sdk.return_value,
         build_directory=tmp_path / "custom" / "cuda",
         build_tests=True,
     )
@@ -160,9 +178,12 @@ def test_backend_command_requires_only_backend_config(compiler, tmp_path: Path) 
 
 @pytest.mark.parametrize("explicit", [False, True])
 def test_no_available_backends_is_an_error(compiler, explicit: bool) -> None:
-    build_cli.resolve_sdk.side_effect = SDKUnavailableError("SDK is missing")
+    build_cli.resolve_backend_sdk.side_effect = BackendSDKUnavailableError(
+        "backend SDK is missing"
+    )
     with pytest.raises(
-        RuntimeError, match="SDK is missing" if explicit else "no native backends"
+        RuntimeError,
+        match="backend SDK is missing" if explicit else "no native backends",
     ):
         compiler("backend", *(["backend=cuda"] if explicit else []))
 
@@ -171,14 +192,14 @@ def test_no_available_backends_is_an_error(compiler, explicit: bool) -> None:
 def test_automatic_backend_discovery_skips_only_missing_sdks(
     compiler, catalogue, project: str
 ) -> None:
-    sdk = build_cli.resolve_sdk.return_value
+    backend_sdk = build_cli.resolve_backend_sdk.return_value
 
     def resolve(*, backend, root):
         if backend != "cuda":
-            raise SDKUnavailableError("SDK is missing")
-        return sdk
+            raise BackendSDKUnavailableError("backend SDK is missing")
+        return backend_sdk
 
-    build_cli.resolve_sdk.side_effect = resolve
+    build_cli.resolve_backend_sdk.side_effect = resolve
 
     compiler(project)
 
@@ -203,11 +224,11 @@ def test_automatic_backend_discovery_skips_only_missing_sdks(
             {
                 ("cuda", "llvm-libm"),
                 ("cuda", "variant"),
-                ("other", "variant"),
+                ("hip", "variant"),
             },
         ),
         (["backend=cuda"], {("cuda", "llvm-libm"), ("cuda", "variant")}),
-        (["library=variant"], {("cuda", "variant"), ("other", "variant")}),
+        (["library=variant"], {("cuda", "variant"), ("hip", "variant")}),
         (["backend=cuda", "library=variant"], {("cuda", "variant")}),
     ],
 )
@@ -275,6 +296,53 @@ def test_kernel_command_preserves_build_selection(
         build_cli.DeviceContext.get_device_info.assert_not_called()
 
 
+@pytest.mark.parametrize("mode", ["--configure-only", "--tidy"])
+def test_configure_and_tidy_use_each_selected_build_directory(
+    compiler, catalogue, tmp_path: Path, mode: str
+) -> None:
+    compiler(
+        "kernels",
+        "backend=cuda",
+        "--build-root",
+        str(tmp_path),
+        mode,
+        "--build-tests",
+    )
+
+    build_cli.build_kernels.assert_not_called()
+    builds = build_cli.configure_kernels.call_args_list
+    assert len(builds) == 3
+    assert all(call.kwargs["build_tests"] for call in builds)
+
+    if mode == "--tidy":
+        assert [call.args[0][-1] for call in build_cli.run_tool.call_args_list] == [
+            call.kwargs["build_directory"] for call in builds
+        ]
+    else:
+        build_cli.run_tool.assert_not_called()
+
+
+def test_no_device_requires_explicit_architecture(compiler) -> None:
+    build_cli.DeviceContext.device_count.return_value = 0
+
+    with pytest.raises(TargetUnavailableError, match="set backend.architecture"):
+        compiler("kernels", "backend=cuda")
+
+
+def test_architecture_discovery_builds_only_a_missing_backend(compiler) -> None:
+    build_cli.DeviceContext.device_count.side_effect = [
+        BackendModuleNotFoundError("missing"),
+        1,
+    ]
+
+    compiler("kernels", "backend=cuda")
+
+    build_cli.build_backend.assert_called_once_with(
+        "cuda",
+        backend_sdk=build_cli.resolve_backend_sdk.return_value,
+    )
+
+
 @pytest.mark.parametrize("explicit_backend", [False, True])
 def test_library_backend_support_is_respected(
     compiler, catalogue, explicit_backend: bool
@@ -293,7 +361,7 @@ def test_library_backend_support_is_respected(
         assert {
             call.kwargs["target"].backend
             for call in build_cli.build_kernels.call_args_list
-        } == {"other"}
+        } == {"hip"}
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -317,7 +385,7 @@ def test_unavailable_target_is_skipped_only_for_automatic_backends(
         assert {
             call.kwargs["target"].backend
             for call in build_cli.build_kernels.call_args_list
-        } == {"other"}
+        } == {"hip"}
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -375,7 +443,7 @@ def test_no_available_kernel_combinations_is_an_error(compiler) -> None:
 
 
 @pytest.mark.parametrize(
-    "operation", ["resolve_sdk", "resolve_library", "build_kernels"]
+    "operation", ["resolve_backend_sdk", "resolve_library", "build_kernels"]
 )
 def test_real_discovery_and_build_failures_are_propagated(
     compiler, operation: str
@@ -387,50 +455,3 @@ def test_real_discovery_and_build_failures_are_propagated(
         compiler()
 
     assert caught.value is error
-
-
-def test_no_device_requires_explicit_architecture(compiler) -> None:
-    build_cli.DeviceContext.device_count.return_value = 0
-
-    with pytest.raises(TargetUnavailableError, match="set backend.architecture"):
-        compiler("kernels", "backend=cuda")
-
-
-def test_architecture_discovery_builds_only_a_missing_backend(compiler) -> None:
-    build_cli.DeviceContext.device_count.side_effect = [
-        BackendNotFoundError("missing"),
-        1,
-    ]
-
-    compiler("kernels", "backend=cuda")
-
-    build_cli.build_backend.assert_called_once_with(
-        "cuda",
-        sdk=build_cli.resolve_sdk.return_value,
-    )
-
-
-@pytest.mark.parametrize("mode", ["--configure-only", "--tidy"])
-def test_configure_and_tidy_use_each_selected_build_directory(
-    compiler, catalogue, tmp_path: Path, mode: str
-) -> None:
-    compiler(
-        "kernels",
-        "backend=cuda",
-        "--build-root",
-        str(tmp_path),
-        mode,
-        "--build-tests",
-    )
-
-    build_cli.build_kernels.assert_not_called()
-    builds = build_cli.configure_kernels.call_args_list
-    assert len(builds) == 3
-    assert all(call.kwargs["build_tests"] for call in builds)
-
-    if mode == "--tidy":
-        assert [call.args[0][-1] for call in build_cli.run_tool.call_args_list] == [
-            call.kwargs["build_directory"] for call in builds
-        ]
-    else:
-        build_cli.run_tool.assert_not_called()

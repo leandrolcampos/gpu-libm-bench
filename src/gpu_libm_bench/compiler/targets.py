@@ -6,22 +6,31 @@
 import re
 from dataclasses import dataclass
 
+from gpu_libm_bench.backends import Backend
 from gpu_libm_bench.devices import DeviceInfo
 
 from ._commands import run_tool
-from .toolchains import CUDAToolkit, LLVMToolchain
+from .toolchains import (
+    BackendSDK,
+    CUDAToolkit,
+    LLVMToolchain,
+    validate_backend_sdk_compatibility,
+)
 
 _TARGET_TRIPLES = {
-    "cuda": "nvptx64-nvidia-cuda",
-    "rocm": "amdgcn-amd-amdhsa",
+    Backend.CUDA: "nvptx64-nvidia-cuda",
+    Backend.HIP: "amdgcn-amd-amdhsa",
 }
 
 
 @dataclass(frozen=True, slots=True)
 class CompilationTarget:
-    backend: str
+    backend: Backend
     target_triple: str
     architecture: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "backend", Backend(self.backend))
 
 
 class TargetUnavailableError(ValueError):
@@ -30,15 +39,21 @@ class TargetUnavailableError(ValueError):
 
 def resolve_target(
     *,
-    backend: str,
+    backend: Backend | str,
     target_triple: str,
     architecture: str | None,
     llvm: LLVMToolchain,
     device_info: DeviceInfo | None = None,
-    sdk: CUDAToolkit | None = None,
+    backend_sdk: BackendSDK | None = None,
 ) -> CompilationTarget:
-    if backend not in _TARGET_TRIPLES:
-        raise ValueError(f"unsupported compilation backend: {backend!r}")
+    match backend:
+        case Backend.CUDA:
+            backend = Backend.CUDA
+        case Backend.HIP:
+            backend = Backend.HIP
+        case _:
+            raise ValueError(f"unsupported backend: {backend!r}")
+
     if target_triple != _TARGET_TRIPLES[backend]:
         raise ValueError(
             f"target triple {target_triple!r} does not match backend {backend!r}"
@@ -57,6 +72,9 @@ def resolve_target(
     if device_info is not None and architecture != device_info.architecture:
         raise ValueError("target architecture does not match the selected device")
 
+    if backend_sdk is not None:
+        validate_backend_sdk_compatibility(backend, backend_sdk)
+
     output = run_tool(
         [llvm.clang, f"--target={target_triple}", "--print-supported-cpus"]
     )
@@ -70,16 +88,11 @@ def resolve_target(
             f"Clang {llvm.clang} does not support GPU architecture {architecture!r}"
         )
 
-    if sdk is not None:
-        if isinstance(sdk, CUDAToolkit):
-            if backend != "cuda":
-                raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
-            assembler_help = run_tool([sdk.ptxas, "--help"])
-            if architecture not in re.findall(r"'(sm_[\w]+)'", assembler_help):
-                raise TargetUnavailableError(
-                    f"CUDA assembler {sdk.ptxas} does not support {architecture!r}"
-                )
-        else:
-            raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
+    if isinstance(backend_sdk, CUDAToolkit):
+        assembler_help = run_tool([backend_sdk.ptxas, "--help"])
+        if architecture not in re.findall(r"'(sm_[\w]+)'", assembler_help):
+            raise TargetUnavailableError(
+                f"CUDA assembler {backend_sdk.ptxas} does not support {architecture!r}"
+            )
 
     return CompilationTarget(backend, target_triple, architecture)

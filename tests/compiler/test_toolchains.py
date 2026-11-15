@@ -67,7 +67,9 @@ def test_llvm_selection_precedence(
         return "LLVM version 24.0.0git"
 
     monkeypatch.setattr(toolchains, "run_tool", version)
+
     selected = toolchains.resolve_llvm(llvm.root if source == "explicit" else None)
+
     assert selected.root == llvm.root
     assert selected.library_dirs == llvm.library_dirs
     assert {command[0] for command in commands} == {
@@ -112,6 +114,14 @@ def test_llvm_tools_must_have_coherent_versions(
         toolchains.resolve_llvm(llvm.root)
 
 
+@pytest.mark.parametrize(
+    ("backend", "error"), [("hip", NotImplementedError), ("unknown", ValueError)]
+)
+def test_backend_sdk_selection_rejects_unavailable_backends(backend, error) -> None:
+    with pytest.raises(error):
+        toolchains.resolve_backend_sdk(backend=backend)
+
+
 @pytest.mark.parametrize("use_requested_root", [True, False])
 def test_cuda_passes_explicit_selection_to_cmake_and_preserves_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, use_requested_root: bool
@@ -144,17 +154,13 @@ def test_cuda_passes_explicit_selection_to_cmake_and_preserves_it(
     monkeypatch.setattr(toolchains.shutil, "which", lambda name: "cmake")
     monkeypatch.setattr(toolchains, "run_tool", probe)
     if use_requested_root:
-        toolkit = toolchains.resolve_sdk(backend="cuda", root=requested)
+        toolkit = toolchains.resolve_backend_sdk(backend="cuda", root=requested)
+
         assert toolkit.root == requested
         assert toolkit.ptxas == ptxas
     else:
         with pytest.raises(ValueError, match="instead of requested"):
-            toolchains.resolve_sdk(backend="cuda", root=requested)
-
-
-def test_unsupported_sdk_backend_is_rejected() -> None:
-    with pytest.raises(ValueError, match="unsupported SDK backend: 'rocm'"):
-        toolchains.resolve_sdk(backend="rocm")
+            toolchains.resolve_backend_sdk(backend="cuda", root=requested)
 
 
 def test_missing_cuda_toolkit_is_distinct_from_probe_failure(
@@ -168,13 +174,13 @@ def test_missing_cuda_toolkit_is_distinct_from_probe_failure(
     monkeypatch.setattr(toolchains.shutil, "which", lambda name: "cmake")
     monkeypatch.setattr(toolchains, "run_tool", probe)
     with pytest.raises(
-        toolchains.SDKUnavailableError, match="CUDA Toolkit was not found"
+        toolchains.BackendSDKUnavailableError, match="CUDA Toolkit was not found"
     ):
-        toolchains.resolve_sdk(backend="cuda")
+        toolchains.resolve_backend_sdk(backend="cuda")
 
     def failed_probe(command):
         raise RuntimeError("probe failed")
 
     monkeypatch.setattr(toolchains, "run_tool", failed_probe)
     with pytest.raises(RuntimeError, match="probe failed"):
-        toolchains.resolve_sdk(backend="cuda")
+        toolchains.resolve_backend_sdk(backend="cuda")

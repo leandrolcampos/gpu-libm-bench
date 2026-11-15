@@ -9,7 +9,7 @@ from typing import cast
 import pytest
 
 from gpu_libm_bench.compiler import targets
-from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain, ROCmCoreSDK
 from gpu_libm_bench.devices import DeviceInfo, TimerInfo
 
 
@@ -42,6 +42,32 @@ def test_architecture_selection(
         else None,
     )
     assert target.architecture == (architecture or device_architecture)
+
+
+@pytest.mark.parametrize("backend_sdk", [None, ROCmCoreSDK(Path("/rocm"), "test")])
+def test_hip_target_uses_generic_clang_resolution(
+    monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain, backend_sdk
+) -> None:
+    commands = []
+
+    def supported_cpus(command):
+        commands.append(command)
+        return "\tgfx942\n"
+
+    monkeypatch.setattr(targets, "run_tool", supported_cpus)
+
+    target = targets.resolve_target(
+        backend="hip",
+        target_triple="amdgcn-amd-amdhsa",
+        architecture="gfx942",
+        llvm=llvm,
+        backend_sdk=backend_sdk,
+    )
+
+    assert target == targets.CompilationTarget("hip", "amdgcn-amd-amdhsa", "gfx942")
+    assert commands == [
+        [llvm.clang, "--target=amdgcn-amd-amdhsa", "--print-supported-cpus"]
+    ]
 
 
 def test_target_architecture_must_match_selected_device(
@@ -104,7 +130,7 @@ def test_invalid_compilation_target(
 def test_assembler_must_also_support_selected_architecture(
     monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain
 ) -> None:
-    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "12.0")
+    backend_sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "12.0")
     monkeypatch.setattr(
         targets,
         "run_tool",
@@ -118,7 +144,7 @@ def test_assembler_must_also_support_selected_architecture(
             target_triple="nvptx64-nvidia-cuda",
             architecture="sm_120",
             llvm=llvm,
-            sdk=sdk,
+            backend_sdk=backend_sdk,
         )
 
 
@@ -126,11 +152,38 @@ def test_unsupported_sdk_type_is_rejected(
     monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain
 ) -> None:
     monkeypatch.setattr(targets, "run_tool", lambda command: "\tsm_120\n")
-    with pytest.raises(TypeError, match="unsupported SDK type: object"):
+    with pytest.raises(TypeError, match="unsupported backend SDK type: object"):
         targets.resolve_target(
             backend="cuda",
             target_triple="nvptx64-nvidia-cuda",
             architecture="sm_120",
             llvm=llvm,
-            sdk=cast(CUDAToolkit, object()),
+            backend_sdk=cast(CUDAToolkit, object()),
+        )
+
+
+@pytest.mark.parametrize(
+    ("backend", "backend_sdk", "error"),
+    [
+        ("cuda", ROCmCoreSDK(Path("/rocm"), "test"), ValueError),
+        ("hip", CUDAToolkit(Path("/cuda"), Path("/cuda/ptxas"), "test"), ValueError),
+    ],
+)
+def test_target_sdk_compatibility_precedes_tool_execution(
+    monkeypatch: pytest.MonkeyPatch, llvm: LLVMToolchain, backend, backend_sdk, error
+) -> None:
+    def unexpected_tool_call(command):
+        pytest.fail("incompatible backend and SDK must not execute tools")
+
+    monkeypatch.setattr(targets, "run_tool", unexpected_tool_call)
+
+    with pytest.raises(error):
+        targets.resolve_target(
+            backend=backend,
+            target_triple=(
+                "nvptx64-nvidia-cuda" if backend == "cuda" else "amdgcn-amd-amdhsa"
+            ),
+            architecture="sm_120" if backend == "cuda" else "gfx942",
+            llvm=llvm,
+            backend_sdk=backend_sdk,
         )

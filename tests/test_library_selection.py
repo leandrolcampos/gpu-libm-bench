@@ -65,7 +65,7 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         (tmp_path / "lib",),
         "test LLVM",
     )
-    sdk = CUDAToolkit(tmp_path / "cuda", tmp_path / "cuda/bin/ptxas", "13.4")
+    backend_sdk = CUDAToolkit(tmp_path / "cuda", tmp_path / "cuda/bin/ptxas", "13.4")
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
     def resolve(*, library, bitcode_path, **kwargs):
@@ -97,26 +97,11 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             config,
             llvm=llvm,
             target=target,
-            sdk=sdk,
+            backend_sdk=backend_sdk,
             build_root=tmp_path / "builds",
         )
 
     return select
-
-
-def test_invalid_function_signature_is_rejected_before_preparing_libraries(
-    config: ExperimentConfig,
-    select,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config.function.signature.return_type = "double"
-    resolve = Mock()
-    monkeypatch.setattr(_libraries, "resolve_library", resolve)
-
-    with pytest.raises(ValueError, match="return type must match"):
-        select(config)
-
-    resolve.assert_not_called()
 
 
 @pytest.mark.parametrize("names", [None, ["second", "first"]])
@@ -143,6 +128,21 @@ def test_library_selection_preserves_order_and_bitcode_overrides(
         "first": Path("/custom/first.bc"),
         "second": tmp_path / "second.bc",
     }
+
+
+def test_invalid_function_signature_is_rejected_before_preparing_libraries(
+    config: ExperimentConfig,
+    select,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config.function.signature.return_type = "double"
+    resolve = Mock()
+    monkeypatch.setattr(_libraries, "resolve_library", resolve)
+
+    with pytest.raises(ValueError, match="return type must match"):
+        select(config)
+
+    resolve.assert_not_called()
 
 
 @pytest.mark.parametrize("explicit", [False, True])

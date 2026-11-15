@@ -172,8 +172,8 @@ def test_report_presents_domain_statistics_without_details(
     assert "x: uniform(-10, 10)" in output
 
     assert "float expf(float x)\n\n  Latency (ns/call)" in output
-    assert output.index("Latency (ns/call)") < output.index("CUDA — 0:")
-    assert output.index("CUDA — 0:") < output.index("Domain: central")
+    assert output.index("Latency (ns/call)") < output.index("cuda — 0:")
+    assert output.index("cuda — 0:") < output.index("Domain: central")
 
     central = output.split("Domain: central", 1)[1].split("Domain: wide", 1)[0]
     labels = next(line for line in central.splitlines() if "StDev" in line)
@@ -266,7 +266,7 @@ def test_report_includes_provenance_when_requested(
     comparisons, provenance = output.split("Configuration and Provenance", 1)
 
     assert "Method:" not in comparisons and "Compiler:" not in comparisons
-    assert "CUDA — 0: test GPU (sm_120)" in comparisons
+    assert "cuda — 0: test GPU (sm_120)" in comparisons
     assert "Memory:" not in comparisons and "Timer:" not in comparisons
 
     assert provenance.count("Memory: 1,024.00 MiB") == 1

@@ -27,7 +27,7 @@ def context(monkeypatch: pytest.MonkeyPatch) -> DeviceContext:
     )
     backend.DeviceContext.return_value.released = False
     monkeypatch.setattr(
-        "gpu_libm_bench.devices.context._load_backend", lambda name: backend
+        "gpu_libm_bench.devices.context._load_backend_module", lambda name: backend
     )
     return DeviceContext()
 
@@ -43,7 +43,7 @@ def context(monkeypatch: pytest.MonkeyPatch) -> DeviceContext:
 def test_profile_converts_arguments_metrics_and_result(
     context: DeviceContext, metrics: set[KernelMetric]
 ) -> None:
-    backend = context_module._load_backend(context.backend)
+    backend = context_module._load_backend_module(context.backend)
     kernel = Mock()
     buffer = DeviceBuffer(Mock(), np.dtype(np.float32))
     scalar = np.uint64(1)

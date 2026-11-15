@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Any, overload
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
 
-from gpu_libm_bench.compiler.backends import get_backend
+from gpu_libm_bench.backends import Backend
+from gpu_libm_bench.compiler.backends import get_backend_module
 from gpu_libm_bench.types import Scalar
 
 from .launch import LaunchConfig
@@ -23,7 +24,7 @@ from .profiling import KernelMetric, KernelProfile
 if TYPE_CHECKING:
     from gpu_libm_bench.backends import _cuda  # pyright: ignore[reportMissingModuleSource]
 
-_SUPPORTED_BACKENDS = ("cuda",)
+_SUPPORTED_BACKENDS = (Backend.CUDA,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +43,7 @@ class TimerInfo:
 
 @dataclass(frozen=True, slots=True)
 class DeviceInfo:
-    backend: str
+    backend: Backend
     id: int
     name: str
     architecture: str
@@ -50,14 +51,19 @@ class DeviceInfo:
     total_memory_bytes: int
     timer_info: TimerInfo
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "backend", Backend(self.backend))
+
 
 class DeviceContext:
-    def __init__(self, device_id: int = 0, *, backend: str = "cuda") -> None:
-        self._native: _cuda.DeviceContext = _load_backend(backend).DeviceContext(
+    def __init__(
+        self, device_id: int = 0, *, backend: Backend | str = Backend.CUDA
+    ) -> None:
+        self._native: _cuda.DeviceContext = _load_backend_module(backend).DeviceContext(
             device_id
         )
 
-        self._backend = backend
+        self._backend = Backend(backend)
         self._device_id = device_id
         self._device_info: DeviceInfo | None = None
 
@@ -80,7 +86,7 @@ class DeviceContext:
             exc_value.add_note(f"device context cleanup failed: {error}")
 
     @property
-    def backend(self) -> str:
+    def backend(self) -> Backend:
         return self._backend
 
     @property
@@ -118,7 +124,6 @@ class DeviceContext:
             raise ValueError("device buffer size must be nonnegative")
 
         resolved = _buffer_dtype(dtype)
-
         return DeviceBuffer(
             self._native.create_buffer(size * resolved.itemsize), resolved
         )
@@ -208,7 +213,7 @@ class DeviceContext:
         native_kernel_arguments = self._prepare_kernel_arguments(
             kernel, kernel_arguments
         )
-        backend = _load_backend(self.backend)
+        backend = _load_backend_module(self.backend)
         native_metrics = {backend.KernelMetric[metric.name] for metric in metrics}
 
         result = self._native.profile(
@@ -222,18 +227,20 @@ class DeviceContext:
         return KernelProfile(**result)
 
     @staticmethod
-    def supported_backends() -> tuple[str, ...]:
+    def supported_backends() -> tuple[Backend, ...]:
         return _SUPPORTED_BACKENDS
 
     @staticmethod
-    def device_count(*, backend: str = "cuda") -> int:
-        return _load_backend(backend).device_count()
+    def device_count(*, backend: Backend | str = Backend.CUDA) -> int:
+        return _load_backend_module(backend).device_count()
 
     @staticmethod
-    def get_device_info(device_id: int = 0, *, backend: str = "cuda") -> DeviceInfo:
-        properties = _load_backend(backend).get_device_info(device_id)
+    def get_device_info(
+        device_id: int = 0, *, backend: Backend | str = Backend.CUDA
+    ) -> DeviceInfo:
+        properties = _load_backend_module(backend).get_device_info(device_id)
         return DeviceInfo(
-            backend=backend,
+            backend=Backend(backend),
             id=properties["id"],
             name=properties["name"],
             architecture=properties["architecture"],
@@ -260,13 +267,10 @@ class DeviceContext:
             raise RuntimeError("device context has been released")
 
 
-def _load_backend(backend: str) -> ModuleType:
-    if backend not in _SUPPORTED_BACKENDS:
-        raise ValueError(f"unsupported backend: {backend!r}")
-
+def _load_backend_module(backend: Backend | str) -> ModuleType:
     try:
-        return get_backend(backend)
+        return get_backend_module(backend)
     except (ImportError, OSError) as error:
         raise RuntimeError(
-            f"the {backend.upper()} backend could not be loaded: {error}"
+            f"the {backend} backend could not be loaded: {error}"
         ) from error

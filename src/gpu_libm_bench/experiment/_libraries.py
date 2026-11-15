@@ -13,7 +13,10 @@ from gpu_libm_bench.compiler.libraries import (
     resolve_library,
 )
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import (
+    BackendSDK,
+    LLVMToolchain,
+)
 from gpu_libm_bench.configs import ExperimentConfig
 from gpu_libm_bench.kernels import KernelKind, KernelSpec
 
@@ -23,7 +26,7 @@ def select_libraries(
     *,
     llvm: LLVMToolchain,
     target: CompilationTarget,
-    sdk: CUDAToolkit,
+    backend_sdk: BackendSDK,
     build_root: Path | None = None,
 ) -> tuple[ResolvedLibrary, ...]:
     if target.backend != config.backend.name:
@@ -61,7 +64,7 @@ def select_libraries(
                 resolved_library=resolved_library,
                 target=target,
                 llvm=llvm,
-                sdk=sdk,
+                backend_sdk=backend_sdk,
                 build_directory=paths.image_build_directory(
                     name,
                     backend=target.backend,

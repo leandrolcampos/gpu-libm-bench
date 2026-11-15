@@ -15,7 +15,7 @@ from hydra import compose, initialize_config_module
 
 from gpu_libm_bench import inputs
 from gpu_libm_bench.benchmarks import latency
-from gpu_libm_bench.compiler.backends import BackendNotFoundError
+from gpu_libm_bench.compiler.backends import BackendModuleNotFoundError
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget
@@ -121,7 +121,7 @@ def execution(
         (),
         "test LLVM",
     )
-    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
+    backend_sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
 
     def build(*, resolved_library, target, build_directory, **kwargs):
         return replace(
@@ -146,10 +146,12 @@ def execution(
         benchmarks.append(value)
         return value
 
-    monkeypatch.setattr(experiment_module, "resolve_sdk", Mock(return_value=sdk))
+    monkeypatch.setattr(
+        experiment_module, "resolve_backend_sdk", Mock(return_value=backend_sdk)
+    )
     monkeypatch.setattr(experiment_module, "resolve_llvm", Mock(return_value=llvm))
 
-    monkeypatch.setattr(experiment_module, "get_backend", Mock())
+    monkeypatch.setattr(experiment_module, "get_backend_module", Mock())
     monkeypatch.setattr(experiment_module, "build_backend", Mock())
 
     monkeypatch.setattr(experiment_module, "DeviceContext", Mock(return_value=context))
@@ -373,7 +375,7 @@ def test_run_collects_comparable_results_for_each_library(
 
 
 def test_run_builds_a_missing_backend(config: ExperimentConfig, execution) -> None:
-    experiment_module.get_backend.side_effect = BackendNotFoundError(
+    experiment_module.get_backend_module.side_effect = BackendModuleNotFoundError(
         "extension is missing"
     )
 
@@ -381,7 +383,7 @@ def test_run_builds_a_missing_backend(config: ExperimentConfig, execution) -> No
 
     experiment_module.build_backend.assert_called_once_with(
         "cuda",
-        sdk=experiment_module.resolve_sdk.return_value,
+        backend_sdk=experiment_module.resolve_backend_sdk.return_value,
     )
 
 
@@ -445,7 +447,7 @@ def test_inconsistent_experiment_result_is_rejected_at_construction(
     library = experiment_result.results[0]
 
     if mismatch == "backend":
-        changes["device_info"] = replace(experiment_result.device_info, backend="rocm")
+        changes["device_info"] = replace(experiment_result.device_info, backend="hip")
     elif mismatch in ("measurement_device", "unknown_domain"):
         result = library["central"]
         measurement = result.measurement
