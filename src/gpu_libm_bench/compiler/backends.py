@@ -103,13 +103,9 @@ def configure_backend(
 
 
 def get_backend_module(backend: Backend | str) -> ModuleType:
-    match backend:
-        case Backend.CUDA:
-            backend = Backend.CUDA
-        case Backend.HIP:
-            raise NotImplementedError("hip backend is not implemented yet")
-        case _:
-            raise ValueError(f"unsupported backend: {backend!r}")
+    backend = Backend(backend)
+    if backend == Backend.HIP:
+        raise NotImplementedError("hip backend is not implemented yet")
 
     module_name = f"gpu_libm_bench.backends._{backend}"
     try:

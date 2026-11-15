@@ -101,13 +101,13 @@ def resolve_llvm(root: Path | None = None) -> LLVMToolchain:
 def resolve_backend_sdk(
     *, backend: Backend | str, root: Path | None = None
 ) -> BackendSDK:
+    backend = Backend(backend)
+
     match backend:
         case Backend.CUDA:
             return _resolve_cuda(root)
         case Backend.HIP:
             raise NotImplementedError("hip backend is not implemented yet")
-        case _:
-            raise ValueError(f"unsupported backend: {backend!r}")
 
 
 def validate_backend_sdk_compatibility(
