@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for native backend build paths, discovery, and SDK compatibility."""
+"""Tests for native backend build paths, discovery, and backend SDK compatibility."""
 
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -13,7 +13,7 @@ import pytest
 from gpu_libm_bench.compiler import backends
 from gpu_libm_bench.compiler._cmake import CMakeBuild
 from gpu_libm_bench.compiler.backends import configure_backend
-from gpu_libm_bench.compiler.toolchains import CUDAToolkit
+from gpu_libm_bench.compiler.toolchains import BackendSDK, CUDAToolkit, ROCmCoreSDK
 
 
 @pytest.mark.parametrize(
@@ -34,10 +34,10 @@ def test_backend_build_directory(
     monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
     monkeypatch.setattr(backends.paths, "build_root", lambda: tmp_path / "build")
 
-    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
+    backend_sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
     build = configure_backend(
         "cuda",
-        sdk=sdk,
+        backend_sdk=backend_sdk,
         build_directory=tmp_path / build_directory
         if build_directory is not None
         else None,
@@ -49,22 +49,34 @@ def test_backend_build_directory(
 
 
 @pytest.mark.parametrize(
-    ("backend", "sdk", "error", "message"),
+    ("backend", "backend_sdk", "error", "message"),
     [
-        ("cuda", object(), TypeError, "unsupported SDK type: object"),
+        ("cuda", object(), TypeError, "unsupported backend SDK type: object"),
         (
-            "rocm",
+            "hip",
             CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
             ValueError,
-            "non-CUDA backend",
+            "non-cuda backend",
+        ),
+        (
+            "cuda",
+            ROCmCoreSDK(Path("/rocm"), "test"),
+            ValueError,
+            "non-hip backend",
+        ),
+        (
+            "hip",
+            ROCmCoreSDK(Path("/rocm"), "test"),
+            NotImplementedError,
+            "hip backend.*not implemented",
         ),
     ],
 )
-def test_backend_configuration_rejects_incompatible_sdk(
-    backend: str, sdk: object, error: type[Exception], message: str
+def test_backend_configuration_rejects_incompatible_backend_sdk(
+    backend: str, backend_sdk: object, error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error, match=message):
-        configure_backend(backend, sdk=cast(CUDAToolkit, sdk))
+        configure_backend(backend, backend_sdk=cast(BackendSDK, backend_sdk))
 
 
 def test_backend_initialization_retries_failures_and_reuses_success(
@@ -77,9 +89,17 @@ def test_backend_initialization_retries_failures_and_reuses_success(
     monkeypatch.setattr(backends.paths, "build_root", lambda: tmp_path / "build")
 
     with pytest.raises(RuntimeError, match="initialization failed"):
-        backends.get_backend("cuda")
+        backends.get_backend_module("cuda")
 
-    assert backends.get_backend("cuda") is module
-    assert backends.get_backend("cuda") is module
+    assert backends.get_backend_module("cuda") is module
+    assert backends.get_backend_module("cuda") is module
     assert initialize.call_count == 2
     initialize.assert_called_with(str(tmp_path / "build/kernels"))
+
+
+@pytest.mark.parametrize(
+    ("backend", "error"), [("hip", NotImplementedError), ("unknown", ValueError)]
+)
+def test_backend_module_selection_rejects_unavailable_backends(backend, error) -> None:
+    with pytest.raises(error):
+        backends.get_backend_module(backend)

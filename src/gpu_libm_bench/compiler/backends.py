@@ -11,24 +11,34 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import ModuleType
 
+from gpu_libm_bench.backends import Backend
+
 from . import paths
 from ._cmake import CMakeBuild
-from .toolchains import CUDAToolkit
+from .toolchains import (
+    BackendSDK,
+    CUDAToolkit,
+    ROCmCoreSDK,
+    validate_backend_sdk_compatibility,
+)
 
 
-class BackendNotFoundError(RuntimeError):
+class BackendModuleNotFoundError(RuntimeError):
     pass
 
 
 def build_backend(
-    backend: str,
+    backend: Backend | str,
     *,
-    sdk: CUDAToolkit,
+    backend_sdk: BackendSDK,
     build_directory: Path | None = None,
     build_tests: bool = False,
 ) -> Path:
     build = configure_backend(
-        backend, sdk=sdk, build_directory=build_directory, build_tests=build_tests
+        backend,
+        backend_sdk=backend_sdk,
+        build_directory=build_directory,
+        build_tests=build_tests,
     )
     build.build()
 
@@ -44,20 +54,23 @@ def build_backend(
 
 
 def configure_backend(
-    backend: str,
+    backend: Backend | str,
     *,
-    sdk: CUDAToolkit,
+    backend_sdk: BackendSDK,
     build_directory: Path | None = None,
     build_tests: bool = False,
 ) -> CMakeBuild:
-    if isinstance(sdk, CUDAToolkit):
-        if backend != "cuda":
-            raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA backend")
+    validate_backend_sdk_compatibility(backend, backend_sdk)
+    backend = Backend(backend)
 
-        sdk_arguments = (f"-DCUDAToolkit_ROOT={sdk.root}",)
-        sdk_files = (sdk.ptxas,)
-    else:
-        raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
+    match backend_sdk:
+        case CUDAToolkit():
+            backend_sdk_arguments = (f"-DCUDAToolkit_ROOT={backend_sdk.root}",)
+            backend_sdk_files = (backend_sdk.ptxas,)
+        case ROCmCoreSDK():
+            raise NotImplementedError(
+                "hip backend with ROCm Core SDK is not implemented yet"
+            )
 
     pybind11 = import_module("pybind11")
     project = paths.source_root()
@@ -71,25 +84,33 @@ def configure_backend(
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DPython_EXECUTABLE={sys.executable}",
             f"-DBUILD_TESTING={'ON' if build_tests else 'OFF'}",
-            *sdk_arguments,
+            *backend_sdk_arguments,
         ),
         toolchain=(
             backend,
-            str(sdk.root),
-            sdk.version,
+            str(backend_sdk.root),
+            backend_sdk.version,
             sys.executable,
             str(sysconfig.get_config_var("SOABI")),
             pybind11.__version__,
             pybind11.get_cmake_dir(),
         ),
-        toolchain_files=(Path(sys.executable), *sdk_files),
+        toolchain_files=(Path(sys.executable), *backend_sdk_files),
     )
 
     build.configure()
     return build
 
 
-def get_backend(backend: str) -> ModuleType:
+def get_backend_module(backend: Backend | str) -> ModuleType:
+    match backend:
+        case Backend.CUDA:
+            backend = Backend.CUDA
+        case Backend.HIP:
+            raise NotImplementedError("hip backend is not implemented yet")
+        case _:
+            raise ValueError(f"unsupported backend: {backend!r}")
+
     module_name = f"gpu_libm_bench.backends._{backend}"
     try:
         module = import_module(module_name)
@@ -97,21 +118,23 @@ def get_backend(backend: str) -> ModuleType:
         if error.name != module_name:
             raise
     else:
-        return _initialize_backend(module)
+        return _initialize_backend_module(module)
 
     directory = paths.backend_build_directory(backend) / "python"
     for suffix in EXTENSION_SUFFIXES:
         path = directory / f"_{backend}{suffix}"
         if path.is_file():
-            return _initialize_backend(_load_backend(path, module_name=module_name))
+            return _initialize_backend_module(
+                _load_backend_module(path, module_name=module_name)
+            )
 
-    raise BackendNotFoundError(
+    raise BackendModuleNotFoundError(
         f"native backend {module_name!r} was not found in {directory}. "
         f"Build it with 'python -m gpu_libm_bench.compiler backend backend={backend}'."
     )
 
 
-def _load_backend(path: Path, *, module_name: str) -> ModuleType:
+def _load_backend_module(path: Path, *, module_name: str) -> ModuleType:
     path = path.resolve(strict=True)
 
     existing = sys.modules.get(module_name)
@@ -131,7 +154,7 @@ def _load_backend(path: Path, *, module_name: str) -> ModuleType:
     return module
 
 
-def _initialize_backend(module: ModuleType) -> ModuleType:
+def _initialize_backend_module(module: ModuleType) -> ModuleType:
     if not getattr(module, "_images_build_root_configured", False):
         module._set_images_build_root(str(paths.images_build_root()))
         module.__dict__["_images_build_root_configured"] = True

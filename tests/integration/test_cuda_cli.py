@@ -42,7 +42,7 @@ def test_cli_prints_experiment_results_and_optional_details(tmp_path: Path) -> N
 
         assert "float expf(float x)" in result.stdout
         assert "Latency (ns/call)" in result.stdout
-        assert "CUDA — 0:" in result.stdout
+        assert "cuda — 0:" in result.stdout
         assert "Domain: central" in result.stdout
         assert "Domain: wide" in result.stdout
         assert "llvm-libm" in result.stdout

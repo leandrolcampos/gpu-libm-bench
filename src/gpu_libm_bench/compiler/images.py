@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from gpu_libm_bench.backends import Backend
 from gpu_libm_bench.devices import DeviceImage
 
 from . import paths
@@ -16,7 +17,13 @@ from ._cmake import CMakeBuild
 from ._commands import run_tool
 from .libraries import ResolvedLibrary
 from .targets import CompilationTarget
-from .toolchains import CUDAToolkit, LLVMToolchain
+from .toolchains import (
+    BackendSDK,
+    CUDAToolkit,
+    LLVMToolchain,
+    ROCmCoreSDK,
+    validate_backend_sdk_compatibility,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +44,7 @@ def build_kernels(
     resolved_library: ResolvedLibrary,
     target: CompilationTarget,
     llvm: LLVMToolchain,
-    sdk: CUDAToolkit,
+    backend_sdk: BackendSDK,
     build_directory: Path | None = None,
     build_tests: bool = False,
 ) -> DeviceImage:
@@ -45,11 +52,10 @@ def build_kernels(
         resolved_library=resolved_library,
         target=target,
         llvm=llvm,
-        sdk=sdk,
+        backend_sdk=backend_sdk,
         build_directory=build_directory,
         build_tests=build_tests,
     )
-
     build.build()
 
     return resolve_device_image(
@@ -62,12 +68,15 @@ def configure_kernels(
     resolved_library: ResolvedLibrary,
     target: CompilationTarget,
     llvm: LLVMToolchain,
-    sdk: CUDAToolkit,
+    backend_sdk: BackendSDK,
     build_directory: Path | None = None,
     build_tests: bool = False,
 ) -> CMakeBuild:
     arguments = _image_cmake_arguments(
-        resolved_library=resolved_library, target=target, llvm=llvm, sdk=sdk
+        resolved_library=resolved_library,
+        target=target,
+        llvm=llvm,
+        backend_sdk=backend_sdk,
     )
 
     project = paths.source_root()
@@ -82,12 +91,17 @@ def configure_kernels(
         llvm.clang,
         project / "kernels" / "cmake" / "modules" / "GPULibmBenchToolchain.cmake",
     )
-    if isinstance(sdk, CUDAToolkit):
-        toolchain_files += (
-            sdk.ptxas,
-            sdk.ptxas.parent / "nvlink",
-            Path(run_tool([llvm.clang, "--print-prog-name=clang-nvlink-wrapper"])),
-        )
+    match backend_sdk:
+        case CUDAToolkit():
+            toolchain_files += (
+                backend_sdk.ptxas,
+                backend_sdk.ptxas.parent / "nvlink",
+                Path(run_tool([llvm.clang, "--print-prog-name=clang-nvlink-wrapper"])),
+            )
+        case ROCmCoreSDK():
+            raise NotImplementedError(
+                "hip device image compilation is not implemented yet"
+            )
 
     build = CMakeBuild(
         project / "kernels",
@@ -96,8 +110,8 @@ def configure_kernels(
         toolchain=(
             str(llvm.root),
             llvm.version,
-            str(sdk.root),
-            sdk.version,
+            str(backend_sdk.root),
+            backend_sdk.version,
             target.target_triple,
         ),
         toolchain_files=toolchain_files,
@@ -211,14 +225,12 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
             f"does not match image_path={str(image.image_path)!r}"
         )
 
-    sdk_names = {"cuda": "CUDA Toolkit", "rocm": "ROCm"}
-    if image.target.backend not in sdk_names:
-        raise ValueError(f"unsupported SDK backend: {image.target.backend!r}")
+    backend_sdk_names = {Backend.CUDA: "CUDA Toolkit", Backend.HIP: "ROCm Core SDK"}
 
     return DeviceImageBuildInfo(
         compiler=Path(metadata["compiler"]),
         compiler_version=metadata["compiler_version"],
-        sdk_name=sdk_names[image.target.backend],
+        sdk_name=backend_sdk_names[image.target.backend],
         sdk_version=metadata["sdk_version"],
         sdk_root=Path(metadata["sdk_root"]),
         bitcode_path=Path(bitcode_path) if bitcode_path is not None else None,
@@ -252,19 +264,15 @@ def _image_cmake_arguments(
     resolved_library: ResolvedLibrary,
     target: CompilationTarget,
     llvm: LLVMToolchain,
-    sdk: CUDAToolkit,
+    backend_sdk: BackendSDK,
 ) -> tuple[str, ...]:
-    if isinstance(sdk, CUDAToolkit):
-        if target.backend != "cuda":
-            raise ValueError("a CUDA Toolkit cannot be used for a non-CUDA target")
-    else:
-        raise TypeError(f"unsupported SDK type: {type(sdk).__name__}")
+    validate_backend_sdk_compatibility(target.backend, backend_sdk)
 
     values = {
         "LLVM_ROOT": str(llvm.root),
         "CLANG": str(llvm.clang),
-        "SDK_ROOT": str(sdk.root),
-        "SDK_VERSION": sdk.version,
+        "SDK_ROOT": str(backend_sdk.root),
+        "SDK_VERSION": backend_sdk.version,
         "TARGET_TRIPLE": target.target_triple,
         "ARCHITECTURE": target.architecture,
         "LIBRARY": resolved_library.library,

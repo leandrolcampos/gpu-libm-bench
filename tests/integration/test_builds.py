@@ -18,7 +18,7 @@ from gpu_libm_bench.compiler._commands import run_tool
 from gpu_libm_bench.compiler.backends import build_backend
 from gpu_libm_bench.compiler.libraries import ResolvedLibrary, resolve_library
 from gpu_libm_bench.compiler.targets import CompilationTarget, resolve_target
-from gpu_libm_bench.compiler.toolchains import resolve_llvm, resolve_sdk
+from gpu_libm_bench.compiler.toolchains import resolve_backend_sdk, resolve_llvm
 
 pytestmark = pytest.mark.images
 
@@ -92,8 +92,10 @@ def test_compiler_change_triggers_rebuild_after_configure_only(
 
 
 def test_backend_build_includes_native_tests(tmp_path: Path) -> None:
-    sdk = resolve_sdk(backend="cuda")
-    build_backend("cuda", sdk=sdk, build_directory=tmp_path, build_tests=True)
+    backend_sdk = resolve_backend_sdk(backend="cuda")
+    build_backend(
+        "cuda", backend_sdk=backend_sdk, build_directory=tmp_path, build_tests=True
+    )
 
     run_tool(
         [
@@ -108,7 +110,7 @@ def test_backend_build_includes_native_tests(tmp_path: Path) -> None:
 
 def test_support_library_builds_image_without_bitcode(tmp_path: Path) -> None:
     llvm = resolve_llvm()
-    sdk = resolve_sdk(backend="cuda")
+    backend_sdk = resolve_backend_sdk(backend="cuda")
     target = CompilationTarget(
         "cuda",
         "nvptx64-nvidia-cuda",
@@ -119,7 +121,7 @@ def test_support_library_builds_image_without_bitcode(tmp_path: Path) -> None:
         resolved_library=resolved_library,
         target=target,
         llvm=llvm,
-        sdk=sdk,
+        backend_sdk=backend_sdk,
         build_directory=tmp_path,
     )
     plan = json.loads((tmp_path / "build-plan.json").read_text())
@@ -148,13 +150,13 @@ def test_support_library_builds_image_without_bitcode(tmp_path: Path) -> None:
 
 def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
     llvm = resolve_llvm()
-    sdk = resolve_sdk(backend="cuda")
+    backend_sdk = resolve_backend_sdk(backend="cuda")
     target = resolve_target(
         backend="cuda",
         target_triple="nvptx64-nvidia-cuda",
         architecture=os.environ.get("GPU_LIBM_BENCH_ARCHITECTURE", "sm_80"),
         llvm=llvm,
-        sdk=sdk,
+        backend_sdk=backend_sdk,
     )
     resolved_library = resolve_library(library="llvm-libm", llvm=llvm, target=target)
     assert resolved_library.bitcode_path is not None
@@ -171,7 +173,7 @@ def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
             resolved_library=ResolvedLibrary(resolved_library.library, bitcode_path),
             target=target,
             llvm=llvm,
-            sdk=sdk,
+            backend_sdk=backend_sdk,
             build_directory=build_directory,
         )
 

@@ -20,7 +20,12 @@ from gpu_libm_bench.compiler.images import (
 )
 from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import (
+    BackendSDK,
+    CUDAToolkit,
+    LLVMToolchain,
+    ROCmCoreSDK,
+)
 
 TARGET = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
@@ -61,39 +66,6 @@ def image_path(tmp_path: Path) -> Path:
     return image_path
 
 
-@pytest.mark.parametrize("library", ["llvm-libm", "support"])
-def test_kernel_configuration_preserves_tools_and_library(
-    llvm: LLVMToolchain,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    library: str,
-) -> None:
-    bitcode_path = tmp_path / "libm.bc" if library == "llvm-libm" else None
-    resolved_library = ResolvedLibrary(library, bitcode_path)
-    sdk = CUDAToolkit(Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4")
-
-    monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
-    monkeypatch.setattr(
-        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
-    )
-
-    build = configure_kernels(
-        resolved_library=resolved_library,
-        target=TARGET,
-        llvm=llvm,
-        sdk=sdk,
-        build_directory=tmp_path / "build",
-    )
-
-    arguments = build.arguments
-    assert f"-DGPU_LIBM_BENCH_LLVM_ROOT={llvm.root}" in arguments
-    assert f"-DGPU_LIBM_BENCH_CLANG={llvm.clang}" in arguments
-    assert "-DGPU_LIBM_BENCH_SDK_ROOT=/custom cuda" in arguments
-    assert f"-DGPU_LIBM_BENCH_LIBRARY={library}" in arguments
-    assert f"-DGPU_LIBM_BENCH_BITCODE_PATH={bitcode_path or ''}" in arguments
-    assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
-
-
 def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
     llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -102,13 +74,13 @@ def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
     monkeypatch.setattr(
         images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
     )
-    sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
+    backend_sdk = CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4")
 
     build = configure_kernels(
         resolved_library=ResolvedLibrary("llvm-libm", tmp_path / "libm.bc"),
         target=TARGET,
         llvm=llvm,
-        sdk=sdk,
+        backend_sdk=backend_sdk,
     )
 
     assert build.source_directory == images.paths.source_root() / "kernels"
@@ -155,38 +127,91 @@ def test_kernel_build_resolves_images_in_its_build_directory(
         resolved_library=ResolvedLibrary("llvm-libm", tmp_path / "libm.bc"),
         target=TARGET,
         llvm=llvm,
-        sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
+        backend_sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
         build_directory=tmp_path,
     )
 
     assert image.image_path == image_path
 
 
+@pytest.mark.parametrize("library", ["llvm-libm", "support"])
+def test_kernel_configuration_preserves_tools_and_library(
+    llvm: LLVMToolchain,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    library: str,
+) -> None:
+    bitcode_path = tmp_path / "libm.bc" if library == "llvm-libm" else None
+    resolved_library = ResolvedLibrary(library, bitcode_path)
+    backend_sdk = CUDAToolkit(
+        Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4"
+    )
+
+    monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
+    monkeypatch.setattr(
+        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
+    )
+
+    build = configure_kernels(
+        resolved_library=resolved_library,
+        target=TARGET,
+        llvm=llvm,
+        backend_sdk=backend_sdk,
+        build_directory=tmp_path / "build",
+    )
+
+    arguments = build.arguments
+    assert f"-DGPU_LIBM_BENCH_LLVM_ROOT={llvm.root}" in arguments
+    assert f"-DGPU_LIBM_BENCH_CLANG={llvm.clang}" in arguments
+    assert "-DGPU_LIBM_BENCH_SDK_ROOT=/custom cuda" in arguments
+    assert f"-DGPU_LIBM_BENCH_LIBRARY={library}" in arguments
+    assert f"-DGPU_LIBM_BENCH_BITCODE_PATH={bitcode_path or ''}" in arguments
+    assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
+
+
 @pytest.mark.parametrize(
-    ("target", "sdk", "error", "message"),
+    ("target", "backend_sdk", "error", "message"),
     [
-        (TARGET, object(), TypeError, "unsupported SDK type: object"),
+        (TARGET, object(), TypeError, "unsupported backend SDK type: object"),
         (
-            CompilationTarget("rocm", "amdgcn-amd-amdhsa", "gfx1100"),
+            CompilationTarget("hip", "amdgcn-amd-amdhsa", "gfx1100"),
             CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
             ValueError,
-            "non-CUDA target",
+            "non-cuda backend",
+        ),
+        (
+            TARGET,
+            ROCmCoreSDK(Path("/rocm"), "test"),
+            ValueError,
+            "non-hip backend",
+        ),
+        (
+            CompilationTarget("hip", "amdgcn-amd-amdhsa", "gfx1100"),
+            ROCmCoreSDK(Path("/rocm"), "test"),
+            NotImplementedError,
+            "hip device image compilation is not implemented yet",
         ),
     ],
 )
-def test_kernel_configuration_rejects_incompatible_sdk(
+def test_kernel_configuration_rejects_invalid_or_unimplemented_combinations(
+    monkeypatch: pytest.MonkeyPatch,
     llvm: LLVMToolchain,
     target: CompilationTarget,
-    sdk: object,
+    backend_sdk: object,
     error: type[Exception],
     message: str,
 ) -> None:
+    def unexpected_configuration(self):
+        pytest.fail("invalid or unimplemented combinations must not configure CMake")
+
+    monkeypatch.setattr(CMakeBuild, "configure", unexpected_configuration)
+
     with pytest.raises(error, match=message):
         configure_kernels(
             resolved_library=ResolvedLibrary("llvm-libm", Path("/libm.bc")),
             target=target,
             llvm=llvm,
-            sdk=cast(CUDAToolkit, sdk),
+            backend_sdk=cast(BackendSDK, backend_sdk),
         )
 
 

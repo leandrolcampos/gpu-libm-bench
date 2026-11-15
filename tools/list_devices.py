@@ -8,7 +8,7 @@ import argparse
 from rich.console import Console
 from rich.table import Table
 
-from gpu_libm_bench.compiler.backends import BackendNotFoundError
+from gpu_libm_bench.compiler.backends import BackendModuleNotFoundError
 from gpu_libm_bench.devices import DeviceContext
 
 
@@ -39,7 +39,7 @@ def main() -> int:
                     device_info.architecture,
                     f"{device_info.total_memory_bytes / 2**20:,.2f}",
                 )
-        except BackendNotFoundError:
+        except BackendModuleNotFoundError:
             continue
         except (ImportError, OSError, RuntimeError, ValueError) as error:
             errors.print(f"{backend}: {error}", style="red", markup=False)

@@ -13,9 +13,9 @@ import numpy as np
 from gpu_libm_bench import inputs
 from gpu_libm_bench.compiler import paths
 from gpu_libm_bench.compiler.backends import (
-    BackendNotFoundError,
+    BackendModuleNotFoundError,
     build_backend,
-    get_backend,
+    get_backend_module,
 )
 from gpu_libm_bench.compiler.images import (
     DeviceImageBuildInfo,
@@ -25,10 +25,10 @@ from gpu_libm_bench.compiler.images import (
 from gpu_libm_bench.compiler.libraries import ResolvedLibrary
 from gpu_libm_bench.compiler.targets import CompilationTarget, resolve_target
 from gpu_libm_bench.compiler.toolchains import (
-    CUDAToolkit,
+    BackendSDK,
     LLVMToolchain,
+    resolve_backend_sdk,
     resolve_llvm,
-    resolve_sdk,
 )
 from gpu_libm_bench.configs import ExperimentConfig, LatencyConfig
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
@@ -118,11 +118,11 @@ class Experiment:
             raise ValueError(f"unsupported experiment metric: {metric.name!r}")
 
         backend = config.backend
-        sdk = resolve_sdk(
+        backend_sdk = resolve_backend_sdk(
             backend=backend.name,
             root=Path(backend.sdk_root) if backend.sdk_root is not None else None,
         )
-        self._prepare_backend(sdk)
+        self._prepare_backend(backend_sdk)
 
         with DeviceContext(backend.device_id, backend=backend.name) as context:
             device_info = context.device_info
@@ -135,10 +135,12 @@ class Experiment:
                 architecture=backend.architecture,
                 llvm=llvm,
                 device_info=device_info,
-                sdk=sdk,
+                backend_sdk=backend_sdk,
             )
 
-            image_build_infos = self._prepare_images(llvm=llvm, target=target, sdk=sdk)
+            image_build_infos = self._prepare_images(
+                llvm=llvm, target=target, backend_sdk=backend_sdk
+            )
 
             # TODO: Replace this temporary message with progress reporting.
             print("Running benchmark. This may take a few minutes...", file=sys.stderr)
@@ -156,7 +158,9 @@ class Experiment:
         effective_config = replace(
             config,
             backend=replace(
-                backend, architecture=target.architecture, sdk_root=str(sdk.root)
+                backend,
+                architecture=target.architecture,
+                sdk_root=str(backend_sdk.root),
             ),
             llvm=replace(config.llvm, root=str(llvm.root)),
         )
@@ -173,22 +177,23 @@ class Experiment:
             results=results,
         )
 
-    def _prepare_backend(self, sdk: CUDAToolkit) -> None:
+    def _prepare_backend(self, backend_sdk: BackendSDK) -> None:
         backend = self._config.backend
+
         try:
-            get_backend(backend.name)
-        except BackendNotFoundError:
-            build_backend(backend.name, sdk=sdk)
+            get_backend_module(backend.name)
+        except BackendModuleNotFoundError:
+            build_backend(backend.name, backend_sdk=backend_sdk)
 
     def _prepare_images(
         self,
         *,
         llvm: LLVMToolchain,
         target: CompilationTarget,
-        sdk: CUDAToolkit,
+        backend_sdk: BackendSDK,
     ) -> tuple[DeviceImageBuildInfo, ...]:
         resolved_libraries = _libraries.select_libraries(
-            self._config, llvm=llvm, target=target, sdk=sdk
+            self._config, llvm=llvm, target=target, backend_sdk=backend_sdk
         )
 
         image_build_infos = []
@@ -197,7 +202,7 @@ class Experiment:
                 resolved_library=resolved_library,
                 target=target,
                 llvm=llvm,
-                sdk=sdk,
+                backend_sdk=backend_sdk,
                 build_directory=paths.image_build_directory(
                     resolved_library.library,
                     backend=target.backend,

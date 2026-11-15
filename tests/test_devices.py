@@ -72,7 +72,7 @@ def test_missing_backend_has_an_actionable_diagnostic(
     monkeypatch.setattr(backends, "import_module", missing_module)
 
     with pytest.raises(
-        backends.BackendNotFoundError,
+        backends.BackendModuleNotFoundError,
         match="python -m gpu_libm_bench.compiler backend backend=cuda",
     ) as error:
         DeviceContext.device_count()
@@ -101,7 +101,7 @@ def test_backend_dependency_failure_is_preserved(
         DeviceContext.device_count()
 
     assert caught.value.__cause__ is error
-    assert not isinstance(caught.value, backends.BackendNotFoundError)
+    assert not isinstance(caught.value, backends.BackendModuleNotFoundError)
 
 
 @pytest.mark.parametrize(
