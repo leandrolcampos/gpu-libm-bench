@@ -46,13 +46,7 @@ def resolve_target(
     device_info: DeviceInfo | None = None,
     backend_sdk: BackendSDK | None = None,
 ) -> CompilationTarget:
-    match backend:
-        case Backend.CUDA:
-            backend = Backend.CUDA
-        case Backend.HIP:
-            backend = Backend.HIP
-        case _:
-            raise ValueError(f"unsupported backend: {backend!r}")
+    backend = Backend(backend)
 
     if target_triple != _TARGET_TRIPLES[backend]:
         raise ValueError(
