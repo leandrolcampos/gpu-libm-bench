@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <new>
 
 namespace gpu_libm_bench::cuda::detail {
@@ -24,6 +25,7 @@ struct KernelProfiler::StreamControl {
 struct KernelProfiler::ClockCounters {
   std::uint64_t Steady = 0;
   std::uint64_t Cycles = 0;
+  std::uint32_t Written = 0;
 };
 
 struct KernelProfiler::ClockFrequencyResources {
@@ -230,14 +232,15 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
   KernelProfile Profile;
   if (ClockFrequency) {
     const auto &[Start, Stop] = *CachedClockFrequency->HostSamples;
-    if (!Start.Steady || !Stop.Steady || Stop.Steady <= Start.Steady ||
-        Stop.Cycles <= Start.Cycles)
-      return Error{ErrorKind::Runtime, "invalid SM 0 clock counter readings"};
-
-    auto ElapsedTicks = Stop.Steady - Start.Steady;
-    auto ElapsedCycles = Stop.Cycles - Start.Cycles;
-    Profile.ClockFrequencyHz = static_cast<double>(ElapsedCycles) /
-                               static_cast<double>(ElapsedTicks) * 1e9;
+    if (!Start.Written || !Stop.Written || Stop.Steady <= Start.Steady ||
+        Stop.Cycles <= Start.Cycles) {
+      Profile.ClockFrequencyHz = std::numeric_limits<double>::quiet_NaN();
+    } else {
+      auto ElapsedTicks = Stop.Steady - Start.Steady;
+      auto ElapsedCycles = Stop.Cycles - Start.Cycles;
+      Profile.ClockFrequencyHz = static_cast<double>(ElapsedCycles) /
+                                 static_cast<double>(ElapsedTicks) * 1e9;
+    }
   }
   if (Duration) {
     float Milliseconds = 0;
@@ -322,7 +325,8 @@ Error KernelProfiler::prepareDuration() {
 Error KernelProfiler::readClockCounters(CUdeviceptr Destination) {
   CUdeviceptr SteadyCounter = Destination + offsetof(ClockCounters, Steady);
   CUdeviceptr CycleCounter = Destination + offsetof(ClockCounters, Cycles);
-  void *Arguments[] = {&SteadyCounter, &CycleCounter};
+  CUdeviceptr Written = Destination + offsetof(ClockCounters, Written);
+  void *Arguments[] = {&SteadyCounter, &CycleCounter, &Written};
 
   return check(
       cuLaunchKernel(CachedClockFrequency->ReadClockCounters,
