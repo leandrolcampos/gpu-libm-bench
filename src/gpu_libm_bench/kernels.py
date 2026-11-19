@@ -24,7 +24,7 @@ _FLOAT_STORAGE_DTYPES = {
 
 
 class KernelKind(StrEnum):
-    EVALUATE = "evaluate"
+    EVALUATION = "evaluation"
     LATENCY = "latency"
 
 
@@ -52,14 +52,14 @@ class KernelSpec:
 
     @staticmethod
     def from_config(config: "FunctionConfig", *, kind: KernelKind) -> "KernelSpec":
-        if kind is KernelKind.EVALUATE:
-            return _evaluate_spec(config.signature)
+        if kind is KernelKind.EVALUATION:
+            return _evaluation_spec(config.signature)
         if kind is KernelKind.LATENCY:
             return _latency_spec(config.signature)
         raise ValueError(f"unsupported kernel kind: {kind!r}")
 
 
-def _evaluate_spec(signature: "SignatureConfig") -> KernelSpec:
+def _evaluation_spec(signature: "SignatureConfig") -> KernelSpec:
     output_dtype, arguments = _process_signature(signature)
 
     return KernelSpec(

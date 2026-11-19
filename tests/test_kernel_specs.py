@@ -43,7 +43,7 @@ def test_evaluation_contract_follows_function_signature(
     name: str, signature: SignatureConfig, expected: tuple[KernelArgument, ...]
 ) -> None:
     function = FunctionConfig(name, signature, domains={})
-    spec = KernelSpec.from_config(function, kind=KernelKind.EVALUATE)
+    spec = KernelSpec.from_config(function, kind=KernelKind.EVALUATION)
     assert spec.arguments == expected
 
 
@@ -72,7 +72,7 @@ def test_evaluation_contract_follows_function_signature(
         ),
     ],
 )
-@pytest.mark.parametrize("kind", [KernelKind.EVALUATE, KernelKind.LATENCY])
+@pytest.mark.parametrize("kind", [KernelKind.EVALUATION, KernelKind.LATENCY])
 def test_invalid_signature_is_rejected_for_both_wrappers(
     signature: SignatureConfig, message: str, kind: KernelKind
 ) -> None:

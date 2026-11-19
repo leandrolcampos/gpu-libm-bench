@@ -64,7 +64,7 @@ def spec() -> KernelSpec:
         )
 
     return KernelSpec.from_config(
-        validate_experiment_config(config).function, kind=KernelKind.EVALUATE
+        validate_experiment_config(config).function, kind=KernelKind.EVALUATION
     )
 
 
@@ -72,7 +72,7 @@ def load_kernel(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec
 ) -> DeviceKernel:
     module = context.load_module(image)
-    request = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATE)
+    request = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATION)
     return module.get_kernel(request.symbol, spec=spec)
 
 
@@ -179,7 +179,7 @@ def test_module_reports_load_and_symbol_errors(
         LaunchConfig(grid=(2, 2, 2), block=(3, 2, 2)),
     ],
 )
-def test_evaluate_expf_preserves_tail(
+def test_expf_evaluation_preserves_tail(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec, config: LaunchConfig
 ) -> None:
     count = prod(config.grid) * prod(config.block) - 7
@@ -266,7 +266,7 @@ def test_native_execution_accepts_keyword_arguments(
 ) -> None:
     native = context._native
     module = native.load_module(path=str(image.image_path))
-    symbol = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATE).symbol
+    symbol = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATION).symbol
     kernel = module.get_kernel(symbol=symbol)
 
     source = np.array([-1, 0, 1], dtype=np.float32)
