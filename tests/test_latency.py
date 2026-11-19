@@ -220,7 +220,7 @@ def test_evaluation_kernel_is_rejected() -> None:
         {},
     )
     kernel = DeviceKernel(
-        Mock(), KernelSpec.from_config(function, kind=KernelKind.EVALUATE)
+        Mock(), KernelSpec.from_config(function, kind=KernelKind.EVALUATION)
     )
 
     with pytest.raises(ValueError, match="kernel does not match the latency protocol"):

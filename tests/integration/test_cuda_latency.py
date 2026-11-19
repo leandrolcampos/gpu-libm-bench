@@ -103,12 +103,12 @@ def test_latency_benchmark_preserves_evaluation_results(
 
     context.copy_to_device(reference_input, source)
 
-    evaluate = module.get_kernel(
-        KernelRequest("llvm-libm", function.name, KernelKind.EVALUATE).symbol,
-        spec=KernelSpec.from_config(function, kind=KernelKind.EVALUATE),
+    evaluation_kernel = module.get_kernel(
+        KernelRequest("llvm-libm", function.name, KernelKind.EVALUATION).symbol,
+        spec=KernelSpec.from_config(function, kind=KernelKind.EVALUATION),
     )
     context.launch(
-        evaluate,
+        evaluation_kernel,
         reference_input,
         reference_output,
         np.uint64(source.size),

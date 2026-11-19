@@ -3,8 +3,8 @@
 //
 // Evaluation wrappers for GPU math functions.
 
-#ifndef GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATE_HPP
-#define GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATE_HPP
+#ifndef GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATION_HPP
+#define GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATION_HPP
 
 #include "GPU.hpp"
 
@@ -19,4 +19,4 @@ void evaluate(uint64_t Count, OutputType *Output, const InputTypes *...Inputs) {
 
 } // namespace gpu_libm_bench
 
-#endif // GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATE_HPP
+#endif // GPU_LIBM_BENCH_KERNELS_COMMON_EVALUATION_HPP
