@@ -54,7 +54,9 @@ def test_profile_converts_arguments_metrics_and_result(
     }
     context._native.profile.return_value = result
 
-    profile = context.profile(kernel, buffer, scalar, config=config, metrics=metrics)
+    profile = context.launch_and_profile(
+        kernel, buffer, scalar, config=config, metrics=metrics
+    )
 
     assert profile == KernelProfile(**result)
     context._native.profile.assert_called_once_with(
@@ -71,9 +73,9 @@ def test_profile_converts_arguments_metrics_and_result(
 
 def test_profiling_rejects_empty_metrics(context: DeviceContext) -> None:
     with pytest.raises(ValueError, match="at least one metric"):
-        context.profile(Mock(), config=LaunchConfig(), metrics=set())
+        context.launch_and_profile(Mock(), config=LaunchConfig(), metrics=set())
 
 
 def test_profiling_rejects_string_metrics(context: DeviceContext) -> None:
     with pytest.raises(TypeError, match="KernelMetric"):
-        context.profile(Mock(), config=LaunchConfig(), metrics={"duration"})
+        context.launch_and_profile(Mock(), config=LaunchConfig(), metrics={"duration"})

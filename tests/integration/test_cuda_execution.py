@@ -311,7 +311,7 @@ def test_profile_collects_requested_metrics_and_executes_once(
 
     for requested_metrics in (metrics, set(KernelMetric), metrics):
         context.copy_to_device(buffer, source)
-        profile = context.profile(
+        profile = context.launch_and_profile(
             kernel,
             buffer,
             buffer,
@@ -353,7 +353,7 @@ def test_operations_restore_an_external_cuda_context(
             kernel = load_kernel(context, image, spec)
 
             context.copy_to_device(buffer, source)
-            context.profile(
+            context.launch_and_profile(
                 kernel,
                 buffer,
                 buffer,

@@ -198,7 +198,7 @@ class DeviceContext:
             config.shared_memory_bytes,
         )
 
-    def profile(
+    def launch_and_profile(
         self,
         kernel: DeviceKernel,
         *kernel_arguments: DeviceBuffer[Any] | Scalar,
