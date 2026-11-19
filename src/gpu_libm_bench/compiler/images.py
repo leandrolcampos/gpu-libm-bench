@@ -3,10 +3,13 @@
 
 """Kernel compilation and device image resolution."""
 
+import fcntl
 import json
+import logging
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from gpu_libm_bench.backends import Backend
@@ -80,12 +83,13 @@ def configure_kernels(
     )
 
     project = paths.source_root()
+    default_directory = paths.image_build_directory(
+        resolved_library.library,
+        backend=target.backend,
+        architecture=target.architecture,
+    )
     if build_directory is None:
-        build_directory = paths.image_build_directory(
-            resolved_library.library,
-            backend=target.backend,
-            architecture=target.architecture,
-        )
+        build_directory = default_directory
 
     toolchain_files: tuple[Path, ...] = (
         llvm.clang,
@@ -116,8 +120,11 @@ def configure_kernels(
         ),
         toolchain_files=toolchain_files,
     )
-
     build.configure()
+
+    if build_directory.expanduser().resolve() == default_directory.resolve():
+        _update_kernel_compilation_database(paths.images_build_root())
+
     return build
 
 
@@ -281,6 +288,35 @@ def _image_cmake_arguments(
         else "",
     }
     return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
+
+
+def _update_kernel_compilation_database(root: Path) -> None:
+    destination = root / "compile_commands.json"
+    try:
+        with (root / ".compile_commands.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            commands = []
+            for database in sorted(root.glob("*/*/*/compile_commands.json")):
+                entries = json.loads(database.read_text(encoding="utf-8"))
+                if not isinstance(entries, list):
+                    raise ValueError(f"expected a list of commands in {database}")
+                commands.extend(entries)
+
+            contents = json.dumps(commands, indent=2) + "\n"
+            if (
+                destination.is_file()
+                and destination.read_text(encoding="utf-8") == contents
+            ):
+                return
+
+            with TemporaryDirectory(dir=root) as directory:
+                temporary = Path(directory) / destination.name
+                temporary.write_text(contents, encoding="utf-8")
+                temporary.replace(destination)
+    except (OSError, ValueError) as error:
+        logging.getLogger(__name__).warning(
+            "Could not update %s: %s", destination, error
+        )
 
 
 def _read_image_metadata(

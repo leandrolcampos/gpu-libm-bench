@@ -134,6 +134,55 @@ def test_kernel_build_resolves_images_in_its_build_directory(
     assert image.image_path == image_path
 
 
+def test_configure_kernels_updates_editor_database(
+    llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(images.paths, "build_root", lambda: tmp_path / "build")
+    monkeypatch.setattr(
+        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
+    )
+    root = images.paths.images_build_root()
+    aggregate = root / "compile_commands.json"
+    source = str(tmp_path / "Profiling.cpp")
+
+    def write_database(directory: Path, architecture: str) -> dict[str, str]:
+        directory.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "directory": str(directory),
+            "file": source,
+            "command": f"clang++ -march={architecture} -c {source}",
+        }
+        (directory / "compile_commands.json").write_text(json.dumps([entry]))
+        return entry
+
+    def configure(build: CMakeBuild) -> None:
+        write_database(build.build_directory, TARGET.architecture)
+
+    monkeypatch.setattr(CMakeBuild, "configure", configure)
+
+    def configure_support(directory: Path | None = None) -> CMakeBuild:
+        return configure_kernels(
+            resolved_library=ResolvedLibrary("support"),
+            target=TARGET,
+            llvm=llvm,
+            backend_sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
+            build_directory=directory,
+        )
+
+    build = configure_support()
+    original = json.loads((build.build_directory / aggregate.name).read_text())
+    assert json.loads(aggregate.read_text()) == original
+
+    other = write_database(root / "hip" / "gfx1100" / "support", "gfx1100")
+    configure_support(build.build_directory)
+    assert json.loads(aggregate.read_text()) == [*original, other]
+
+    timestamp = aggregate.stat().st_mtime_ns
+    configure_support(tmp_path / "isolated")
+    assert (tmp_path / "isolated" / aggregate.name).is_file()
+    assert aggregate.stat().st_mtime_ns == timestamp
+
+
 @pytest.mark.parametrize("library", ["llvm-libm", "support"])
 def test_kernel_configuration_preserves_tools_and_library(
     llvm: LLVMToolchain,

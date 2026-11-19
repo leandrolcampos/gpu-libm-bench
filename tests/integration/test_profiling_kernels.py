@@ -80,17 +80,20 @@ def test_block_stream_release_and_timeout(
     assert result[0] == timed_out
 
 
-def test_clock_counters_read_from_sm_zero(
+def test_clock_counters_read_from_processor_id_zero(
     context: DeviceContext, profiling_module: DeviceModule
 ) -> None:
     driver = ctypes.CDLL("libcuda.so.1")
     device = ctypes.c_int()
-    sm_count = ctypes.c_int()
+    processor_count = ctypes.c_int()
     assert driver.cuDeviceGet(ctypes.byref(device), context.device_id) == 0
-    assert driver.cuDeviceGetAttribute(ctypes.byref(sm_count), 16, device) == 0
+    assert driver.cuDeviceGetAttribute(ctypes.byref(processor_count), 16, device) == 0
 
-    arrays = (np.zeros(1, dtype=np.uint64), np.zeros(1, dtype=np.uint64))
-    buffers = tuple(context.create_buffer(1, dtype=np.uint64) for _ in arrays)
+    steady = np.zeros(1, dtype=np.uint64)
+    cycles = np.zeros(1, dtype=np.uint64)
+    written = np.zeros(1, dtype=np.uint32)
+    arrays = (steady, cycles, written)
+    buffers = tuple(context.create_buffer(1, dtype=array.dtype) for array in arrays)
     for buffer, array in zip(buffers, arrays, strict=True):
         context.copy_to_device(buffer, array)
 
@@ -100,13 +103,17 @@ def test_clock_counters_read_from_sm_zero(
             (
                 KernelArgument("steady_counter", "uint64", True),
                 KernelArgument("cycle_counter", "uint64", True),
+                KernelArgument("written", "uint32", True),
             )
         ),
     )
 
-    context.launch(kernel, *buffers, config=LaunchConfig(grid=(sm_count.value, 1, 1)))
+    context.launch(
+        kernel, *buffers, config=LaunchConfig(grid=(processor_count.value, 1, 1))
+    )
     for buffer, array in zip(buffers, arrays, strict=True):
         context.copy_to_host(array, buffer)
 
-    for array in arrays:
-        assert array[0] > 0
+    assert written[0] == 1
+    assert steady[0] > 0
+    assert cycles[0] > 0
