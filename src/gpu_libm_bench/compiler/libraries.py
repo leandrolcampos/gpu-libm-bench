@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Resolve library bitcode and function bindings for device image builds."""
+"""Resolve math libraries and validate the bitcode required by their bindings."""
 
 import re
 from dataclasses import dataclass
@@ -30,57 +30,63 @@ def resolve_library(
     library_config: LibraryConfig,
     llvm: LLVMToolchain,
     target: CompilationTarget,
-    bitcode_path: Path | None = None,
-    required_symbols: tuple[str, ...] = (),
 ) -> ResolvedLibrary:
+    bitcode_finders = {
+        "llvm-libm": _find_llvm_libm_bitcode,
+    }
     name = library_config.name
-    match name:
-        case "llvm-libm":
-            path = _resolve_llvm_libm_bitcode(
-                llvm=llvm,
-                target=target,
-                bitcode_path=bitcode_path,
-                required_symbols=required_symbols,
-            )
-        case _:
-            raise ValueError(f"unsupported library: {name!r}")
+    find_bitcode = bitcode_finders.get(name)
+    if find_bitcode is None:
+        raise ValueError(f"unsupported library: {name!r}")
+
+    bitcode_config = library_config.backends.get(target.backend)
+    if bitcode_config is None:
+        raise LibraryUnavailableError(
+            f"library {name!r} does not declare support for "
+            f"backend {target.backend.value!r}"
+        )
+
+    bitcode_path = bitcode_config.bitcode_path
+    path = find_bitcode(llvm, target) if bitcode_path is None else Path(bitcode_path)
+    path = path.expanduser().resolve()
 
     bindings = tuple(
         (function, library_config.symbol_for(function))
         for function in sorted(library_config.functions)
     )
+    _validate_bitcode(path, llvm=llvm, target=target, bindings=bindings)
     return ResolvedLibrary(name, path, bindings)
 
 
-def _resolve_llvm_libm_bitcode(
+def _find_llvm_libm_bitcode(llvm: LLVMToolchain, target: CompilationTarget) -> Path:
+    candidates = [
+        directory / target.target_triple / "libm.bc" for directory in llvm.library_dirs
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    searched = ", ".join(str(path) for path in candidates)
+    raise LibraryUnavailableError(
+        f"LLVM-libm bitcode was not found. Searched: {searched}. "
+        "Provide an explicit bitcode_path for a custom installation"
+    )
+
+
+def _validate_bitcode(
+    path: Path,
     *,
     llvm: LLVMToolchain,
     target: CompilationTarget,
-    bitcode_path: Path | None,
-    required_symbols: tuple[str, ...],
-) -> Path:
-    if bitcode_path is None:
-        candidates = [
-            directory / target.target_triple / "libm.bc"
-            for directory in llvm.library_dirs
-        ]
-        bitcode_path = next((path for path in candidates if path.is_file()), None)
-        if bitcode_path is None:
-            searched = ", ".join(str(path) for path in candidates)
-            raise LibraryUnavailableError(
-                f"LLVM-libm bitcode was not found. Searched: {searched}. "
-                "Provide an explicit bitcode_path for a custom installation"
-            )
-
-    path = bitcode_path.expanduser().resolve()
+    bindings: tuple[tuple[str, str], ...],
+) -> None:
     if not path.is_file():
-        raise LibraryUnavailableError(f"LLVM-libm bitcode was not found: {path}")
+        raise LibraryUnavailableError(f"library bitcode was not found: {path}")
 
     ir = run_tool([llvm.llvm_dis, path, "-o", "-"])
     triple = re.search(r'^target triple = "([^"]+)"', ir, re.MULTILINE)
     if triple is None:
         raise ValueError(f"bitcode {path} does not declare a target triple")
-
     if triple.group(1) != target.target_triple:
         actual = triple.group(1)
         raise LibraryUnavailableError(
@@ -88,21 +94,23 @@ def _resolve_llvm_libm_bitcode(
             f"expected {target.target_triple!r}"
         )
 
-    if required_symbols:
-        output = run_tool(
-            [
-                llvm.llvm_nm,
-                "--defined-only",
-                "--extern-only",
-                "--just-symbol-name",
-                path,
-            ]
+    if not bindings:
+        return
+
+    output = run_tool(
+        [
+            llvm.llvm_nm,
+            "--defined-only",
+            "--extern-only",
+            "--just-symbol-name",
+            path,
+        ]
+    )
+    symbols = set(output.splitlines())
+    missing = [
+        f"{name} -> {symbol}" for name, symbol in bindings if symbol not in symbols
+    ]
+    if missing:
+        raise LibraryUnavailableError(
+            f"bitcode {path} does not define symbols for bindings: {', '.join(missing)}"
         )
-
-        missing = set(required_symbols) - set(output.splitlines())
-        if missing:
-            raise LibraryUnavailableError(
-                f"bitcode {path} does not define symbols: {', '.join(sorted(missing))}"
-            )
-
-    return path

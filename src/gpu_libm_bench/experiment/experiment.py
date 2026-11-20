@@ -193,7 +193,7 @@ class Experiment:
         backend_sdk: BackendSDK,
     ) -> tuple[DeviceImageBuildInfo, ...]:
         resolved_libraries = _libraries.select_libraries(
-            self._config, llvm=llvm, target=target, backend_sdk=backend_sdk
+            self._config, llvm=llvm, target=target
         )
 
         image_build_infos = []

@@ -245,14 +245,10 @@ def _compile_kernels(
 
         for library_config in library_configs:
             try:
-                bitcode_path = library_config.backends[target.backend].bitcode_path
                 resolved_library = resolve_library(
                     library_config=library_config,
                     llvm=llvm,
                     target=target,
-                    bitcode_path=Path(bitcode_path)
-                    if bitcode_path is not None
-                    else None,
                 )
                 _compile_library_kernels(
                     resolved_library,

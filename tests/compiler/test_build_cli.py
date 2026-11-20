@@ -77,8 +77,13 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         ),
     )
 
-    def resolve_library(*, library_config, bitcode_path, **kwargs):
-        path = bitcode_path or tmp_path / f"{library_config.name}.bc"
+    def resolve_library(*, library_config, target, llvm):
+        bitcode_path = library_config.backends[target.backend].bitcode_path
+        path = (
+            Path(bitcode_path)
+            if bitcode_path is not None
+            else tmp_path / f"{library_config.name}.bc"
+        )
         return ResolvedLibrary(library_config.name, path)
 
     monkeypatch.setattr(build_cli, "resolve_library", Mock(side_effect=resolve_library))

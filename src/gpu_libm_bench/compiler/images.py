@@ -167,7 +167,6 @@ def resolve_device_image(
     functions: tuple[str, ...] | None = None
     if manifest_exists:
         metadata = _read_image_metadata(manifest_path, library=library, target=target)
-
         if "functions" in metadata:
             functions = tuple(metadata["functions"])
     elif not explicit:
@@ -250,23 +249,6 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
         ),
         link_options=_expand_options(metadata["link_flags"], metadata["link_options"]),
     )
-
-
-def read_registered_functions(
-    build: CMakeBuild, *, library: str, target: CompilationTarget
-) -> tuple[str, ...]:
-    path = build.build_directory / "build-plan.json"
-    metadata = _read_image_metadata(
-        path, library=library, target=target, description="kernel build plan"
-    )
-
-    functions = metadata.get("functions")
-    if not isinstance(functions, list) or any(
-        not isinstance(function, str) for function in functions
-    ):
-        raise ValueError(f"kernel build plan {path} must declare a list of functions")
-
-    return tuple(functions)
 
 
 def _image_cmake_arguments(

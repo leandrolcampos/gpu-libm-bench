@@ -16,7 +16,6 @@ from gpu_libm_bench.compiler._cmake import CMakeBuild
 from gpu_libm_bench.compiler.images import (
     configure_kernels,
     read_device_image_build_info,
-    read_registered_functions,
     resolve_device_image,
 )
 from gpu_libm_bench.compiler.libraries import ResolvedLibrary
@@ -126,14 +125,12 @@ def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
             }
         )
     )
-    assert read_registered_functions(build, library="llvm-libm", target=TARGET) == (
-        "expf",
-    )
 
     image_path = plan.with_name("math.cubin")
     image_path.touch()
     image_path.with_suffix(".manifest.json").write_text(plan.read_text())
     image = resolve_device_image("llvm-libm", target=TARGET)
+
     assert image.image_path == image_path
 
 
@@ -320,7 +317,22 @@ def test_kernel_configuration_rejects_invalid_or_unimplemented_combinations(
         )
 
 
-def test_default_image_preserves_declared_functions(
+@pytest.mark.parametrize(
+    ("field", "value"), [("architecture", "sm_80"), ("image_path", None)]
+)
+def test_invalid_kernel_build_plan_is_rejected(
+    tmp_path: Path, image_path: Path, field: str, value: str | None
+) -> None:
+    plan = image_path.with_name("build-plan.json")
+    metadata = json.loads(plan.read_text())
+    metadata[field] = value
+    plan.write_text(json.dumps(metadata))
+
+    with pytest.raises(ValueError, match=rf"kernel build plan .*{field}"):
+        resolve_device_image("llvm-libm", target=TARGET, build_directory=tmp_path)
+
+
+def test_default_image_reads_functions_from_manifest(
     tmp_path: Path, image_path: Path
 ) -> None:
     functions = ["expf", "logf"]
@@ -433,30 +445,3 @@ def test_build_info_requires_a_manifest(image_path: Path) -> None:
     image = resolve_device_image("llvm-libm", target=TARGET, image_path=image_path)
     with pytest.raises(ValueError, match="no build manifest"):
         read_device_image_build_info(replace(image, manifest_path=None))
-
-
-def test_kernel_support_comes_from_build_plan_before_compilation(
-    tmp_path: Path, image_path: Path
-) -> None:
-    metadata = json.loads(image_path.with_suffix(".manifest.json").read_text())
-    metadata["functions"] = ["logf"]
-    image_path.with_name("build-plan.json").write_text(json.dumps(metadata))
-    image_path.unlink()
-    build = CMakeBuild(tmp_path / "sources", tmp_path)
-
-    functions = read_registered_functions(build, library="llvm-libm", target=TARGET)
-
-    assert functions == ("logf",)
-
-
-@pytest.mark.parametrize("field", ["architecture", "functions"])
-def test_invalid_kernel_build_plan_is_rejected(
-    tmp_path: Path, image_path: Path, field: str
-) -> None:
-    metadata = json.loads(image_path.with_suffix(".manifest.json").read_text())
-    metadata[field] = "invalid"
-    image_path.with_name("build-plan.json").write_text(json.dumps(metadata))
-    build = CMakeBuild(tmp_path / "sources", tmp_path)
-
-    with pytest.raises(ValueError, match="kernel build plan"):
-        read_registered_functions(build, library="llvm-libm", target=TARGET)

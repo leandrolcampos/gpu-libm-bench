@@ -3,7 +3,6 @@
 
 """Tests for experiment library eligibility and selection."""
 
-import json
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
@@ -11,17 +10,14 @@ from unittest.mock import Mock
 import pytest
 from hydra import compose, initialize_config_module
 
-from gpu_libm_bench.compiler._cmake import CMakeBuild
 from gpu_libm_bench.compiler.libraries import (
     LibraryUnavailableError,
     ResolvedLibrary,
-    resolve_library,
 )
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import LLVMToolchain
 from gpu_libm_bench.configs import (
     ExperimentConfig,
-    LibraryConfig,
     register_config_schema,
     validate_experiment_config,
 )
@@ -39,18 +35,14 @@ def config() -> ExperimentConfig:
             )
         )
 
-    backends = config.libraries["llvm-libm"].backends
+    library_config = config.libraries["llvm-libm"]
     return replace(
         config,
         libraries={
-            name: LibraryConfig(
-                name,
-                {
-                    backend: replace(bitcode_config)
-                    for backend, bitcode_config in backends.items()
-                },
+            library: replace(
+                library_config, name=library, functions=library_config.functions.copy()
             )
-            for name in ("first", "second")
+            for library in ("first", "second")
         },
     )
 
@@ -65,70 +57,17 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         (tmp_path / "lib",),
         "test LLVM",
     )
-    backend_sdk = CUDAToolkit(tmp_path / "cuda", tmp_path / "cuda/bin/ptxas", "13.4")
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
-    def resolve(*, library_config, bitcode_path, **kwargs):
-        path = bitcode_path or tmp_path / f"{library_config.name}.bc"
-        return ResolvedLibrary(library_config.name, path)
-
-    def configure(*, resolved_library, target, build_directory, **kwargs):
-        plan = build_directory / "build-plan.json"
-        plan.parent.mkdir(parents=True)
-
-        plan.write_text(
-            json.dumps(
-                {
-                    "library": resolved_library.name,
-                    "backend": target.backend,
-                    "architecture": target.architecture,
-                    "target_triple": target.target_triple,
-                    "functions": ["expf"],
-                }
-            )
-        )
-
-        return CMakeBuild(tmp_path / "kernels", build_directory)
+    def resolve(*, library_config, llvm, target):
+        return ResolvedLibrary(library_config.name)
 
     monkeypatch.setattr(_libraries, "resolve_library", resolve)
-    monkeypatch.setattr(_libraries, "configure_kernels", configure)
 
     def select(config):
-        return _libraries.select_libraries(
-            config,
-            llvm=llvm,
-            target=target,
-            backend_sdk=backend_sdk,
-            build_root=tmp_path / "builds",
-        )
+        return _libraries.select_libraries(config, llvm=llvm, target=target)
 
     return select
-
-
-@pytest.mark.parametrize("names", [None, ["second", "first"]])
-def test_library_selection_preserves_order_and_bitcode_overrides(
-    config: ExperimentConfig,
-    select,
-    names: list[str] | None,
-    tmp_path: Path,
-) -> None:
-    config.run.libraries = names
-    config.libraries["first"].backends["cuda"].bitcode_path = "/custom/first.bc"
-
-    selected = select(config)
-
-    assert [resolved_library.name for resolved_library in selected] == (
-        names or ["first", "second"]
-    )
-
-    paths = {
-        resolved_library.name: resolved_library.bitcode_path
-        for resolved_library in selected
-    }
-    assert paths == {
-        "first": Path("/custom/first.bc"),
-        "second": tmp_path / "second.bc",
-    }
 
 
 def test_invalid_function_signature_is_rejected_before_preparing_libraries(
@@ -146,43 +85,49 @@ def test_invalid_function_signature_is_rejected_before_preparing_libraries(
     resolve.assert_not_called()
 
 
+@pytest.mark.parametrize("libraries", [None, ["second", "first"]])
+def test_library_selection_preserves_order(
+    config: ExperimentConfig, select, libraries: list[str] | None
+) -> None:
+    config.run.libraries = libraries
+
+    assert [resolved_library.name for resolved_library in select(config)] == (
+        libraries if libraries is not None else ["first", "second"]
+    )
+
+
 @pytest.mark.parametrize("explicit", [False, True])
-@pytest.mark.parametrize("missing", ["backend", "bitcode", "wrappers"])
+@pytest.mark.parametrize(
+    ("missing", "cause"),
+    [
+        ("function", "does not declare function 'expf'"),
+        ("bitcode", "bitcode is missing"),
+    ],
+)
 def test_unavailable_library_is_skipped_only_for_automatic_selection(
     config: ExperimentConfig,
     select,
     monkeypatch: pytest.MonkeyPatch,
     explicit: bool,
     missing: str,
+    cause: str,
 ) -> None:
     config.run.libraries = ["first", "second"] if explicit else None
 
-    if missing == "backend":
-        config.libraries["first"].backends = {}
-    elif missing == "bitcode":
-        resolve = _libraries.resolve_library
-
-        def unavailable(*, library_config, **kwargs):
-            if library_config.name == "first":
-                raise LibraryUnavailableError("bitcode is missing")
-            return resolve(library_config=library_config, **kwargs)
-
-        monkeypatch.setattr(_libraries, "resolve_library", unavailable)
+    if missing == "function":
+        config.libraries["first"].functions.clear()
     else:
-        read = _libraries.read_registered_functions
         monkeypatch.setattr(
             _libraries,
-            "read_registered_functions",
-            lambda build, *, library, target: (
-                ()
-                if library == "first"
-                else read(build, library=library, target=target)
+            "resolve_library",
+            Mock(
+                side_effect=[LibraryUnavailableError(cause), ResolvedLibrary("second")]
             ),
         )
 
     if explicit:
         with pytest.raises(
-            LibraryUnavailableError, match="library 'first' is unavailable"
+            LibraryUnavailableError, match=f"library 'first' is unavailable.*{cause}"
         ):
             select(config)
     else:
@@ -191,43 +136,25 @@ def test_unavailable_library_is_skipped_only_for_automatic_selection(
         ]
 
 
+def test_bitcode_tool_failure_is_propagated(
+    config: ExperimentConfig,
+    select,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = RuntimeError("bitcode tool failed")
+    monkeypatch.setattr(_libraries, "resolve_library", Mock(side_effect=error))
+
+    with pytest.raises(RuntimeError) as caught:
+        select(config)
+
+    assert caught.value is error
+
+
 def test_no_eligible_libraries_is_an_error(config: ExperimentConfig, select) -> None:
-    for library in config.libraries.values():
-        library.backends = {}
+    for library_config in config.libraries.values():
+        library_config.functions.clear()
 
     with pytest.raises(
         LibraryUnavailableError, match="no math libraries are available"
     ):
         select(config)
-
-
-def test_unsupported_library_is_not_skipped_in_automatic_selection(
-    config: ExperimentConfig, select, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(_libraries, "resolve_library", resolve_library)
-
-    with pytest.raises(ValueError, match="unsupported library: 'first'"):
-        select(config)
-
-
-@pytest.mark.parametrize(
-    ("operation", "error"),
-    [
-        ("resolve_library", RuntimeError("bitcode tool failed")),
-        ("configure_kernels", RuntimeError("CMake failed")),
-        ("read_registered_functions", ValueError("invalid build plan")),
-    ],
-)
-def test_unexpected_failures_are_propagated(
-    config: ExperimentConfig,
-    select,
-    monkeypatch: pytest.MonkeyPatch,
-    operation: str,
-    error: Exception,
-) -> None:
-    monkeypatch.setattr(_libraries, operation, Mock(side_effect=error))
-
-    with pytest.raises(type(error)) as caught:
-        select(config)
-
-    assert caught.value is error
