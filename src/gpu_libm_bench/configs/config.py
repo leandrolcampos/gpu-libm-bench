@@ -4,7 +4,7 @@
 """Build and experiment configuration schemas and consistency validation."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from hydra.core.config_store import ConfigStore
@@ -73,6 +73,11 @@ class BackendConfig:
 
 
 @dataclass
+class LibraryFunctionConfig:
+    symbol: str | None = None
+
+
+@dataclass
 class LibraryBitcodeConfig:
     bitcode_path: str | None
 
@@ -81,6 +86,11 @@ class LibraryBitcodeConfig:
 class LibraryConfig:
     name: str
     backends: dict[str, LibraryBitcodeConfig]
+    functions: dict[str, LibraryFunctionConfig] = field(default_factory=dict)
+
+    def symbol_for(self, function: str) -> str:
+        symbol = self.functions[function].symbol
+        return function if symbol is None else symbol
 
 
 @dataclass
@@ -208,6 +218,14 @@ def _validate_backend_config(backend: BackendConfig) -> None:
 def _validate_library_config(library: LibraryConfig) -> None:
     if not library.name.strip():
         raise ValueError("library.name must not be empty")
+
+    for name, binding in library.functions.items():
+        if not name.strip():
+            raise ValueError("library function name must not be empty")
+        if binding.symbol is not None and not binding.symbol.strip():
+            raise ValueError(
+                f"library {library.name!r} function {name!r}: symbol must not be empty"
+            )
 
 
 def _validate_function_inputs(
