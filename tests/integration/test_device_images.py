@@ -133,7 +133,8 @@ def test_image_exports_registered_kernels(
         re.MULTILINE,
     )
 
-    for function in metadata["functions"]:
+    assert image.functions
+    for function in image.functions:
         for kind in KernelKind:
             request = KernelRequest(image.library, function, kind)
             assert request.symbol in symbols

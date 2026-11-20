@@ -245,7 +245,8 @@ def test_kernel_configuration_preserves_tools_and_library(
     library: str,
 ) -> None:
     bitcode_path = tmp_path / "libm.bc" if library == "llvm-libm" else None
-    resolved_library = ResolvedLibrary(library, bitcode_path)
+    bindings = (("expf", "my_expf"),) if library == "llvm-libm" else ()
+    resolved_library = ResolvedLibrary(library, bitcode_path, bindings)
     backend_sdk = CUDAToolkit(
         Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4"
     )
@@ -267,9 +268,10 @@ def test_kernel_configuration_preserves_tools_and_library(
     assert f"-DGPU_LIBM_BENCH_LLVM_ROOT={llvm.root}" in arguments
     assert f"-DGPU_LIBM_BENCH_CLANG={llvm.clang}" in arguments
     assert "-DGPU_LIBM_BENCH_SDK_ROOT=/custom cuda" in arguments
+    assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
     assert f"-DGPU_LIBM_BENCH_LIBRARY={library}" in arguments
     assert f"-DGPU_LIBM_BENCH_BITCODE_PATH={bitcode_path or ''}" in arguments
-    assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
+    assert f"-DGPU_LIBM_BENCH_FUNCTIONS={'expf' if bindings else ''}" in arguments
 
 
 @pytest.mark.parametrize(

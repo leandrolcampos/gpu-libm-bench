@@ -289,6 +289,7 @@ def _image_cmake_arguments(
         "BITCODE_PATH": str(resolved_library.bitcode_path)
         if resolved_library.bitcode_path is not None
         else "",
+        "FUNCTIONS": ";".join(name for name, _ in resolved_library.bindings),
     }
     return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
 

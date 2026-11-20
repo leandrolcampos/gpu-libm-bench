@@ -91,10 +91,10 @@ void latencyChain(uint32_t PassCount, uint32_t ChainLength,
 // it indirect to encourage a single load before the timed loop.
 template <auto Function, typename StorageType, typename FloatType,
           typename... OtherInputTypes>
-void measure_latency(uint32_t PassCount, uint32_t ChainLength,
-                     const StorageType *ZeroMask, uint64_t *ElapsedTicks,
-                     StorageType *Output, const FloatType *FirstInput,
-                     const OtherInputTypes *...OtherInputs) {
+void measureLatency(uint32_t PassCount, uint32_t ChainLength,
+                    const StorageType *ZeroMask, uint64_t *ElapsedTicks,
+                    StorageType *Output, const FloatType *FirstInput,
+                    const OtherInputTypes *...OtherInputs) {
   if (gpu::globalThreadId() != 0)
     return;
 
