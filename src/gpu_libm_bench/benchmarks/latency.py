@@ -4,7 +4,9 @@
 """Dependent-call latency measurement and analysis."""
 
 from dataclasses import dataclass
+from math import inf, isfinite
 from operator import index
+from time import monotonic, sleep
 from typing import ClassVar
 
 import numpy as np
@@ -16,6 +18,7 @@ from gpu_libm_bench.devices import (
     DeviceContext,
     DeviceInfo,
     DeviceKernel,
+    KernelMetric,
     LaunchConfig,
 )
 from gpu_libm_bench.types import Scalar
@@ -66,9 +69,11 @@ class LatencyBenchmark:
         context: DeviceContext,
         kernel: DeviceKernel,
         *,
+        timeout_secs: float | None = None,
         chain_length: int,
-        repetitions: int,
         warmup_runs: int,
+        min_clock_ratio: float = 0.0,
+        initial_delay_secs: float = 0.0,
     ) -> None:
         arguments = iter(kernel.spec.arguments)
         latency_dtypes = {}
@@ -85,28 +90,38 @@ class LatencyBenchmark:
         if not input_arguments:
             raise ValueError("latency kernel must declare at least one input argument")
 
+        if timeout_secs is not None and (
+            not isfinite(timeout_secs) or timeout_secs <= 0
+        ):
+            raise ValueError("sample.timeout_secs must be finite and positive")
+
         chain_length = _as_integer(chain_length, "chain_length")
         max_chain_length = np.iinfo(latency_dtypes["chain_length"]).max
         if not 1 <= chain_length <= max_chain_length:
             raise ValueError(f"chain_length must be between 1 and {max_chain_length}")
 
-        repetitions = _as_integer(repetitions, "repetitions")
-        if repetitions < 1:
-            raise ValueError("repetitions must be positive")
-
         warmup_runs = _as_integer(warmup_runs, "warmup_runs")
         if warmup_runs < 0:
             raise ValueError("warmup_runs must be nonnegative")
+
+        if not isfinite(min_clock_ratio) or min_clock_ratio < 0:
+            raise ValueError("throttle.min_clock_ratio must be finite and nonnegative")
+        if not isfinite(initial_delay_secs) or initial_delay_secs < 0:
+            raise ValueError(
+                "throttle.initial_delay_secs must be finite and nonnegative"
+            )
 
         self._context = context
         self._kernel = kernel
         self._latency_dtypes = latency_dtypes
         self._input_arguments = input_arguments
 
+        self._timeout_secs = timeout_secs
         self._pass_count = latency_dtypes["pass_count"].type(_PASS_COUNT)
         self._chain_length = latency_dtypes["chain_length"].type(chain_length)
-        self._repetitions = repetitions
         self._warmup_runs = warmup_runs
+        self._min_clock_ratio = min_clock_ratio
+        self._initial_delay_secs = initial_delay_secs
 
     def measure(self, batch: inputs.InputBatch) -> LatencyMeasurement:
         snapshot = self._snapshot_batch(batch)
@@ -116,19 +131,54 @@ class LatencyBenchmark:
         )
 
         device_info = self._context.device_info
+        min_clock_hz = 0.0
+        if self._min_clock_ratio > 0:
+            if device_info.default_clock_frequency_hz <= 0:
+                raise ValueError(
+                    "throttle detection requires a positive default clock frequency"
+                )
+            min_clock_hz = (
+                self._min_clock_ratio * device_info.default_clock_frequency_hz
+            )
+
         elapsed_ticks = np.empty(
-            (snapshot.size, self._repetitions),
+            snapshot.size,
             dtype=self._latency_dtypes["elapsed_ticks"],
         )
         buffers = self._create_buffers()
 
         self._warmup(input_arrays, buffers, self._warmup_runs)
 
-        for sample_index in range(snapshot.size):
-            self._copy_inputs_to_device(input_arrays, buffers, sample_index)
+        deadline = inf
+        if self._timeout_secs is not None:
+            if self._warmup_runs:
+                self._context.copy_to_host(
+                    buffers.host_elapsed_ticks, buffers.elapsed_ticks
+                )
+            deadline = monotonic() + self._timeout_secs
 
-            for repetition in range(self._repetitions):
-                elapsed_ticks[sample_index, repetition] = self._measure_chain(buffers)
+        delay_secs = self._initial_delay_secs
+        consecutive_discards = 0
+
+        for input_index in range(snapshot.size):
+            self._copy_inputs_to_device(input_arrays, buffers, input_index)
+
+            while True:
+                _remaining_sample_secs(deadline, snapshot, input_index)
+                ticks = self._measure_chain(buffers, min_clock_hz)
+                remaining_secs = _remaining_sample_secs(deadline, snapshot, input_index)
+
+                if ticks is not None:
+                    elapsed_ticks[input_index] = ticks
+                    consecutive_discards = 0
+                    break
+
+                consecutive_discards += 1
+                if consecutive_discards >= 4:
+                    delay_secs += min(1.5 * delay_secs, 0.5)
+
+                if delay_secs > 0:
+                    sleep(min(delay_secs, remaining_secs))
 
         return LatencyMeasurement(
             inputs=snapshot,
@@ -193,24 +243,35 @@ class LatencyBenchmark:
         self,
         input_arrays: tuple[NDArray[Scalar], ...],
         buffers: _LatencyBuffers,
-        sample_index: int,
+        input_index: int,
     ) -> None:
         for destination, source in zip(buffers.inputs, input_arrays, strict=True):
             self._context.copy_to_device(
-                destination, source[sample_index : sample_index + 1]
+                destination, source[input_index : input_index + 1]
             )
 
-    def _run_chain(self, buffers: _LatencyBuffers) -> None:
-        self._context.launch(
-            self._kernel,
+    def _run_chain(
+        self, buffers: _LatencyBuffers, *, profile_clock: bool = False
+    ) -> float | None:
+        arguments = (
             self._pass_count,
             self._chain_length,
             buffers.mask,
             buffers.elapsed_ticks,
             buffers.output,
             *buffers.inputs,
-            config=LaunchConfig(),
         )
+        if profile_clock:
+            profile = self._context.launch_and_profile(
+                self._kernel,
+                *arguments,
+                config=LaunchConfig(),
+                metrics={KernelMetric.CLOCK_FREQUENCY},
+            )
+            return profile.clock_frequency_hz
+
+        self._context.launch(self._kernel, *arguments, config=LaunchConfig())
+        return None
 
     def _warmup(
         self,
@@ -219,19 +280,26 @@ class LatencyBenchmark:
         runs: int,
     ) -> None:
         for run in range(runs):
-            sample_index = run % input_arrays[0].size
-            self._copy_inputs_to_device(input_arrays, buffers, sample_index)
+            input_index = run % input_arrays[0].size
+            self._copy_inputs_to_device(input_arrays, buffers, input_index)
             self._run_chain(buffers)
 
-    def _measure_chain(self, buffers: _LatencyBuffers) -> np.uint64:
-        self._run_chain(buffers)
+    def _measure_chain(
+        self, buffers: _LatencyBuffers, min_clock_hz: float
+    ) -> np.uint64 | None:
+        clock_hz = self._run_chain(buffers, profile_clock=min_clock_hz > 0)
+        if min_clock_hz > 0 and (
+            clock_hz is None or not isfinite(clock_hz) or clock_hz < min_clock_hz
+        ):
+            return None
+
         self._context.copy_to_host(buffers.host_elapsed_ticks, buffers.elapsed_ticks)
         return buffers.host_elapsed_ticks[0]
 
 
 def analyze(measurement: LatencyMeasurement) -> LatencyResult:
     times = measurement.device_info.timer_info.to_nanoseconds(measurement.elapsed_ticks)
-    latencies = np.median(times / measurement.chain_length, axis=1)
+    latencies = times / measurement.chain_length
 
     return LatencyResult(
         measurement=measurement,
@@ -251,3 +319,16 @@ def _as_integer(value: int, name: str) -> int:
         return index(value)
     except TypeError as error:
         raise TypeError(f"{name} must be an integer") from error
+
+
+def _remaining_sample_secs(
+    deadline: float, batch: inputs.InputBatch, input_index: int
+) -> float:
+    remaining_secs = deadline - monotonic()
+    if remaining_secs <= 0:
+        raise TimeoutError(
+            f"latency sample for domain {batch.domain!r} is incomplete after timeout: "
+            f"{input_index}/{batch.size} observations accepted, "
+            f"input index {input_index} pending"
+        )
+    return remaining_secs

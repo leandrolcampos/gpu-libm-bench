@@ -35,8 +35,8 @@ By default, the benchmark runs all available libraries that provide the selected
 
 The following latency results (in ns/call) come from separate runs on an NVIDIA GeForce RTX 5070.
 
-| Domain | Input distribution | Library | Mean | StDev | Min | Max | Samples |
-| ------ | ------------------ | ------- | ---: | ----: | --: | --: | ------: |
+| Domain | Input distribution | Library | Mean | StDev | Min | Max | Sample size |
+| ------ | ------------------ | ------- | ---: | ----: | --: | --: | ----------: |
 | central | uniform(-10, 10) | llvm-libm | 50.011 | 0.1092 | 49.941 | 50.195 | 8192 |
 | central | uniform(-10, 10) | libdevice | 18.058 | 0.0010558 | 18.055 | 18.059 | 8192 |
 | wide | uniform(-80, 80) | llvm-libm | 50.192 | 0.0013257 | 50.188 | 50.195 | 8192 |

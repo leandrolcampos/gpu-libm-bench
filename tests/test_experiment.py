@@ -50,7 +50,7 @@ def config() -> ExperimentConfig:
                 "metric=latency",
                 "backend=cuda",
                 "run.libraries=[llvm-libm]",
-                "metric.sample_size=128",
+                "metric.sample.size=128",
             ],
         )
 
@@ -71,10 +71,10 @@ def experiment_result(config: ExperimentConfig) -> ExperimentResult:
     )
     measurement = latency.LatencyMeasurement(
         inputs.InputBatch(
-            "central", {"x": np.ones(config.metric.sample_size, dtype=np.float32)}
+            "central", {"x": np.ones(config.metric.sample.size, dtype=np.float32)}
         ),
         np.full(
-            (config.metric.sample_size, config.metric.repetitions),
+            config.metric.sample.size,
             config.metric.chain_length,
             dtype=np.uint64,
         ),
@@ -133,11 +133,20 @@ def execution(
 
     benchmarks = []
 
-    def benchmark(context, kernel, *, chain_length, repetitions, warmup_runs):
+    def benchmark(
+        context,
+        kernel,
+        *,
+        timeout_secs,
+        chain_length,
+        warmup_runs,
+        min_clock_ratio,
+        initial_delay_secs,
+    ):
         value = Mock()
         value.measure.side_effect = lambda batch: latency.LatencyMeasurement(
             batch,
-            np.full((batch.size, repetitions), chain_length, dtype=np.uint64),
+            np.full(batch.size, chain_length, dtype=np.uint64),
             context.device_info,
             pass_count=2,
             chain_length=chain_length,
@@ -211,27 +220,28 @@ def test_run_generates_configured_domain_inputs(
 
     for batch in batches:
         assert set(batch.arguments) == {"x"}
-        samples = batch.arguments["x"]
+        input_values = batch.arguments["x"]
 
         generator = config.function.domains[batch.domain].generator
         assert isinstance(generator, RandomGeneratorConfig)
         bounds = generator.arguments["x"]
 
-        assert samples.dtype == np.dtype(np.float32)
-        assert samples.shape == (config.metric.sample_size,)
-        assert samples.flags.c_contiguous
-        assert np.all(samples >= bounds["low"])
-        assert np.all(samples <= bounds["high"])
+        assert input_values.dtype == np.dtype(np.float32)
+        assert input_values.shape == (config.metric.sample.size,)
+        assert input_values.flags.c_contiguous
+        assert np.all(input_values >= bounds["low"])
+        assert np.all(input_values <= bounds["high"])
 
 
 @pytest.mark.parametrize("domains", [None, ["wide"], ["wide", "central"]])
 def test_selected_domain_inputs_are_reproducible(
     config: ExperimentConfig, domains: list[str] | None, execution
 ) -> None:
+    assert isinstance(config.metric, LatencyConfig)
     config = replace(
         config,
         run=replace(config.run, domains=domains),
-        metric=replace(config.metric, sample_size=32),
+        metric=replace(config.metric, sample=replace(config.metric.sample, size=32)),
     )
     experiment = Experiment(config)
     first = experiment.run().results[0]

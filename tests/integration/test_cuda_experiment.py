@@ -29,8 +29,7 @@ def test_experiment_compares_libraries_and_reuses_their_images(
                     "metric=latency",
                     "backend=cuda",
                     "run.libraries=[llvm-libm,libdevice]",
-                    "metric.sample_size=3",
-                    "metric.repetitions=3",
+                    "metric.sample.size=3",
                     "metric.chain_length=32",
                     "metric.warmup_runs=1",
                 ],
@@ -55,5 +54,5 @@ def test_experiment_compares_libraries_and_reuses_their_images(
         assert before.image_build_info == after.image_build_info
         assert list(before) == ["central", "wide"]
         for result in before.values():
-            assert result.measurement.elapsed_ticks.shape == (3, 3)
+            assert result.measurement.elapsed_ticks.shape == (3,)
             assert np.isfinite(result.mean)

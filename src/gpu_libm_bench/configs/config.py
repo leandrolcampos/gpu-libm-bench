@@ -59,11 +59,23 @@ class MetricConfig:
 
 
 @dataclass
+class SampleConfig:
+    size: int
+    timeout_secs: float
+
+
+@dataclass
+class ThrottleConfig:
+    min_clock_ratio: float
+    initial_delay_secs: float
+
+
+@dataclass
 class LatencyConfig(MetricConfig):
-    sample_size: int
+    sample: SampleConfig
     chain_length: int
-    repetitions: int
     warmup_runs: int
+    throttle: ThrottleConfig
 
 
 @dataclass

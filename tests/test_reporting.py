@@ -27,7 +27,9 @@ from gpu_libm_bench.configs import (
     LLVMConfig,
     RandomGeneratorConfig,
     RunConfig,
+    SampleConfig,
     SignatureConfig,
+    ThrottleConfig,
 )
 from gpu_libm_bench.devices import DeviceImage, DeviceInfo, TimerInfo
 from gpu_libm_bench.experiment import ExperimentResult, LatencyResults
@@ -62,7 +64,14 @@ def experiment() -> ExperimentResult:
             SignatureConfig("float", [ArgumentConfig("x", "float", "input")]),
             domains,
         ),
-        LatencyConfig("latency", "ns/call", 2, 512, 3, 10),
+        LatencyConfig(
+            name="latency",
+            unit="ns/call",
+            sample=SampleConfig(size=2, timeout_secs=60.0),
+            chain_length=512,
+            warmup_runs=10,
+            throttle=ThrottleConfig(min_clock_ratio=0.75, initial_delay_secs=0.05),
+        ),
         BackendConfig("cuda", target.target_triple, target.architecture, 0, "/cuda"),
         {
             "llvm-libm": LibraryConfig(
@@ -94,7 +103,7 @@ def experiment() -> ExperimentResult:
             inputs.InputBatch(
                 name, {"x": np.array([1234567, 7654321], dtype=np.float32)}
             ),
-            np.full((2, 3), 987654321, dtype=np.uint64),
+            np.full(2, 987654321, dtype=np.uint64),
             device_info,
             2,
             512,
@@ -185,7 +194,7 @@ def test_report_presents_domain_statistics_without_details(
         "StDev",
         "Min",
         "Max",
-        "Samples",
+        "Sample size",
     ]
     assert [cell.strip() for cell in row.split("│")[1:-1]] == [
         "llvm-libm",
@@ -209,7 +218,6 @@ def test_report_presents_domain_statistics_without_details(
 
     assert "Configuration and Provenance" not in output
     assert "Compiler:" not in output and "Memory:" not in output
-    assert "Timer:" not in output and "Repetitions:" not in output
 
 
 def test_report_uses_recorded_generator_descriptions(
@@ -274,15 +282,14 @@ def test_report_includes_provenance_when_requested(
     assert provenance.count("Seed: 42") == 1
     assert provenance.count("Environment: Python=3.12; NumPy=2.0") == 1
 
-    for line in (
+    method_lines = (
         "Method: dependent-call chain (overhead included)",
-        "Estimator: mean of per-sample medians",
-        "Repetitions: 3",
+        "Estimator: mean of per-input latencies",
         "Chain length: 512",
         "Passes: 2",
         "Warmup runs: 10",
-    ):
-        assert provenance.splitlines().count(f"  {line}") == 1
+    )
+    assert provenance.count("\n".join(f"  {line}" for line in method_lines)) == 1
 
     assert "Domains: central, wide" in provenance
 
@@ -313,9 +320,7 @@ def test_report_identifies_libraries_with_different_measurement_settings(
     wide = variant["wide"]
     changed = replace(
         wide,
-        measurement=replace(
-            wide.measurement, elapsed_ticks=np.full((2, 5), 123, dtype=np.uint64)
-        ),
+        measurement=replace(wide.measurement, warmup_runs=20),
     )
     result = replace(
         experiment,
@@ -332,5 +337,5 @@ def test_report_identifies_libraries_with_different_measurement_settings(
 
     original = details.split("Libraries: llvm-libm\n", 1)[1].split("Libraries:", 1)[0]
     variant = details.split("Libraries: variant\n", 1)[1].split("Libraries:", 1)[0]
-    assert "Domains: wide\n" in original and "Repetitions: 3\n" in original
-    assert "Domains: wide\n" in variant and "Repetitions: 5\n" in variant
+    assert "Domains: wide\n" in original and "Warmup runs: 10\n" in original
+    assert "Domains: wide\n" in variant and "Warmup runs: 20\n" in variant
