@@ -74,7 +74,7 @@ def experiment_result(config: ExperimentConfig) -> ExperimentResult:
             "central", {"x": np.ones(config.metric.sample.size, dtype=np.float32)}
         ),
         np.full(
-            (config.metric.sample.size, config.metric.repetitions),
+            config.metric.sample.size,
             config.metric.chain_length,
             dtype=np.uint64,
         ),
@@ -133,11 +133,20 @@ def execution(
 
     benchmarks = []
 
-    def benchmark(context, kernel, *, chain_length, warmup_runs, repetitions):
+    def benchmark(
+        context,
+        kernel,
+        *,
+        timeout_secs,
+        chain_length,
+        warmup_runs,
+        min_clock_ratio,
+        initial_delay_secs,
+    ):
         value = Mock()
         value.measure.side_effect = lambda batch: latency.LatencyMeasurement(
             batch,
-            np.full((batch.size, repetitions), chain_length, dtype=np.uint64),
+            np.full(batch.size, chain_length, dtype=np.uint64),
             context.device_info,
             pass_count=2,
             chain_length=chain_length,

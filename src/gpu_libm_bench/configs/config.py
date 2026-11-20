@@ -75,7 +75,6 @@ class LatencyConfig(MetricConfig):
     sample: SampleConfig
     chain_length: int
     warmup_runs: int
-    repetitions: int
     throttle: ThrottleConfig
 
 

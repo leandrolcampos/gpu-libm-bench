@@ -125,7 +125,6 @@ def test_latency_benchmark_preserves_evaluation_results(
         kernel,
         chain_length=chain_length,
         warmup_runs=3,
-        repetitions=2,
     )
 
     launch = context.launch
@@ -145,7 +144,7 @@ def test_latency_benchmark_preserves_evaluation_results(
     monkeypatch.setattr(context, "launch", record_result)
     benchmark.measure(inputs.InputBatch("central", {"x": source}))
 
-    expected_results = np.concatenate((expected[:3], np.repeat(expected, 2)))
+    expected_results = np.concatenate((expected[:3], expected))
     np.testing.assert_array_equal(observed, expected_results.view(np.uint32))
 
 

@@ -76,7 +76,6 @@ def test_config_can_be_inspected_without_running_experiment(tmp_path: Path) -> N
         "sample",
         "chain_length",
         "warmup_runs",
-        "repetitions",
         "throttle",
     ]
     assert config.llvm.root == "/nonexistent/llvm"

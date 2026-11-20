@@ -129,12 +129,10 @@ def build_details(results: Sequence[LatencyResults]) -> Group:
 
 def _methodology(result: LatencyResult) -> Text:
     measurement = result.measurement
-    repetitions = measurement.elapsed_ticks.shape[1]
     return Text(
         "Method: dependent-call chain (overhead included)\n"
-        "Estimator: mean of per-input medians\n"
+        "Estimator: mean of per-input latencies\n"
         f"Chain length: {measurement.chain_length}\n"
         f"Passes: {measurement.pass_count}\n"
-        f"Warmup runs: {measurement.warmup_runs}\n"
-        f"Repetitions: {repetitions}"
+        f"Warmup runs: {measurement.warmup_runs}"
     )

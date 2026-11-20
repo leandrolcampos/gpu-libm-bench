@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from gpu_libm_bench import inputs
 from gpu_libm_bench.benchmarks.latency import LatencyBenchmark, LatencyResult, analyze
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
-from gpu_libm_bench.configs import FunctionConfig
+from gpu_libm_bench.configs import FunctionConfig, ThrottleConfig
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 from gpu_libm_bench.kernels import KernelKind, KernelRequest, KernelSpec
 
@@ -81,9 +81,10 @@ def run(
     input_generators: Sequence[inputs.InputGenerator],
     *,
     sample_size: int,
+    timeout_secs: float,
     chain_length: int,
     warmup_runs: int,
-    repetitions: int,
+    throttle: ThrottleConfig,
 ) -> tuple[LatencyResults, ...]:
     spec = KernelSpec.from_config(function, kind=KernelKind.LATENCY)
     results = []
@@ -95,20 +96,22 @@ def run(
         benchmark = LatencyBenchmark(
             context,
             kernel,
+            timeout_secs=timeout_secs,
             chain_length=chain_length,
             warmup_runs=warmup_runs,
-            repetitions=repetitions,
+            min_clock_ratio=throttle.min_clock_ratio,
+            initial_delay_secs=throttle.initial_delay_secs,
         )
 
-        results.append(
-            LatencyResults(
-                image_build_info,
-                tuple(
-                    analyze(benchmark.measure(batch))
-                    for generator in input_generators
-                    for batch in generator.batches(batch_size=sample_size)
-                ),
+        try:
+            measurements = tuple(
+                analyze(benchmark.measure(batch))
+                for generator in input_generators
+                for batch in generator.batches(batch_size=sample_size)
             )
-        )
+        except TimeoutError as error:
+            raise TimeoutError(f"{function.name} ({image.library}): {error}") from error
+
+        results.append(LatencyResults(image_build_info, measurements))
 
     return tuple(results)

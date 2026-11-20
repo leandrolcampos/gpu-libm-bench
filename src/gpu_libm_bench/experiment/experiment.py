@@ -150,9 +150,10 @@ class Experiment:
                 image_build_infos,
                 tuple(self._input_generators.values()),
                 sample_size=metric.sample.size,
+                timeout_secs=metric.sample.timeout_secs,
                 chain_length=metric.chain_length,
                 warmup_runs=metric.warmup_runs,
-                repetitions=metric.repetitions,
+                throttle=metric.throttle,
             )
 
         effective_config = replace(

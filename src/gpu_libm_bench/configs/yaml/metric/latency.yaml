@@ -14,7 +14,6 @@ sample:
 
 chain_length: 8192
 warmup_runs: 10
-repetitions: 11
 
 throttle:
   min_clock_ratio: 0.75

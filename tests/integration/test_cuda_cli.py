@@ -24,7 +24,6 @@ def test_cli_prints_experiment_results_and_optional_details(tmp_path: Path) -> N
         "metric.sample.size=2",
         "metric.chain_length=32",
         "metric.warmup_runs=1",
-        "metric.repetitions=3",
     ]
 
     for show_details in (False, True):
