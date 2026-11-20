@@ -1,0 +1,11 @@
+# Copyright 2026 Leandro Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+name: libdevice
+
+backends:
+  cuda:
+    bitcode_path: null
+
+functions:
+  expf: {symbol: __nv_expf}

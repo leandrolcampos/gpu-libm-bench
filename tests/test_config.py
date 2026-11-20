@@ -49,6 +49,41 @@ def test_build_configuration_allows_no_library(build_config: DictConfig) -> None
     assert validate_build_config(build_config).library is None
 
 
+def test_library_function_uses_its_name_as_the_default_symbol(
+    build_config: DictConfig,
+    experiment_config: DictConfig,
+) -> None:
+    build_library = validate_build_config(build_config).library
+    assert build_library is not None
+    experiment_library = validate_experiment_config(experiment_config).libraries[
+        "llvm-libm"
+    ]
+
+    for library in (build_library, experiment_library):
+        assert library.symbol_for("expf") == "expf"
+        with pytest.raises(KeyError, match="logf"):
+            library.symbol_for("logf")
+
+
+def test_library_function_resolves_an_alias(build_config: DictConfig) -> None:
+    build_config.library.functions.expf.symbol = "__nv_expf"
+
+    library = validate_build_config(build_config).library
+
+    assert library is not None
+    assert library.symbol_for("expf") == "__nv_expf"
+
+
+@pytest.mark.parametrize("symbol", ["", " "])
+def test_library_function_rejects_an_empty_symbol(
+    build_config: DictConfig, symbol: str
+) -> None:
+    build_config.library.functions.expf.symbol = symbol
+
+    with pytest.raises(ValueError, match="function 'expf'.*symbol must not be empty"):
+        validate_build_config(build_config)
+
+
 @pytest.mark.parametrize("field", ["backend.name", "library.name"])
 def test_build_rejects_empty_names(build_config: DictConfig, field: str) -> None:
     OmegaConf.update(build_config, field, " ")

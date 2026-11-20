@@ -18,6 +18,7 @@ from gpu_libm_bench.compiler._commands import run_tool
 from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.compiler.toolchains import LLVMToolchain, resolve_llvm
+from gpu_libm_bench.configs import load_library_config
 from gpu_libm_bench.devices import DeviceImage
 from gpu_libm_bench.kernels import KernelKind, KernelRequest
 
@@ -51,6 +52,14 @@ def compiled_image() -> tuple[DeviceImage, LLVMToolchain, dict[str, Any]]:
 
 
 @pytest.fixture(scope="module")
+def native_symbol(
+    compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
+) -> str:
+    image, _, _ = compiled_image
+    return load_library_config(image.library).symbol_for("expf")
+
+
+@pytest.fixture(scope="module")
 def unlinked_command(
     compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
 ) -> list[str]:
@@ -81,19 +90,21 @@ def unlinked_command(
 
 def test_wrappers_preserve_math_function_calls(
     unlinked_command: list[str],
+    native_symbol: str,
     tmp_path: Path,
 ) -> None:
     raw = tmp_path / "unlinked.ll"
     run_tool([*unlinked_command, "-S", "-emit-llvm", "-o", raw])
 
     raw_ir = raw.read_text()
-    assert re.search(r"\bcall\b[^\n]*@expf\(", raw_ir)
+    assert re.search(rf"\bcall\b[^\n]*@{re.escape(native_symbol)}\(", raw_ir)
     assert "@llvm.exp.f32(" not in raw_ir
 
 
 def test_missing_library_cannot_be_replaced_by_a_builtin(
     compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
     unlinked_command: list[str],
+    native_symbol: str,
     tmp_path: Path,
 ) -> None:
     _, _, metadata = compiled_image
@@ -109,7 +120,11 @@ def test_missing_library_cannot_be_replaced_by_a_builtin(
     )
 
     assert result.returncode != 0
-    assert re.search(r"(?:undefined|unresolved)[^\n]*\bexpf\b", result.stderr, re.I)
+    assert re.search(
+        rf"(?:undefined|unresolved)[^\n]*\b{re.escape(native_symbol)}\b",
+        result.stderr,
+        re.I,
+    )
 
 
 def test_image_exports_registered_kernels(
@@ -133,7 +148,8 @@ def test_image_exports_registered_kernels(
         re.MULTILINE,
     )
 
-    for function in metadata["functions"]:
+    assert image.functions
+    for function in image.functions:
         for kind in KernelKind:
             request = KernelRequest(image.library, function, kind)
             assert request.symbol in symbols

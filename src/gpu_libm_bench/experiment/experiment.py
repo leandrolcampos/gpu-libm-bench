@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Benchmark experiment orchestration."""
+"""Benchmark experiment orchestration and result validation."""
 
 import platform
 import sys
@@ -204,12 +204,12 @@ class Experiment:
                 llvm=llvm,
                 backend_sdk=backend_sdk,
                 build_directory=paths.image_build_directory(
-                    resolved_library.library,
+                    resolved_library.name,
                     backend=target.backend,
                     architecture=target.architecture,
                 ),
             )
-            if resolved_library.library != "support":
+            if resolved_library.name != "support":
                 image_build_infos.append(read_device_image_build_info(image))
 
         return tuple(image_build_infos)

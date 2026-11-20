@@ -14,13 +14,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(GPULibmBenchImageRules)
 
-set(supported_libraries llvm-libm support)
-if(GPU_LIBM_BENCH_LIBRARY)
-  if(NOT GPU_LIBM_BENCH_LIBRARY IN_LIST supported_libraries)
-    message(FATAL_ERROR "Unsupported library: ${GPU_LIBM_BENCH_LIBRARY}")
-  endif()
-
-  add_subdirectory("${GPU_LIBM_BENCH_LIBRARY}")
+if(GPU_LIBM_BENCH_LIBRARY STREQUAL "support")
+  add_subdirectory(support)
+elseif(GPU_LIBM_BENCH_LIBRARY)
+  add_subdirectory(libm)
 endif()
 
 option(BUILD_TESTING "Build device validation kernels" OFF)

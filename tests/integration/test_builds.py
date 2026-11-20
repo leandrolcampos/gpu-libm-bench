@@ -19,6 +19,7 @@ from gpu_libm_bench.compiler.backends import build_backend
 from gpu_libm_bench.compiler.libraries import ResolvedLibrary, resolve_library
 from gpu_libm_bench.compiler.targets import CompilationTarget, resolve_target
 from gpu_libm_bench.compiler.toolchains import resolve_backend_sdk, resolve_llvm
+from gpu_libm_bench.configs import load_library_config
 
 pytestmark = pytest.mark.images
 
@@ -116,9 +117,8 @@ def test_support_library_builds_image_without_bitcode(tmp_path: Path) -> None:
         "nvptx64-nvidia-cuda",
         os.environ.get("GPU_LIBM_BENCH_ARCHITECTURE", "sm_80"),
     )
-    resolved_library = resolve_library(library="support", llvm=llvm, target=target)
     build = images.configure_kernels(
-        resolved_library=resolved_library,
+        resolved_library=ResolvedLibrary("support"),
         target=target,
         llvm=llvm,
         backend_sdk=backend_sdk,
@@ -136,6 +136,7 @@ def test_support_library_builds_image_without_bitcode(tmp_path: Path) -> None:
     assert image.image_path == tmp_path / "support.cubin"
     assert build_info.bitcode_path is None
     assert image.functions == ()
+    assert not (tmp_path / "generated" / "LibraryBindings.def").exists()
 
     ptx = Path(plan["ptx"]).read_text()
     assert f".target {target.architecture}" in ptx
@@ -158,7 +159,12 @@ def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
         llvm=llvm,
         backend_sdk=backend_sdk,
     )
-    resolved_library = resolve_library(library="llvm-libm", llvm=llvm, target=target)
+    resolved_library = resolve_library(
+        library_config=load_library_config("llvm-libm"),
+        llvm=llvm,
+        target=target,
+        backend_sdk=backend_sdk,
+    )
     assert resolved_library.bitcode_path is not None
 
     first = tmp_path / "first.bc"
@@ -170,7 +176,7 @@ def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
 
     def build(bitcode_path: Path):
         return images.build_kernels(
-            resolved_library=ResolvedLibrary(resolved_library.library, bitcode_path),
+            resolved_library=replace(resolved_library, bitcode_path=bitcode_path),
             target=target,
             llvm=llvm,
             backend_sdk=backend_sdk,

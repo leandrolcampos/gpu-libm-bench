@@ -36,7 +36,7 @@ static void probeInputs(uint32_t PassCount, uint32_t ChainLength,
 
   Trace = ObservedInputs;
   CallCount = 0;
-  gpu_libm_bench::measure_latency<observeInputs<FloatType, OtherInputTypes...>>(
+  gpu_libm_bench::measureLatency<observeInputs<FloatType, OtherInputTypes...>>(
       PassCount, ChainLength, ZeroMask, ElapsedTicks, Output, FirstInput,
       OtherInputs...);
   ObservedCount[0] = CallCount;

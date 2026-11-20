@@ -1,22 +1,15 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Math library selection for benchmark experiments."""
+"""Select and resolve math libraries for the requested experiment."""
 
-from pathlib import Path
-
-from gpu_libm_bench.compiler import paths
-from gpu_libm_bench.compiler.images import configure_kernels, read_registered_functions
 from gpu_libm_bench.compiler.libraries import (
     LibraryUnavailableError,
     ResolvedLibrary,
     resolve_library,
 )
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import (
-    BackendSDK,
-    LLVMToolchain,
-)
+from gpu_libm_bench.compiler.toolchains import BackendSDK, LLVMToolchain
 from gpu_libm_bench.configs import ExperimentConfig
 from gpu_libm_bench.kernels import KernelKind, KernelSpec
 
@@ -27,7 +20,6 @@ def select_libraries(
     llvm: LLVMToolchain,
     target: CompilationTarget,
     backend_sdk: BackendSDK,
-    build_root: Path | None = None,
 ) -> tuple[ResolvedLibrary, ...]:
     if target.backend != config.backend.name:
         raise ValueError("target backend does not match the experiment configuration")
@@ -38,52 +30,31 @@ def select_libraries(
         raise ValueError(f"unsupported experiment metric: {config.metric.name!r}")
 
     explicit = config.run.libraries is not None
-    names = config.libraries if config.run.libraries is None else config.run.libraries
+    libraries = (
+        config.libraries if config.run.libraries is None else config.run.libraries
+    )
     selected = []
-    for name in names:
-        library_config = config.libraries[name]
+    for library in libraries:
+        library_config = config.libraries[library]
         try:
-            bitcode_config = library_config.backends.get(target.backend)
-            if bitcode_config is None:
+            if config.function.name not in library_config.functions:
                 raise LibraryUnavailableError(
-                    f"library {name!r} does not declare support "
-                    f"for backend {target.backend!r}"
+                    f"library {library!r} does not declare function "
+                    f"{config.function.name!r}"
                 )
 
             resolved_library = resolve_library(
-                library=library_config.name,
+                library_config=library_config,
                 llvm=llvm,
                 target=target,
-                bitcode_path=Path(bitcode_config.bitcode_path)
-                if bitcode_config.bitcode_path is not None
-                else None,
-                required_symbols=(config.function.name,),
-            )
-
-            build = configure_kernels(
-                resolved_library=resolved_library,
-                target=target,
-                llvm=llvm,
                 backend_sdk=backend_sdk,
-                build_directory=paths.image_build_directory(
-                    name,
-                    backend=target.backend,
-                    architecture=target.architecture,
-                    root=build_root,
-                ),
             )
-            functions = read_registered_functions(build, library=name, target=target)
-            if config.function.name not in functions:
-                raise LibraryUnavailableError(
-                    f"library {name!r} has no wrappers "
-                    f"for function {config.function.name!r} "
-                    f"on backend {target.backend!r}"
-                )
         except LibraryUnavailableError as error:
             if explicit:
                 raise LibraryUnavailableError(
-                    f"library {name!r} is unavailable for {config.function.name!r}/"
-                    f"{config.metric.name!r} on backend {target.backend!r}: {error}"
+                    f"library {library!r} is unavailable for {config.function.name!r}/"
+                    f"{config.metric.name!r} on backend "
+                    f"{target.backend.value!r}: {error}"
                 ) from error
             continue
 
@@ -92,7 +63,7 @@ def select_libraries(
     if not selected:
         raise LibraryUnavailableError(
             f"no math libraries are available for {config.function.name!r}/"
-            f"{config.metric.name!r} on backend {target.backend!r}"
+            f"{config.metric.name!r} on backend {target.backend.value!r}"
         )
 
     return tuple(selected)

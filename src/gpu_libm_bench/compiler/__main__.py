@@ -190,20 +190,22 @@ def _compile_kernels(
 ) -> None:
     llvm: LLVMToolchain | None = None
     completed = False
-    requested: str | None = None
+    requested_library: str | None = None
 
     for _, group in groupby(configs, key=lambda config: config.backend.name):
         choices = tuple(group)
         backend = choices[0].backend
-        libraries = _select_libraries(choices)
-        selected_library = choices[0].library
-        if explicit_library and selected_library is not None:
-            requested = selected_library.name
+        library_configs = _select_library_configs(choices)
+        selected_library_config = choices[0].library
 
-        if not libraries:
+        if explicit_library and selected_library_config is not None:
+            requested_library = selected_library_config.name
+
+        if not library_configs:
             if explicit_backend and explicit_library:
                 raise LibraryUnavailableError(
-                    f"library {requested!r} does not support backend {backend.name!r}"
+                    f"library {requested_library!r} does not support backend "
+                    f"{backend.name!r}"
                 )
             continue
 
@@ -241,16 +243,13 @@ def _compile_kernels(
             backend_sdk=backend_sdk,
         )
 
-        for library in libraries:
+        for library_config in library_configs:
             try:
-                bitcode_path = library.backends[target.backend].bitcode_path
                 resolved_library = resolve_library(
-                    library=library.name,
+                    library_config=library_config,
                     llvm=llvm,
                     target=target,
-                    bitcode_path=Path(bitcode_path)
-                    if bitcode_path is not None
-                    else None,
+                    backend_sdk=backend_sdk,
                 )
                 _compile_library_kernels(
                     resolved_library,
@@ -263,38 +262,39 @@ def _compile_kernels(
                 if explicit_backend and explicit_library:
                     raise
                 print(
-                    f"Skipping {library.name}/{backend.name}: {error}", file=sys.stderr
+                    f"Skipping {library_config.name}/{backend.name}: {error}",
+                    file=sys.stderr,
                 )
                 continue
 
             completed = True
 
     if not completed:
-        if requested is not None:
+        if requested_library is not None:
             raise LibraryUnavailableError(
-                f"selected math library is unavailable: {requested}"
+                f"selected math library is unavailable: {requested_library}"
             )
         raise LibraryUnavailableError(
             "no library/backend combinations are available for kernel compilation"
         )
 
 
-def _select_libraries(configs: Sequence[BuildConfig]) -> list[LibraryConfig]:
-    libraries = []
+def _select_library_configs(configs: Sequence[BuildConfig]) -> list[LibraryConfig]:
+    library_configs = []
     names: set[str] = set()
 
     for config in configs:
-        library = config.library
-        if library is None:
+        library_config = config.library
+        if library_config is None:
             raise ValueError("kernel compilation requires a library")
-        if library.name in names:
+        if library_config.name in names:
             raise ValueError("selected libraries must have distinct names")
-        names.add(library.name)
+        names.add(library_config.name)
 
-        if config.backend.name in library.backends:
-            libraries.append(library)
+        if config.backend.name in library_config.backends:
+            library_configs.append(library_config)
 
-    return libraries
+    return library_configs
 
 
 def _get_device_info(
@@ -337,7 +337,7 @@ def _compile_library_kernels(
         llvm=llvm,
         backend_sdk=backend_sdk,
         build_directory=paths.image_build_directory(
-            resolved_library.library,
+            resolved_library.name,
             backend=target.backend,
             architecture=target.architecture,
             root=build_root,
