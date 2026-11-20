@@ -53,7 +53,7 @@ def test_config_can_be_inspected_without_running_experiment(tmp_path: Path) -> N
         "--resolve",
         "--details",
         *SELECTIONS,
-        "metric.sample_size=16",
+        "metric.sample.size=16",
         "llvm.root=/nonexistent/llvm",
     )
     assert result.returncode == 0, result.stderr
@@ -66,7 +66,19 @@ def test_config_can_be_inspected_without_running_experiment(tmp_path: Path) -> N
         config.libraries["llvm-libm"].name,
         config.backend.name,
     ) == ("expf", "latency", "llvm-libm", "cuda")
-    assert config.metric.sample_size == 16
+    assert config.metric.sample.size == 16
+    assert config.metric.sample.timeout_secs == 60.0
+    assert config.metric.throttle.min_clock_ratio == 0.75
+    assert config.metric.throttle.initial_delay_secs == 0.05
+    assert list(config.metric) == [
+        "name",
+        "unit",
+        "sample",
+        "chain_length",
+        "warmup_runs",
+        "repetitions",
+        "throttle",
+    ]
     assert config.llvm.root == "/nonexistent/llvm"
 
 
@@ -88,7 +100,8 @@ def test_cli_runs_and_reports_experiment(
             "gpu-libm-bench",
             *SELECTIONS,
             *(["--details"] if show_details else []),
-            "metric.sample_size=16",
+            "metric.sample.size=16",
+            "metric.sample.timeout_secs=25.0",
             "run.domains=[wide,central]",
         ],
     )
@@ -98,7 +111,8 @@ def test_cli_runs_and_reports_experiment(
     factory.assert_called_once()
     config = factory.call_args.args[0]
     assert config.function.name == "expf"
-    assert config.metric.sample_size == 16
+    assert config.metric.sample.size == 16
+    assert config.metric.sample.timeout_secs == 25.0
     assert config.run.domains == ["wide", "central"]
 
     experiment.run.assert_called_once_with()

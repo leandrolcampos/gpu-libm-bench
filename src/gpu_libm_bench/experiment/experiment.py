@@ -99,7 +99,7 @@ class Experiment:
             name: inputs.InputGenerator.from_config(
                 function.domains[name].generator,
                 function.signature,
-                sample_size=metric.sample_size,
+                sample_size=metric.sample.size,
                 domain=name,
                 rng=domain_rng,
             )
@@ -149,10 +149,10 @@ class Experiment:
                 config.function,
                 image_build_infos,
                 tuple(self._input_generators.values()),
-                sample_size=metric.sample_size,
+                sample_size=metric.sample.size,
                 chain_length=metric.chain_length,
-                repetitions=metric.repetitions,
                 warmup_runs=metric.warmup_runs,
+                repetitions=metric.repetitions,
             )
 
         effective_config = replace(

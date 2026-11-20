@@ -67,8 +67,8 @@ class LatencyBenchmark:
         kernel: DeviceKernel,
         *,
         chain_length: int,
-        repetitions: int,
         warmup_runs: int,
+        repetitions: int,
     ) -> None:
         arguments = iter(kernel.spec.arguments)
         latency_dtypes = {}
@@ -90,13 +90,13 @@ class LatencyBenchmark:
         if not 1 <= chain_length <= max_chain_length:
             raise ValueError(f"chain_length must be between 1 and {max_chain_length}")
 
-        repetitions = _as_integer(repetitions, "repetitions")
-        if repetitions < 1:
-            raise ValueError("repetitions must be positive")
-
         warmup_runs = _as_integer(warmup_runs, "warmup_runs")
         if warmup_runs < 0:
             raise ValueError("warmup_runs must be nonnegative")
+
+        repetitions = _as_integer(repetitions, "repetitions")
+        if repetitions < 1:
+            raise ValueError("repetitions must be positive")
 
         self._context = context
         self._kernel = kernel
@@ -105,8 +105,8 @@ class LatencyBenchmark:
 
         self._pass_count = latency_dtypes["pass_count"].type(_PASS_COUNT)
         self._chain_length = latency_dtypes["chain_length"].type(chain_length)
-        self._repetitions = repetitions
         self._warmup_runs = warmup_runs
+        self._repetitions = repetitions
 
     def measure(self, batch: inputs.InputBatch) -> LatencyMeasurement:
         snapshot = self._snapshot_batch(batch)
@@ -124,11 +124,11 @@ class LatencyBenchmark:
 
         self._warmup(input_arrays, buffers, self._warmup_runs)
 
-        for sample_index in range(snapshot.size):
-            self._copy_inputs_to_device(input_arrays, buffers, sample_index)
+        for input_index in range(snapshot.size):
+            self._copy_inputs_to_device(input_arrays, buffers, input_index)
 
             for repetition in range(self._repetitions):
-                elapsed_ticks[sample_index, repetition] = self._measure_chain(buffers)
+                elapsed_ticks[input_index, repetition] = self._measure_chain(buffers)
 
         return LatencyMeasurement(
             inputs=snapshot,
@@ -193,11 +193,11 @@ class LatencyBenchmark:
         self,
         input_arrays: tuple[NDArray[Scalar], ...],
         buffers: _LatencyBuffers,
-        sample_index: int,
+        input_index: int,
     ) -> None:
         for destination, source in zip(buffers.inputs, input_arrays, strict=True):
             self._context.copy_to_device(
-                destination, source[sample_index : sample_index + 1]
+                destination, source[input_index : input_index + 1]
             )
 
     def _run_chain(self, buffers: _LatencyBuffers) -> None:
@@ -219,8 +219,8 @@ class LatencyBenchmark:
         runs: int,
     ) -> None:
         for run in range(runs):
-            sample_index = run % input_arrays[0].size
-            self._copy_inputs_to_device(input_arrays, buffers, sample_index)
+            input_index = run % input_arrays[0].size
+            self._copy_inputs_to_device(input_arrays, buffers, input_index)
             self._run_chain(buffers)
 
     def _measure_chain(self, buffers: _LatencyBuffers) -> np.uint64:

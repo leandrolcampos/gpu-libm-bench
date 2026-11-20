@@ -8,7 +8,14 @@ defaults:
 name: latency
 unit: ns/call
 
-sample_size: 8192
+sample:
+  size: 8192
+  timeout_secs: 60.0
+
 chain_length: 8192
-repetitions: 11
 warmup_runs: 10
+repetitions: 11
+
+throttle:
+  min_clock_ratio: 0.75
+  initial_delay_secs: 0.05

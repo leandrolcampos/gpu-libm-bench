@@ -90,12 +90,12 @@ def _format_table(
                 _format_number(result.stdev) if result.stdev is not None else "N/A",
                 _format_number(result.min),
                 _format_number(result.max),
-                str(result.measurement.inputs.size),
+                str(result.latencies.size),
             )
         )
 
     return (
-        ("Library", "Mean", "StDev", "Min", "Max", "Samples"),
+        ("Library", "Mean", "StDev", "Min", "Max", "Sample size"),
         tuple(cells),
     )
 
@@ -132,9 +132,9 @@ def _methodology(result: LatencyResult) -> Text:
     repetitions = measurement.elapsed_ticks.shape[1]
     return Text(
         "Method: dependent-call chain (overhead included)\n"
-        "Estimator: mean of per-sample medians\n"
-        f"Repetitions: {repetitions}\n"
+        "Estimator: mean of per-input medians\n"
         f"Chain length: {measurement.chain_length}\n"
         f"Passes: {measurement.pass_count}\n"
-        f"Warmup runs: {measurement.warmup_runs}"
+        f"Warmup runs: {measurement.warmup_runs}\n"
+        f"Repetitions: {repetitions}"
     )

@@ -82,8 +82,8 @@ def run(
     *,
     sample_size: int,
     chain_length: int,
-    repetitions: int,
     warmup_runs: int,
+    repetitions: int,
 ) -> tuple[LatencyResults, ...]:
     spec = KernelSpec.from_config(function, kind=KernelKind.LATENCY)
     results = []
@@ -96,8 +96,8 @@ def run(
             context,
             kernel,
             chain_length=chain_length,
-            repetitions=repetitions,
             warmup_runs=warmup_runs,
+            repetitions=repetitions,
         )
 
         results.append(

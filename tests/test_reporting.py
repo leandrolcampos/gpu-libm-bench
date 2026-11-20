@@ -27,7 +27,9 @@ from gpu_libm_bench.configs import (
     LLVMConfig,
     RandomGeneratorConfig,
     RunConfig,
+    SampleConfig,
     SignatureConfig,
+    ThrottleConfig,
 )
 from gpu_libm_bench.devices import DeviceImage, DeviceInfo, TimerInfo
 from gpu_libm_bench.experiment import ExperimentResult, LatencyResults
@@ -62,7 +64,15 @@ def experiment() -> ExperimentResult:
             SignatureConfig("float", [ArgumentConfig("x", "float", "input")]),
             domains,
         ),
-        LatencyConfig("latency", "ns/call", 2, 512, 3, 10),
+        LatencyConfig(
+            name="latency",
+            unit="ns/call",
+            sample=SampleConfig(size=2, timeout_secs=60.0),
+            chain_length=512,
+            warmup_runs=10,
+            repetitions=3,
+            throttle=ThrottleConfig(min_clock_ratio=0.75, initial_delay_secs=0.05),
+        ),
         BackendConfig("cuda", target.target_triple, target.architecture, 0, "/cuda"),
         {
             "llvm-libm": LibraryConfig(
@@ -185,7 +195,7 @@ def test_report_presents_domain_statistics_without_details(
         "StDev",
         "Min",
         "Max",
-        "Samples",
+        "Sample size",
     ]
     assert [cell.strip() for cell in row.split("│")[1:-1]] == [
         "llvm-libm",
@@ -274,15 +284,15 @@ def test_report_includes_provenance_when_requested(
     assert provenance.count("Seed: 42") == 1
     assert provenance.count("Environment: Python=3.12; NumPy=2.0") == 1
 
-    for line in (
+    method_lines = (
         "Method: dependent-call chain (overhead included)",
-        "Estimator: mean of per-sample medians",
-        "Repetitions: 3",
+        "Estimator: mean of per-input medians",
         "Chain length: 512",
         "Passes: 2",
         "Warmup runs: 10",
-    ):
-        assert provenance.splitlines().count(f"  {line}") == 1
+        "Repetitions: 3",
+    )
+    assert provenance.count("\n".join(f"  {line}" for line in method_lines)) == 1
 
     assert "Domains: central, wide" in provenance
 

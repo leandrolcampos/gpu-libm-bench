@@ -29,7 +29,7 @@ struct KernelProfiler::ClockCounters {
 };
 
 struct KernelProfiler::ClockFrequencyResources {
-  struct Samples {
+  struct ClockCounterReadings {
     ClockCounters Start;
     ClockCounters Stop;
   };
@@ -37,7 +37,7 @@ struct KernelProfiler::ClockFrequencyResources {
   explicit ClockFrequencyResources(CUcontext Context) : Context(Context) {}
 
   ~ClockFrequencyResources() noexcept {
-    if (!HostSamples)
+    if (!HostReadings)
       return;
 
     auto Guard = CurrentContextGuard::create(Context);
@@ -47,7 +47,7 @@ struct KernelProfiler::ClockFrequencyResources {
     }
 
     reportCleanupError(
-        check(cuMemFreeHost(HostSamples), "cuMemFreeHost(clock counters)"));
+        check(cuMemFreeHost(HostReadings), "cuMemFreeHost(clock counters)"));
   }
 
   ClockFrequencyResources(const ClockFrequencyResources &) = delete;
@@ -56,7 +56,7 @@ struct KernelProfiler::ClockFrequencyResources {
   CUcontext Context;
   CUfunction ReadClockCounters = nullptr;
   int SMCount = 0;
-  Samples *HostSamples = nullptr;
+  ClockCounterReadings *HostReadings = nullptr;
   CUdeviceptr DeviceStartCounters = 0;
   CUdeviceptr DeviceStopCounters = 0;
 };
@@ -178,7 +178,7 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
 
   *HostStreamControl = {};
   if (ClockFrequency)
-    *CachedClockFrequency->HostSamples = {};
+    *CachedClockFrequency->HostReadings = {};
 
   // Hold the stream until the kernel and its measurement operations are queued.
   struct ProfilingGuard {
@@ -222,7 +222,7 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
       return Err;
   }
 
-  // Wait for GPU writes before reading the control flags and counter samples.
+  // Wait for GPU writes before reading the control flags and counter readings.
   if (auto Err = unblock())
     return Err;
   if (HostStreamControl->TimedOut)
@@ -231,7 +231,7 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
 
   KernelProfile Profile;
   if (ClockFrequency) {
-    const auto &[Start, Stop] = *CachedClockFrequency->HostSamples;
+    const auto &[Start, Stop] = *CachedClockFrequency->HostReadings;
     if (!Start.Written || !Stop.Written || Stop.Steady <= Start.Steady ||
         Stop.Cycles <= Start.Cycles) {
       Profile.ClockFrequencyHz = std::numeric_limits<double>::quiet_NaN();
@@ -282,21 +282,23 @@ Error KernelProfiler::prepareClockFrequency() {
                        "cuDeviceGetAttribute(MULTIPROCESSOR_COUNT)"))
     return Err;
 
-  using Samples = ClockFrequencyResources::Samples;
+  using ClockCounterReadings = ClockFrequencyResources::ClockCounterReadings;
   void *Storage = nullptr;
-  if (auto Err = check(
-          cuMemHostAlloc(&Storage, sizeof(Samples), CU_MEMHOSTALLOC_DEVICEMAP),
-          "cuMemHostAlloc(clock counters)"))
+  if (auto Err = check(cuMemHostAlloc(&Storage, sizeof(ClockCounterReadings),
+                                      CU_MEMHOSTALLOC_DEVICEMAP),
+                       "cuMemHostAlloc(clock counters)"))
     return Err;
-  Resources->HostSamples = new (Storage) Samples;
+  Resources->HostReadings = new (Storage) ClockCounterReadings;
 
-  CUdeviceptr DeviceSamples = 0;
-  if (auto Err = check(cuMemHostGetDevicePointer(&DeviceSamples, Storage, 0),
+  CUdeviceptr DeviceReadings = 0;
+  if (auto Err = check(cuMemHostGetDevicePointer(&DeviceReadings, Storage, 0),
                        "cuMemHostGetDevicePointer(clock counters)"))
     return Err;
 
-  Resources->DeviceStartCounters = DeviceSamples + offsetof(Samples, Start);
-  Resources->DeviceStopCounters = DeviceSamples + offsetof(Samples, Stop);
+  Resources->DeviceStartCounters =
+      DeviceReadings + offsetof(ClockCounterReadings, Start);
+  Resources->DeviceStopCounters =
+      DeviceReadings + offsetof(ClockCounterReadings, Stop);
 
   CachedClockFrequency = std::move(Resources);
   return Error::success();

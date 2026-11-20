@@ -39,18 +39,18 @@ def latency_kernel() -> DeviceKernel:
     [
         ({"chain_length": 0}, ValueError, "chain_length must be between"),
         ({"chain_length": 2**32}, ValueError, "chain_length must be between"),
-        ({"repetitions": 0}, ValueError, "repetitions must be positive"),
-        ({"warmup_runs": -1}, ValueError, "warmup_runs must be nonnegative"),
         ({"chain_length": 1.5}, TypeError, "chain_length must be an integer"),
-        ({"repetitions": 1.5}, TypeError, "repetitions must be an integer"),
+        ({"warmup_runs": -1}, ValueError, "warmup_runs must be nonnegative"),
         ({"warmup_runs": True}, TypeError, "warmup_runs must be an integer"),
+        ({"repetitions": 0}, ValueError, "repetitions must be positive"),
+        ({"repetitions": 1.5}, TypeError, "repetitions must be an integer"),
         ({"repetitions": np.bool_(True)}, TypeError, "repetitions must be an integer"),
     ],
 )
 def test_invalid_benchmark_arguments_are_rejected(
     latency_kernel: DeviceKernel, invalid_arguments, error, message
 ) -> None:
-    arguments = dict(chain_length=1, repetitions=2, warmup_runs=0)
+    arguments = dict(chain_length=1, warmup_runs=0, repetitions=2)
     arguments.update(invalid_arguments)
 
     with pytest.raises(error, match=message):
@@ -123,8 +123,8 @@ def test_measurement_preserves_input_association_and_excludes_warmup(
         context,
         kernel,
         chain_length=7,
-        repetitions=2,
         warmup_runs=warmup_runs,
+        repetitions=2,
     )
 
     values = np.array([11, 22, 33], dtype=dtype)
@@ -180,8 +180,8 @@ def test_measurement_rejects_incompatible_inputs(
         context,
         latency_kernel,
         chain_length=1,
-        repetitions=2,
         warmup_runs=0,
+        repetitions=2,
     )
 
     with pytest.raises(ValueError, match=message):
@@ -208,8 +208,8 @@ def test_incompatible_elapsed_ticks_dtype_is_rejected(
             Mock(spec=DeviceContext),
             kernel,
             chain_length=1,
-            repetitions=1,
             warmup_runs=0,
+            repetitions=1,
         )
 
 
@@ -228,8 +228,8 @@ def test_evaluation_kernel_is_rejected() -> None:
             Mock(spec=DeviceContext),
             kernel,
             chain_length=1,
-            repetitions=1,
             warmup_runs=0,
+            repetitions=1,
         )
 
 
@@ -262,7 +262,7 @@ def test_incompatible_secondary_input_is_rejected_before_allocation(
         Mock(), KernelSpec.from_config(function, kind=KernelKind.LATENCY)
     )
     benchmark = latency.LatencyBenchmark(
-        context, kernel, chain_length=1, repetitions=1, warmup_runs=0
+        context, kernel, chain_length=1, warmup_runs=0, repetitions=1
     )
     batch = inputs.InputBatch(
         "central",
@@ -275,7 +275,7 @@ def test_incompatible_secondary_input_is_rejected_before_allocation(
     context.create_buffer.assert_not_called()
 
 
-def test_analysis_summarizes_sample_medians() -> None:
+def test_analysis_summarizes_per_input_medians() -> None:
     measurement = latency.LatencyMeasurement(
         inputs=inputs.InputBatch("central", {"x": np.ones(3, dtype=np.float32)}),
         elapsed_ticks=np.array(
@@ -303,7 +303,7 @@ def test_analysis_summarizes_sample_medians() -> None:
     assert result.max == 20
 
 
-def test_single_sample_has_no_sample_standard_deviation() -> None:
+def test_single_observation_has_no_sample_standard_deviation() -> None:
     measurement = latency.LatencyMeasurement(
         inputs.InputBatch("central", {"x": np.ones(1, dtype=np.float32)}),
         np.array([[2, 4, 1000]], dtype=np.uint64),

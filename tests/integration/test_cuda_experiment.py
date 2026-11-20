@@ -29,10 +29,10 @@ def test_experiment_compares_libraries_and_reuses_their_images(
                     "metric=latency",
                     "backend=cuda",
                     "run.libraries=[llvm-libm,libdevice]",
-                    "metric.sample_size=3",
-                    "metric.repetitions=3",
+                    "metric.sample.size=3",
                     "metric.chain_length=32",
                     "metric.warmup_runs=1",
+                    "metric.repetitions=3",
                 ],
             )
         )

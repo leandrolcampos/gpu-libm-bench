@@ -124,8 +124,8 @@ def test_latency_benchmark_preserves_evaluation_results(
         context,
         kernel,
         chain_length=chain_length,
-        repetitions=2,
         warmup_runs=3,
+        repetitions=2,
     )
 
     launch = context.launch
