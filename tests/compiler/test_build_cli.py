@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for compilation discovery, filtering, and build coordination."""
+"""Test build selection, configuration overrides, and dispatch."""
 
 import sys
 from copy import deepcopy
@@ -76,17 +76,12 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             )
         ),
     )
-    monkeypatch.setattr(
-        build_cli,
-        "resolve_library",
-        Mock(
-            side_effect=lambda **kwargs: ResolvedLibrary(
-                kwargs["library"],
-                kwargs["bitcode_path"] or tmp_path / f"{kwargs['library']}.bc",
-            )
-        ),
-    )
 
+    def resolve_library(*, library_config, bitcode_path, **kwargs):
+        path = bitcode_path or tmp_path / f"{library_config.name}.bc"
+        return ResolvedLibrary(library_config.name, path)
+
+    monkeypatch.setattr(build_cli, "resolve_library", Mock(side_effect=resolve_library))
     monkeypatch.setattr(build_cli, "build_kernels", Mock())
     monkeypatch.setattr(
         build_cli,
@@ -246,7 +241,7 @@ def test_kernel_discovery_and_filters(
     calls = build_cli.build_kernels.call_args_list
     expected = expected | {(backend, "support") for backend, _ in expected}
     assert {
-        (call.kwargs["target"].backend, call.kwargs["resolved_library"].library)
+        (call.kwargs["target"].backend, call.kwargs["resolved_library"].name)
         for call in calls
     } == expected
     assert len(calls) == len(expected)
@@ -273,12 +268,16 @@ def test_kernel_command_preserves_build_selection(
         f"backend.architecture={architecture or 'null'}",
         f"llvm.root={llvm.root}",
         f"library.backends.cuda.bitcode_path={bitcode_path}",
+        "library.functions.expf.symbol=my_expf",
     )
 
     calls = build_cli.build_kernels.call_args_list
     support, call = (item.kwargs for item in calls)
     target = call["target"]
+    library_config = build_cli.resolve_library.call_args.kwargs["library_config"]
+
     assert target.architecture == (architecture or "sm_90")
+    assert library_config.symbol_for("expf") == "my_expf"
     assert call["resolved_library"] == ResolvedLibrary("llvm-libm", bitcode_path)
     assert call["build_directory"] == root / "cuda" / target.architecture / "llvm-libm"
     assert call["build_tests"] is True
@@ -397,7 +396,7 @@ def test_unavailable_library_is_skipped_only_when_selection_can_be_satisfied(
     resolve = build_cli.resolve_library.side_effect
 
     def unavailable(**kwargs):
-        if kwargs["library"] == "variant":
+        if kwargs["library_config"].name == "variant":
             raise LibraryUnavailableError("bitcode is missing")
         return resolve(**kwargs)
 
@@ -410,7 +409,7 @@ def test_unavailable_library_is_skipped_only_when_selection_can_be_satisfied(
         compiler("kernels", "backend=cuda")
 
         assert [
-            call.kwargs["resolved_library"].library
+            call.kwargs["resolved_library"].name
             for call in build_cli.build_kernels.call_args_list
         ] == ["support", "llvm-libm"]
 

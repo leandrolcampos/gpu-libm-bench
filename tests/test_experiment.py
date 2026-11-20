@@ -127,7 +127,7 @@ def execution(
         return replace(
             image_build_info.image,
             image_path=build_directory / "math.cubin",
-            library=resolved_library.library,
+            library=resolved_library.name,
             target=target,
         )
 

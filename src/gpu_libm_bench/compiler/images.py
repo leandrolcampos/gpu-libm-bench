@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Kernel compilation and device image resolution."""
+"""Configure and build device images, resolve their paths, and read metadata."""
 
 import fcntl
 import json
@@ -16,6 +16,7 @@ from gpu_libm_bench.backends import Backend
 from gpu_libm_bench.devices import DeviceImage
 
 from . import paths
+from ._bindings import update_library_bindings
 from ._cmake import CMakeBuild
 from ._commands import run_tool
 from .libraries import ResolvedLibrary
@@ -62,7 +63,7 @@ def build_kernels(
     build.build()
 
     return resolve_device_image(
-        resolved_library.library, target=target, build_directory=build.build_directory
+        resolved_library.name, target=target, build_directory=build.build_directory
     )
 
 
@@ -84,7 +85,7 @@ def configure_kernels(
 
     project = paths.source_root()
     default_directory = paths.image_build_directory(
-        resolved_library.library,
+        resolved_library.name,
         backend=target.backend,
         architecture=target.architecture,
     )
@@ -120,6 +121,8 @@ def configure_kernels(
         ),
         toolchain_files=toolchain_files,
     )
+
+    update_library_bindings(resolved_library, build_directory.expanduser().resolve())
     build.configure()
 
     if build_directory.expanduser().resolve() == default_directory.resolve():
@@ -282,7 +285,7 @@ def _image_cmake_arguments(
         "SDK_VERSION": backend_sdk.version,
         "TARGET_TRIPLE": target.target_triple,
         "ARCHITECTURE": target.architecture,
-        "LIBRARY": resolved_library.library,
+        "LIBRARY": resolved_library.name,
         "BITCODE_PATH": str(resolved_library.bitcode_path)
         if resolved_library.bitcode_path is not None
         else "",

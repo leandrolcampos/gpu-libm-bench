@@ -68,8 +68,9 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     backend_sdk = CUDAToolkit(tmp_path / "cuda", tmp_path / "cuda/bin/ptxas", "13.4")
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
-    def resolve(*, library, bitcode_path, **kwargs):
-        return ResolvedLibrary(library, bitcode_path or tmp_path / f"{library}.bc")
+    def resolve(*, library_config, bitcode_path, **kwargs):
+        path = bitcode_path or tmp_path / f"{library_config.name}.bc"
+        return ResolvedLibrary(library_config.name, path)
 
     def configure(*, resolved_library, target, build_directory, **kwargs):
         plan = build_directory / "build-plan.json"
@@ -78,7 +79,7 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         plan.write_text(
             json.dumps(
                 {
-                    "library": resolved_library.library,
+                    "library": resolved_library.name,
                     "backend": target.backend,
                     "architecture": target.architecture,
                     "target_triple": target.target_triple,
@@ -116,12 +117,12 @@ def test_library_selection_preserves_order_and_bitcode_overrides(
 
     selected = select(config)
 
-    assert [resolved_library.library for resolved_library in selected] == (
+    assert [resolved_library.name for resolved_library in selected] == (
         names or ["first", "second"]
     )
 
     paths = {
-        resolved_library.library: resolved_library.bitcode_path
+        resolved_library.name: resolved_library.bitcode_path
         for resolved_library in selected
     }
     assert paths == {
@@ -161,10 +162,10 @@ def test_unavailable_library_is_skipped_only_for_automatic_selection(
     elif missing == "bitcode":
         resolve = _libraries.resolve_library
 
-        def unavailable(*, library, **kwargs):
-            if library == "first":
+        def unavailable(*, library_config, **kwargs):
+            if library_config.name == "first":
                 raise LibraryUnavailableError("bitcode is missing")
-            return resolve(library=library, **kwargs)
+            return resolve(library_config=library_config, **kwargs)
 
         monkeypatch.setattr(_libraries, "resolve_library", unavailable)
     else:
@@ -185,7 +186,7 @@ def test_unavailable_library_is_skipped_only_for_automatic_selection(
         ):
             select(config)
     else:
-        assert [resolved_library.library for resolved_library in select(config)] == [
+        assert [resolved_library.name for resolved_library in select(config)] == [
             "second"
         ]
 

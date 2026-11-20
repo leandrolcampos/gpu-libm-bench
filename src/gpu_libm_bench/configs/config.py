@@ -1,14 +1,17 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Build and experiment configuration schemas and consistency validation."""
+"""Schemas, loading, and validation for build and experiment configurations."""
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from importlib.resources import files
 from typing import Any, cast
 
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
+
+from . import yaml
 
 
 @dataclass
@@ -73,13 +76,18 @@ class BackendConfig:
 
 
 @dataclass
-class LibraryFunctionConfig:
-    symbol: str | None = None
+class LLVMConfig:
+    root: str | None
 
 
 @dataclass
 class LibraryBitcodeConfig:
     bitcode_path: str | None
+
+
+@dataclass
+class LibraryFunctionConfig:
+    symbol: str | None = None
 
 
 @dataclass
@@ -94,22 +102,17 @@ class LibraryConfig:
 
 
 @dataclass
-class RunConfig:
-    seed: int
-    domains: list[str] | None
-    libraries: list[str] | None = None
-
-
-@dataclass
-class LLVMConfig:
-    root: str | None
-
-
-@dataclass
 class BuildConfig:
     backend: BackendConfig
     llvm: LLVMConfig
     library: LibraryConfig | None = None
+
+
+@dataclass
+class RunConfig:
+    seed: int
+    domains: list[str] | None
+    libraries: list[str] | None = None
 
 
 @dataclass
@@ -155,6 +158,22 @@ def register_config_schema() -> None:
     )
 
 
+def load_function_signature_config(name: str) -> SignatureConfig:
+    config = _load_packaged_config("function", name)
+    structured = OmegaConf.merge(
+        OmegaConf.structured(SignatureConfig), config.signature
+    )
+    return cast("SignatureConfig", OmegaConf.to_object(structured))
+
+
+def load_library_config(name: str) -> LibraryConfig:
+    config = _load_packaged_config("library", name)
+    structured = OmegaConf.merge(OmegaConf.structured(LibraryConfig), config)
+    library_config = cast("LibraryConfig", OmegaConf.to_object(structured))
+    _validate_library_config(library_config)
+    return library_config
+
+
 def validate_build_config(config: DictConfig) -> BuildConfig:
     structured = OmegaConf.merge(OmegaConf.structured(BuildConfig), config)
     build = cast("BuildConfig", OmegaConf.to_object(structured))
@@ -191,9 +210,9 @@ def validate_experiment_config(config: DictConfig) -> ExperimentConfig:
         experiment.function, domains if selected is None else selected
     )
 
-    for name, library in experiment.libraries.items():
-        _validate_library_config(library)
-        if not name.strip() or name != library.name:
+    for name, library_config in experiment.libraries.items():
+        _validate_library_config(library_config)
+        if not name.strip() or name != library_config.name:
             raise ValueError("library catalog keys must match nonempty library names")
 
     selected_libraries = experiment.run.libraries
@@ -210,21 +229,28 @@ def validate_experiment_config(config: DictConfig) -> ExperimentConfig:
     return experiment
 
 
+def _load_packaged_config(group: str, name: str) -> DictConfig:
+    resource = files(yaml).joinpath(group, f"{name}.yaml")
+    with resource.open(encoding="utf-8") as stream:
+        return cast("DictConfig", OmegaConf.load(stream))
+
+
 def _validate_backend_config(backend: BackendConfig) -> None:
     if not backend.name.strip():
         raise ValueError("backend.name must not be empty")
 
 
-def _validate_library_config(library: LibraryConfig) -> None:
-    if not library.name.strip():
+def _validate_library_config(library_config: LibraryConfig) -> None:
+    if not library_config.name.strip():
         raise ValueError("library.name must not be empty")
 
-    for name, binding in library.functions.items():
+    for name, binding in library_config.functions.items():
         if not name.strip():
             raise ValueError("library function name must not be empty")
         if binding.symbol is not None and not binding.symbol.strip():
             raise ValueError(
-                f"library {library.name!r} function {name!r}: symbol must not be empty"
+                f"library {library_config.name!r} function {name!r}: "
+                "symbol must not be empty"
             )
 
 

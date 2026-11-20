@@ -1,11 +1,13 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Library resolution and dependency validation."""
+"""Resolve library bitcode and function bindings for device image builds."""
 
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from gpu_libm_bench.configs import LibraryConfig
 
 from ._commands import run_tool
 from .targets import CompilationTarget
@@ -14,8 +16,9 @@ from .toolchains import LLVMToolchain
 
 @dataclass(frozen=True, slots=True)
 class ResolvedLibrary:
-    library: str
+    name: str
     bitcode_path: Path | None = None
+    bindings: tuple[tuple[str, str], ...] = ()
 
 
 class LibraryUnavailableError(RuntimeError):
@@ -24,34 +27,38 @@ class LibraryUnavailableError(RuntimeError):
 
 def resolve_library(
     *,
-    library: str,
+    library_config: LibraryConfig,
     llvm: LLVMToolchain,
     target: CompilationTarget,
     bitcode_path: Path | None = None,
     required_symbols: tuple[str, ...] = (),
 ) -> ResolvedLibrary:
-    if library == "llvm-libm":
-        return _resolve_llvm_libm(
-            llvm=llvm,
-            target=target,
-            bitcode_path=bitcode_path,
-            required_symbols=required_symbols,
-        )
-    elif library == "support":
-        if bitcode_path is not None or required_symbols:
-            raise ValueError("support does not accept external bitcode or its symbols")
-        return ResolvedLibrary("support")
-    else:
-        raise ValueError(f"unsupported library: {library!r}")
+    name = library_config.name
+    match name:
+        case "llvm-libm":
+            path = _resolve_llvm_libm_bitcode(
+                llvm=llvm,
+                target=target,
+                bitcode_path=bitcode_path,
+                required_symbols=required_symbols,
+            )
+        case _:
+            raise ValueError(f"unsupported library: {name!r}")
+
+    bindings = tuple(
+        (function, library_config.symbol_for(function))
+        for function in sorted(library_config.functions)
+    )
+    return ResolvedLibrary(name, path, bindings)
 
 
-def _resolve_llvm_libm(
+def _resolve_llvm_libm_bitcode(
     *,
     llvm: LLVMToolchain,
     target: CompilationTarget,
     bitcode_path: Path | None,
     required_symbols: tuple[str, ...],
-) -> ResolvedLibrary:
+) -> Path:
     if bitcode_path is None:
         candidates = [
             directory / target.target_triple / "libm.bc"
@@ -98,4 +105,4 @@ def _resolve_llvm_libm(
                 f"bitcode {path} does not define symbols: {', '.join(sorted(missing))}"
             )
 
-    return ResolvedLibrary("llvm-libm", path)
+    return path

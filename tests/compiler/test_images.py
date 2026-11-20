@@ -1,9 +1,10 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for kernel configuration, device image resolution, and build metadata."""
+"""Test kernel bindings, image builds, image resolution, and build metadata."""
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -26,6 +27,7 @@ from gpu_libm_bench.compiler.toolchains import (
     LLVMToolchain,
     ROCmCoreSDK,
 )
+from gpu_libm_bench.configs import config as config_module
 
 TARGET = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
 
@@ -66,6 +68,29 @@ def image_path(tmp_path: Path) -> Path:
     return image_path
 
 
+def test_kernel_build_resolves_images_in_its_build_directory(
+    llvm: LLVMToolchain,
+    tmp_path: Path,
+    image_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
+    monkeypatch.setattr(CMakeBuild, "build", lambda self: None)
+    monkeypatch.setattr(
+        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
+    )
+
+    image = images.build_kernels(
+        resolved_library=ResolvedLibrary("llvm-libm", tmp_path / "libm.bc"),
+        target=TARGET,
+        llvm=llvm,
+        backend_sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
+        build_directory=tmp_path,
+    )
+
+    assert image.image_path == image_path
+
+
 def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
     llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -83,9 +108,10 @@ def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
         backend_sdk=backend_sdk,
     )
 
-    assert build.source_directory == images.paths.source_root() / "kernels"
     root = tmp_path / "build" / "kernels"
+    assert build.source_directory == images.paths.source_root() / "kernels"
     assert build.build_directory == root / "cuda" / "sm_120" / "llvm-libm"
+
     plan = build.build_directory / "build-plan.json"
     plan.parent.mkdir(parents=True)
     plan.write_text(
@@ -111,27 +137,55 @@ def test_default_kernel_build_is_isolated_and_keeps_images_discoverable(
     assert image.image_path == image_path
 
 
-def test_kernel_build_resolves_images_in_its_build_directory(
-    llvm: LLVMToolchain,
-    tmp_path: Path,
-    image_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_configure_kernels_refreshes_bindings_when_inputs_change(
+    llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    library = ResolvedLibrary("llvm-libm", tmp_path / "libm.bc", (("expf", "my_expf"),))
+    function_path = tmp_path / "function" / "expf.yaml"
+    function_path.parent.mkdir()
+    function = (
+        "signature:\n"
+        "  return_type: float\n"
+        "  arguments: [{name: x, type: float, role: input}]\n"
+    )
+    function_path.write_text(function)
+    monkeypatch.setattr(config_module, "files", lambda package: tmp_path)
     monkeypatch.setattr(CMakeBuild, "configure", lambda self: None)
-    monkeypatch.setattr(CMakeBuild, "build", lambda self: None)
     monkeypatch.setattr(
         images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
     )
 
-    image = images.build_kernels(
-        resolved_library=ResolvedLibrary("llvm-libm", tmp_path / "libm.bc"),
-        target=TARGET,
-        llvm=llvm,
-        backend_sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
-        build_directory=tmp_path,
+    def configure(resolved_library: ResolvedLibrary) -> Path:
+        build = configure_kernels(
+            resolved_library=resolved_library,
+            target=TARGET,
+            llvm=llvm,
+            backend_sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
+            build_directory=tmp_path / "build",
+        )
+        return build.build_directory / "generated" / "LibraryBindings.def"
+
+    bindings = configure(library)
+    original = bindings.read_text()
+    assert original == (
+        "// Generated from library bindings and function signatures. Do not edit.\n\n"
+        "#if defined(LIBM_BIND_EXPF)\n"
+        "#define LIBM_NAME expf\n"
+        "#define LIBM_SYMBOL my_expf\n"
+        "#define LIBM_RETURN_TYPE float\n"
+        "#define LIBM_ARG_TYPE float\n"
+        "#endif\n"
     )
 
-    assert image.image_path == image_path
+    os.utime(bindings, ns=(0, 0))
+    timestamp = bindings.stat().st_mtime_ns
+    function_path.write_text(function + "domains: {}\n")
+    assert configure(library).stat().st_mtime_ns == timestamp
+
+    function_path.write_text(function.replace("float", "double"))
+    assert configure(library).read_text() == original.replace(" float\n", " double\n")
+
+    assert not configure(replace(library, bindings=())).exists()
 
 
 def test_configure_kernels_updates_editor_database(

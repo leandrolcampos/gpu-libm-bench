@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Math library selection for benchmark experiments."""
+"""Select math libraries and configure their device images for an experiment."""
 
 from pathlib import Path
 
@@ -51,7 +51,7 @@ def select_libraries(
                 )
 
             resolved_library = resolve_library(
-                library=library_config.name,
+                library_config=library_config,
                 llvm=llvm,
                 target=target,
                 bitcode_path=Path(bitcode_config.bitcode_path)
