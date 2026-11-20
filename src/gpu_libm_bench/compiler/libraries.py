@@ -60,8 +60,9 @@ def resolve_library(
 
     accepted_triples: tuple[str, ...] = (target.target_triple,)
     if name == "libdevice" and target.target_triple == "nvptx64-nvidia-cuda":
-        # Clang can link the original CUDA Toolkit bitcode with this triple.
-        accepted_triples += ("nvptx64-nvidia-gpulibs",)
+        # libdevice bitcode uses nvptx64-nvidia-gpulibs or nvptx-unknown-unknown
+        # triple (before CUDA-10.x) and is compatible with all NVPTX variants.
+        accepted_triples += ("nvptx64-nvidia-gpulibs", "nvptx-unknown-unknown")
 
     _validate_bitcode(
         path, llvm=llvm, accepted_triples=accepted_triples, bindings=bindings
