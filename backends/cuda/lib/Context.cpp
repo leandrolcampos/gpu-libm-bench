@@ -64,6 +64,13 @@ Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
           "cuDeviceGetAttribute(COMPUTE_CAPABILITY_MINOR)"))
     return Err;
 
+  int NumComputeUnits = 0;
+  if (auto Err = check(cuDeviceGetAttribute(
+                           &NumComputeUnits,
+                           CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, Device),
+                       "cuDeviceGetAttribute(MULTIPROCESSOR_COUNT)"))
+    return Err;
+
   int ClockFrequencyKHz = 0;
   if (auto Err =
           check(cuDeviceGetAttribute(&ClockFrequencyKHz,
@@ -80,6 +87,7 @@ Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
   return DeviceInfoTy{DeviceID,
                       Name,
                       "sm_" + std::to_string(Major) + std::to_string(Minor),
+                      static_cast<std::uint32_t>(NumComputeUnits),
                       static_cast<std::uint64_t>(ClockFrequencyKHz) * 1000,
                       TotalMemoryBytes,
                       {"%globaltimer", 64, 1'000'000'000}};

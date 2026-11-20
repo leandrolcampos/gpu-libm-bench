@@ -44,6 +44,7 @@ def experiment() -> ExperimentResult:
         0,
         "test GPU",
         "sm_120",
+        16,
         2_000_000_000,
         2**30,
         TimerInfo("%globaltimer", 64, 10**9),
