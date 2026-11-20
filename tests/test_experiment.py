@@ -65,6 +65,7 @@ def experiment_result(config: ExperimentConfig) -> ExperimentResult:
         0,
         "test GPU",
         "sm_120",
+        16,
         2_000_000_000,
         1024,
         TimerInfo("timer", 64, 10**9),

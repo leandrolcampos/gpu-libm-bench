@@ -59,6 +59,7 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
                 3,
                 "GPU",
                 "sm_90",
+                16,
                 2_000_000_000,
                 1024,
                 TimerInfo("timer", 64, 10**9),

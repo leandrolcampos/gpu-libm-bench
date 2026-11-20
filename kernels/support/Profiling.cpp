@@ -29,13 +29,13 @@ extern "C" __gpu_kernel void blockStream(const volatile uint32_t *Release,
 extern "C" __gpu_kernel void readClockCounters(uint64_t *SteadyCounter,
                                                uint64_t *CycleCounter,
                                                uint32_t *Written) {
-  if (gpu::threadId() != 0 || gpu::processorId() != 0)
+  if (gpu::threadId() != 0 || gpu::computeUnitId() != 0)
     return;
 
   uint64_t SteadyReading = gpu::readSteadyCounter();
   uint64_t CycleReading = gpu::readCycleCounter();
 
-  // TODO: Prevent concurrent writes when multiple blocks run on processor ID 0.
+  // TODO: Prevent concurrent writes when multiple blocks run on compute unit 0.
   *SteadyCounter = SteadyReading;
   *CycleCounter = CycleReading;
   *Written = 1;
