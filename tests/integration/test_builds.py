@@ -160,7 +160,10 @@ def test_device_image_rebuilds_when_bitcode_changes(tmp_path: Path) -> None:
         backend_sdk=backend_sdk,
     )
     resolved_library = resolve_library(
-        library_config=load_library_config("llvm-libm"), llvm=llvm, target=target
+        library_config=load_library_config("llvm-libm"),
+        llvm=llvm,
+        target=target,
+        backend_sdk=backend_sdk,
     )
     assert resolved_library.bitcode_path is not None
 

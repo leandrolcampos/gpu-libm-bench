@@ -77,7 +77,7 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         ),
     )
 
-    def resolve_library(*, library_config, target, llvm):
+    def resolve_library(*, library_config, llvm, target, backend_sdk):
         bitcode_path = library_config.backends[target.backend].bitcode_path
         path = (
             Path(bitcode_path)
@@ -222,12 +222,16 @@ def test_automatic_backend_discovery_skips_only_missing_sdks(
         (
             [],
             {
+                ("cuda", "libdevice"),
                 ("cuda", "llvm-libm"),
                 ("cuda", "variant"),
                 ("hip", "variant"),
             },
         ),
-        (["backend=cuda"], {("cuda", "llvm-libm"), ("cuda", "variant")}),
+        (
+            ["backend=cuda"],
+            {("cuda", "libdevice"), ("cuda", "llvm-libm"), ("cuda", "variant")},
+        ),
         (["library=variant"], {("cuda", "variant"), ("hip", "variant")}),
         (["backend=cuda", "library=variant"], {("cuda", "variant")}),
     ],
@@ -315,7 +319,12 @@ def test_configure_and_tidy_use_each_selected_build_directory(
 
     build_cli.build_kernels.assert_not_called()
     builds = build_cli.configure_kernels.call_args_list
-    assert len(builds) == 3
+    assert [call.kwargs["resolved_library"].name for call in builds] == [
+        "support",
+        "libdevice",
+        "llvm-libm",
+        "variant",
+    ]
     assert all(call.kwargs["build_tests"] for call in builds)
 
     if mode == "--tidy":
@@ -416,7 +425,7 @@ def test_unavailable_library_is_skipped_only_when_selection_can_be_satisfied(
         assert [
             call.kwargs["resolved_library"].name
             for call in build_cli.build_kernels.call_args_list
-        ] == ["support", "llvm-libm"]
+        ] == ["support", "libdevice", "llvm-libm"]
 
 
 def test_explicit_library_must_be_available_on_at_least_one_backend(

@@ -249,6 +249,7 @@ def _compile_kernels(
                     library_config=library_config,
                     llvm=llvm,
                     target=target,
+                    backend_sdk=backend_sdk,
                 )
                 _compile_library_kernels(
                     resolved_library,

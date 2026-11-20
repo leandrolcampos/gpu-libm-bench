@@ -16,7 +16,7 @@ from gpu_libm_bench.experiment import experiment as experiment_module
 pytestmark = [pytest.mark.cuda, pytest.mark.execution]
 
 
-def test_experiment_collects_latency_and_reuses_its_image(
+def test_experiment_compares_libraries_and_reuses_their_images(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     register_config_schema()
@@ -28,7 +28,7 @@ def test_experiment_collects_latency_and_reuses_its_image(
                     "function=expf",
                     "metric=latency",
                     "backend=cuda",
-                    "run.libraries=[llvm-libm]",
+                    "run.libraries=[llvm-libm,libdevice]",
                     "metric.sample_size=3",
                     "metric.repetitions=3",
                     "metric.chain_length=32",
@@ -42,17 +42,18 @@ def test_experiment_collects_latency_and_reuses_its_image(
     )
 
     first = Experiment(config).run()
-    image = first.results[0].image_build_info.image
-    timestamp = image.image_path.stat().st_mtime_ns
+    images = [result.image_build_info.image for result in first.results]
+    assert [image.library for image in images] == ["llvm-libm", "libdevice"]
 
+    timestamps = [image.image_path.stat().st_mtime_ns for image in images]
     second = Experiment(config).run()
 
-    assert image.image_path.stat().st_mtime_ns == timestamp
-    assert first.results[0].image_build_info == second.results[0].image_build_info
-
-    assert list(first.results[0]) == ["central", "wide"]
+    assert [image.image_path.stat().st_mtime_ns for image in images] == timestamps
     assert first.config.backend.architecture == first.device_info.architecture
 
-    for result in first.results[0].values():
-        assert result.measurement.elapsed_ticks.shape == (3, 3)
-        assert np.isfinite(result.mean)
+    for before, after in zip(first.results, second.results, strict=True):
+        assert before.image_build_info == after.image_build_info
+        assert list(before) == ["central", "wide"]
+        for result in before.values():
+            assert result.measurement.elapsed_ticks.shape == (3, 3)
+            assert np.isfinite(result.mean)

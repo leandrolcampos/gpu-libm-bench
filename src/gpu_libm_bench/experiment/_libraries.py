@@ -9,7 +9,7 @@ from gpu_libm_bench.compiler.libraries import (
     resolve_library,
 )
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import BackendSDK, LLVMToolchain
 from gpu_libm_bench.configs import ExperimentConfig
 from gpu_libm_bench.kernels import KernelKind, KernelSpec
 
@@ -19,6 +19,7 @@ def select_libraries(
     *,
     llvm: LLVMToolchain,
     target: CompilationTarget,
+    backend_sdk: BackendSDK,
 ) -> tuple[ResolvedLibrary, ...]:
     if target.backend != config.backend.name:
         raise ValueError("target backend does not match the experiment configuration")
@@ -46,6 +47,7 @@ def select_libraries(
                 library_config=library_config,
                 llvm=llvm,
                 target=target,
+                backend_sdk=backend_sdk,
             )
         except LibraryUnavailableError as error:
             if explicit:

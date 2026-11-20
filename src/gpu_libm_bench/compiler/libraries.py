@@ -5,13 +5,14 @@
 
 import re
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from gpu_libm_bench.configs import LibraryConfig
 
 from ._commands import run_tool
 from .targets import CompilationTarget
-from .toolchains import LLVMToolchain
+from .toolchains import BackendSDK, CUDAToolkit, LLVMToolchain
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,9 +31,11 @@ def resolve_library(
     library_config: LibraryConfig,
     llvm: LLVMToolchain,
     target: CompilationTarget,
+    backend_sdk: BackendSDK,
 ) -> ResolvedLibrary:
     bitcode_finders = {
-        "llvm-libm": _find_llvm_libm_bitcode,
+        "llvm-libm": partial(_find_llvm_libm_bitcode, llvm, target),
+        "libdevice": partial(_find_libdevice_bitcode, backend_sdk),
     }
     name = library_config.name
     find_bitcode = bitcode_finders.get(name)
@@ -47,14 +50,22 @@ def resolve_library(
         )
 
     bitcode_path = bitcode_config.bitcode_path
-    path = find_bitcode(llvm, target) if bitcode_path is None else Path(bitcode_path)
+    path = find_bitcode() if bitcode_path is None else Path(bitcode_path)
     path = path.expanduser().resolve()
 
     bindings = tuple(
         (function, library_config.symbol_for(function))
         for function in sorted(library_config.functions)
     )
-    _validate_bitcode(path, llvm=llvm, target=target, bindings=bindings)
+
+    accepted_triples: tuple[str, ...] = (target.target_triple,)
+    if name == "libdevice" and target.target_triple == "nvptx64-nvidia-cuda":
+        # Clang can link the original CUDA Toolkit bitcode with this triple.
+        accepted_triples += ("nvptx64-nvidia-gpulibs",)
+
+    _validate_bitcode(
+        path, llvm=llvm, accepted_triples=accepted_triples, bindings=bindings
+    )
     return ResolvedLibrary(name, path, bindings)
 
 
@@ -73,11 +84,17 @@ def _find_llvm_libm_bitcode(llvm: LLVMToolchain, target: CompilationTarget) -> P
     )
 
 
+def _find_libdevice_bitcode(backend_sdk: BackendSDK) -> Path:
+    if not isinstance(backend_sdk, CUDAToolkit):
+        raise ValueError("libdevice requires a CUDA Toolkit")
+    return backend_sdk.root / "nvvm" / "libdevice" / "libdevice.10.bc"
+
+
 def _validate_bitcode(
     path: Path,
     *,
     llvm: LLVMToolchain,
-    target: CompilationTarget,
+    accepted_triples: tuple[str, ...],
     bindings: tuple[tuple[str, str], ...],
 ) -> None:
     if not path.is_file():
@@ -87,11 +104,11 @@ def _validate_bitcode(
     triple = re.search(r'^target triple = "([^"]+)"', ir, re.MULTILINE)
     if triple is None:
         raise ValueError(f"bitcode {path} does not declare a target triple")
-    if triple.group(1) != target.target_triple:
-        actual = triple.group(1)
+    actual = triple.group(1)
+    if actual not in accepted_triples:
+        expected = " or ".join(repr(triple) for triple in accepted_triples)
         raise LibraryUnavailableError(
-            f"bitcode {path} has target triple {actual!r}; "
-            f"expected {target.target_triple!r}"
+            f"bitcode {path} has target triple {actual!r}; expected {expected}"
         )
 
     if not bindings:

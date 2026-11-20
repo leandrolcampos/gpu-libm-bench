@@ -3,7 +3,6 @@
 
 """Tests for experiment library eligibility and selection."""
 
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -15,7 +14,7 @@ from gpu_libm_bench.compiler.libraries import (
     ResolvedLibrary,
 )
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
 from gpu_libm_bench.configs import (
     ExperimentConfig,
     register_config_schema,
@@ -28,23 +27,12 @@ from gpu_libm_bench.experiment import _libraries
 def config() -> ExperimentConfig:
     register_config_schema()
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
-        config = validate_experiment_config(
+        return validate_experiment_config(
             compose(
                 config_name="experiment_config",
                 overrides=["function=expf", "metric=latency", "backend=cuda"],
             )
         )
-
-    library_config = config.libraries["llvm-libm"]
-    return replace(
-        config,
-        libraries={
-            library: replace(
-                library_config, name=library, functions=library_config.functions.copy()
-            )
-            for library in ("first", "second")
-        },
-    )
 
 
 @pytest.fixture
@@ -58,14 +46,17 @@ def select(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "test LLVM",
     )
     target = CompilationTarget("cuda", "nvptx64-nvidia-cuda", "sm_120")
+    backend_sdk = CUDAToolkit(tmp_path / "cuda", tmp_path / "cuda/bin/ptxas", "13.4")
 
-    def resolve(*, library_config, llvm, target):
+    def resolve(*, library_config, llvm, target, backend_sdk):
         return ResolvedLibrary(library_config.name)
 
     monkeypatch.setattr(_libraries, "resolve_library", resolve)
 
     def select(config):
-        return _libraries.select_libraries(config, llvm=llvm, target=target)
+        return _libraries.select_libraries(
+            config, llvm=llvm, target=target, backend_sdk=backend_sdk
+        )
 
     return select
 
@@ -85,14 +76,14 @@ def test_invalid_function_signature_is_rejected_before_preparing_libraries(
     resolve.assert_not_called()
 
 
-@pytest.mark.parametrize("libraries", [None, ["second", "first"]])
+@pytest.mark.parametrize("libraries", [None, ["libdevice", "llvm-libm"]])
 def test_library_selection_preserves_order(
     config: ExperimentConfig, select, libraries: list[str] | None
 ) -> None:
     config.run.libraries = libraries
 
     assert [resolved_library.name for resolved_library in select(config)] == (
-        libraries if libraries is not None else ["first", "second"]
+        libraries if libraries is not None else ["llvm-libm", "libdevice"]
     )
 
 
@@ -112,27 +103,31 @@ def test_unavailable_library_is_skipped_only_for_automatic_selection(
     missing: str,
     cause: str,
 ) -> None:
-    config.run.libraries = ["first", "second"] if explicit else None
+    config.run.libraries = ["llvm-libm", "libdevice"] if explicit else None
 
     if missing == "function":
-        config.libraries["first"].functions.clear()
+        config.libraries["llvm-libm"].functions.clear()
     else:
         monkeypatch.setattr(
             _libraries,
             "resolve_library",
             Mock(
-                side_effect=[LibraryUnavailableError(cause), ResolvedLibrary("second")]
+                side_effect=[
+                    LibraryUnavailableError(cause),
+                    ResolvedLibrary("libdevice"),
+                ]
             ),
         )
 
     if explicit:
         with pytest.raises(
-            LibraryUnavailableError, match=f"library 'first' is unavailable.*{cause}"
+            LibraryUnavailableError,
+            match=f"library 'llvm-libm' is unavailable.*{cause}",
         ):
             select(config)
     else:
         assert [resolved_library.name for resolved_library in select(config)] == [
-            "second"
+            "libdevice"
         ]
 
 
