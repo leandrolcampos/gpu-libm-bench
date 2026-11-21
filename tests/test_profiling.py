@@ -47,7 +47,7 @@ def test_profile_converts_arguments_metrics_and_result(
     kernel = Mock()
     buffer = DeviceBuffer(Mock(), np.dtype(np.float32))
     scalar = np.uint64(1)
-    config = LaunchConfig(block=(32, 1, 1))
+    config = LaunchConfig(block_dim=(32, 1, 1))
     result = {
         "clock_frequency_hz": 2e9 if KernelMetric.CLOCK_FREQUENCY in metrics else None,
         "duration_ms": 0.25 if KernelMetric.DURATION in metrics else None,
@@ -62,8 +62,8 @@ def test_profile_converts_arguments_metrics_and_result(
     context._native.profile.assert_called_once_with(
         kernel._native,
         (buffer._native, scalar),
-        config.grid,
-        config.block,
+        config.grid_dim,
+        config.block_dim,
         config.shared_memory_bytes,
         {backend.KernelMetric[metric.name] for metric in metrics},
     )

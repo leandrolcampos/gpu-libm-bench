@@ -73,7 +73,7 @@ def test_block_stream_release_and_timeout(
         release_buffer,
         timeout_buffer,
         np.uint64(100_000),
-        config=LaunchConfig(block=(2, 2, 2)),
+        config=LaunchConfig(block_dim=(2, 2, 2)),
     )
     context.copy_to_host(result, timeout_buffer)
 
@@ -109,7 +109,7 @@ def test_clock_counters_read_from_processor_id_zero(
     )
 
     context.launch(
-        kernel, *buffers, config=LaunchConfig(grid=(processor_count.value, 1, 1))
+        kernel, *buffers, config=LaunchConfig(grid_dim=(processor_count.value, 1, 1))
     )
     for buffer, array in zip(buffers, arrays, strict=True):
         context.copy_to_host(array, buffer)

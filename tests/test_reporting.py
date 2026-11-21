@@ -31,7 +31,7 @@ from gpu_libm_bench.configs import (
     SignatureConfig,
     ThrottleConfig,
 )
-from gpu_libm_bench.devices import DeviceImage, DeviceInfo, TimerInfo
+from gpu_libm_bench.devices import DeviceImage, DeviceInfo, LaunchLimits, TimerInfo
 from gpu_libm_bench.experiment import ExperimentResult, LatencyResults
 from gpu_libm_bench.reporting.terminal import print_result
 
@@ -45,8 +45,10 @@ def experiment() -> ExperimentResult:
         "test GPU",
         "sm_120",
         16,
+        32,
         2_000_000_000,
         2**30,
+        LaunchLimits((2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024),
         TimerInfo("%globaltimer", 64, 10**9),
     )
 

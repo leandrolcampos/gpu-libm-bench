@@ -9,12 +9,15 @@ from operator import index
 
 @dataclass(frozen=True, slots=True)
 class LaunchConfig:
-    grid: tuple[int, int, int] = (1, 1, 1)
-    block: tuple[int, int, int] = (1, 1, 1)
+    grid_dim: tuple[int, int, int] = (1, 1, 1)
+    block_dim: tuple[int, int, int] = (1, 1, 1)
     shared_memory_bytes: int = 0
 
     def __post_init__(self) -> None:
-        for name, dimensions in (("grid", self.grid), ("block", self.block)):
+        for name, dimensions in (
+            ("grid_dim", self.grid_dim),
+            ("block_dim", self.block_dim),
+        ):
             try:
                 normalized = tuple(index(dimension) for dimension in dimensions)
             except TypeError as error:

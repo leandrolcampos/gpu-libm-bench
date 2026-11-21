@@ -47,8 +47,8 @@ def test_query_discovers_and_reuses_backend(
     path = directory / "_cuda.py"
     path.write_text(
         "roots = []\n"
-        "def _set_images_build_root(root):\n    roots.append(root)\n"
         "def device_count():\n    return 2\n"
+        "def _set_images_build_root(root):\n    roots.append(root)\n"
     )
 
     assert DeviceContext.device_count() == 2
@@ -107,16 +107,24 @@ def test_backend_dependency_failure_is_preserved(
 @pytest.mark.parametrize(
     ("parameters", "error", "message"),
     [
-        ({"grid": (1, 1)}, ValueError, "grid must have exactly three dimensions"),
         (
-            {"block": (1, 1, 1, 1)},
+            {"grid_dim": (1, 1)},
             ValueError,
-            "block must have exactly three dimensions",
+            "grid_dim must have exactly three dimensions",
         ),
-        ({"grid": (-1, 1, 1)}, ValueError, "grid dimensions must be positive"),
-        ({"block": (1, 0, 1)}, ValueError, "block dimensions must be positive"),
-        ({"grid": (1, 1.5, 1)}, TypeError, "grid dimensions must be integers"),
-        ({"block": (1, "1", 1)}, TypeError, "block dimensions must be integers"),
+        (
+            {"block_dim": (1, 1, 1, 1)},
+            ValueError,
+            "block_dim must have exactly three dimensions",
+        ),
+        ({"grid_dim": (-1, 1, 1)}, ValueError, "grid_dim dimensions must be positive"),
+        ({"block_dim": (1, 0, 1)}, ValueError, "block_dim dimensions must be positive"),
+        ({"grid_dim": (1, 1.5, 1)}, TypeError, "grid_dim dimensions must be integers"),
+        (
+            {"block_dim": (1, "1", 1)},
+            TypeError,
+            "block_dim dimensions must be integers",
+        ),
         (
             {"shared_memory_bytes": -1},
             ValueError,

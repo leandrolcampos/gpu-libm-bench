@@ -22,9 +22,18 @@ def test_query_visible_devices() -> None:
         assert device_info.id == device_id
         assert device_info.name
         assert device_info.architecture.startswith("sm_")
-        assert device_info.num_compute_units > 0
+        assert device_info.multiprocessor_count > 0
+        assert device_info.warp_size == 32
         assert device_info.default_clock_frequency_hz > 0
         assert device_info.total_memory_bytes > 0
+
+        launch_limits = device_info.launch_limits
+        for dimensions in (launch_limits.max_grid_dim, launch_limits.max_block_dim):
+            assert isinstance(dimensions, tuple)
+            assert len(dimensions) == 3
+            assert min(dimensions) > 0
+        assert launch_limits.max_threads_per_block > 0
+        assert launch_limits.max_shared_memory_bytes_per_block > 0
 
         assert device_info.timer_info.source == "%globaltimer"
         assert device_info.timer_info.counter_bits == 64

@@ -71,11 +71,11 @@ struct LaunchArguments {
   std::vector<py::array> ScalarStorages;
 
   LaunchArguments(const py::tuple &Values,
-                  const std::array<std::uint32_t, 3> &Grid,
-                  const std::array<std::uint32_t, 3> &Block,
+                  const std::array<std::uint32_t, 3> &GridDim,
+                  const std::array<std::uint32_t, 3> &BlockDim,
                   std::size_t SharedMemoryBytes)
-      : Config{{Grid[0], Grid[1], Grid[2]},
-               {Block[0], Block[1], Block[2]},
+      : Config{{GridDim[0], GridDim[1], GridDim[2]},
+               {BlockDim[0], BlockDim[1], BlockDim[2]},
                SharedMemoryBytes} {
     KernelArguments.reserve(Values.size());
     ScalarStorages.reserve(Values.size());
@@ -111,41 +111,6 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
       .value("DURATION", KernelMetric::Duration)
       .finalize();
 
-  Module.def("device_count", [] { return unwrap(getDeviceCount()); });
-
-  Module.def(
-      "get_device_info",
-      [](int DeviceID) {
-        DeviceInfoTy DeviceInfo = unwrap(getDeviceInfo(DeviceID));
-
-        py::dict TimerInfo;
-        TimerInfo["source"] = DeviceInfo.TimerInfo.Source;
-        TimerInfo["counter_bits"] = DeviceInfo.TimerInfo.CounterBits;
-        TimerInfo["frequency_hz"] = DeviceInfo.TimerInfo.FrequencyHz;
-
-        py::dict Properties;
-        Properties["id"] = DeviceInfo.ID;
-        Properties["name"] = DeviceInfo.Name;
-        Properties["architecture"] = DeviceInfo.Architecture;
-        Properties["num_compute_units"] = DeviceInfo.NumComputeUnits;
-        Properties["default_clock_frequency_hz"] =
-            DeviceInfo.DefaultClockFrequencyHz;
-        Properties["total_memory_bytes"] = DeviceInfo.TotalMemoryBytes;
-        Properties["timer_info"] = TimerInfo;
-
-        return Properties;
-      },
-      py::arg("device_id") = 0);
-
-  Module.def(
-      "_set_images_build_root",
-      [](const std::string &Root) {
-        unwrap(
-            gpu_libm_bench::GPU_LIBM_BENCH_BACKEND::detail::setImagesBuildRoot(
-                Root));
-      },
-      py::arg("root"));
-
   py::class_<DeviceBuffer>(Module, "DeviceBuffer")
       .def_property_readonly("nbytes", &DeviceBuffer::getByteCount);
 
@@ -166,8 +131,8 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
            }),
            py::arg("device_id") = 0)
 
-      .def_property_readonly("released", &DeviceContext::isReleased)
       .def("release", [](DeviceContext &Context) { unwrap(Context.release()); })
+      .def_property_readonly("released", &DeviceContext::isReleased)
 
       .def(
           "create_buffer",
@@ -180,13 +145,6 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
                 Context.createBuffer(static_cast<std::size_t>(ByteCount)));
           },
           py::arg("byte_count"))
-
-      .def(
-          "load_module",
-          [](const DeviceContext &Context, const std::string &Path) {
-            return unwrap(Context.loadModule(Path));
-          },
-          py::arg("path"))
 
       .def(
           "copy_to_device",
@@ -216,29 +174,36 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
           py::arg("destination"), py::arg("source"))
 
       .def(
+          "load_module",
+          [](const DeviceContext &Context, const std::string &Path) {
+            return unwrap(Context.loadModule(Path));
+          },
+          py::arg("path"))
+
+      .def(
           "launch",
           [](const DeviceContext &Context, const DeviceKernel &Kernel,
              const py::tuple &KernelArguments,
-             const std::array<std::uint32_t, 3> &Grid,
-             const std::array<std::uint32_t, 3> &Block,
+             const std::array<std::uint32_t, 3> &GridDim,
+             const std::array<std::uint32_t, 3> &BlockDim,
              std::size_t SharedMemoryBytes) {
-            LaunchArguments Arguments(KernelArguments, Grid, Block,
+            LaunchArguments Arguments(KernelArguments, GridDim, BlockDim,
                                       SharedMemoryBytes);
             unwrap(Context.launch(Kernel, Arguments.KernelArguments,
                                   Arguments.Config));
           },
-          py::arg("kernel"), py::arg("kernel_arguments"), py::arg("grid"),
-          py::arg("block"), py::arg("shared_memory_bytes"))
+          py::arg("kernel"), py::arg("kernel_arguments"), py::arg("grid_dim"),
+          py::arg("block_dim"), py::arg("shared_memory_bytes"))
 
       .def(
           "profile",
           [](const DeviceContext &Context, const DeviceKernel &Kernel,
              const py::tuple &KernelArguments,
-             const std::array<std::uint32_t, 3> &Grid,
-             const std::array<std::uint32_t, 3> &Block,
+             const std::array<std::uint32_t, 3> &GridDim,
+             const std::array<std::uint32_t, 3> &BlockDim,
              std::size_t SharedMemoryBytes,
              const std::set<KernelMetric> &Metrics) {
-            LaunchArguments Arguments(KernelArguments, Grid, Block,
+            LaunchArguments Arguments(KernelArguments, GridDim, BlockDim,
                                       SharedMemoryBytes);
             KernelProfile Profile = unwrap(Context.profile(
                 Kernel, Arguments.KernelArguments, Arguments.Config, Metrics));
@@ -249,6 +214,54 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
 
             return Result;
           },
-          py::arg("kernel"), py::arg("kernel_arguments"), py::arg("grid"),
-          py::arg("block"), py::arg("shared_memory_bytes"), py::arg("metrics"));
+          py::arg("kernel"), py::arg("kernel_arguments"), py::arg("grid_dim"),
+          py::arg("block_dim"), py::arg("shared_memory_bytes"),
+          py::arg("metrics"));
+
+  Module.def("device_count", [] { return unwrap(getDeviceCount()); });
+
+  Module.def(
+      "get_device_info",
+      [](int DeviceID) {
+        DeviceInfoTy DeviceInfo = unwrap(getDeviceInfo(DeviceID));
+
+        const LaunchLimitsTy &Limits = DeviceInfo.LaunchLimits;
+        py::dict LaunchLimits;
+        LaunchLimits["max_grid_dim"] = py::make_tuple(
+            Limits.MaxGridDim.X, Limits.MaxGridDim.Y, Limits.MaxGridDim.Z);
+        LaunchLimits["max_block_dim"] = py::make_tuple(
+            Limits.MaxBlockDim.X, Limits.MaxBlockDim.Y, Limits.MaxBlockDim.Z);
+        LaunchLimits["max_threads_per_block"] = Limits.MaxThreadsPerBlock;
+        LaunchLimits["max_shared_memory_bytes_per_block"] =
+            Limits.MaxSharedMemoryBytesPerBlock;
+
+        py::dict TimerInfo;
+        TimerInfo["source"] = DeviceInfo.TimerInfo.Source;
+        TimerInfo["counter_bits"] = DeviceInfo.TimerInfo.CounterBits;
+        TimerInfo["frequency_hz"] = DeviceInfo.TimerInfo.FrequencyHz;
+
+        py::dict Properties;
+        Properties["id"] = DeviceInfo.ID;
+        Properties["name"] = DeviceInfo.Name;
+        Properties["architecture"] = DeviceInfo.Architecture;
+        Properties["multiprocessor_count"] = DeviceInfo.MultiprocessorCount;
+        Properties["warp_size"] = DeviceInfo.WarpSize;
+        Properties["default_clock_frequency_hz"] =
+            DeviceInfo.DefaultClockFrequencyHz;
+        Properties["total_memory_bytes"] = DeviceInfo.TotalMemoryBytes;
+        Properties["launch_limits"] = LaunchLimits;
+        Properties["timer_info"] = TimerInfo;
+
+        return Properties;
+      },
+      py::arg("device_id") = 0);
+
+  Module.def(
+      "_set_images_build_root",
+      [](const std::string &Root) {
+        unwrap(
+            gpu_libm_bench::GPU_LIBM_BENCH_BACKEND::detail::setImagesBuildRoot(
+                Root));
+      },
+      py::arg("root"));
 }

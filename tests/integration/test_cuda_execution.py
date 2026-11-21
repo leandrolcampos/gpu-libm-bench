@@ -102,7 +102,7 @@ def test_kernel_and_buffer_outlive_the_creating_session(
             buffer,
             output,
             np.uint64(source.size),
-            config=LaunchConfig(block=(32, 1, 1)),
+            config=LaunchConfig(block_dim=(32, 1, 1)),
         )
         context.copy_to_host(destination, output)
 
@@ -174,15 +174,15 @@ def test_module_reports_load_and_symbol_errors(
 @pytest.mark.parametrize(
     "config",
     [
-        LaunchConfig(grid=(2, 1, 1), block=(32, 1, 1)),
-        LaunchConfig(grid=(2, 2, 1), block=(5, 3, 1)),
-        LaunchConfig(grid=(2, 2, 2), block=(3, 2, 2)),
+        LaunchConfig(grid_dim=(2, 1, 1), block_dim=(32, 1, 1)),
+        LaunchConfig(grid_dim=(2, 2, 1), block_dim=(5, 3, 1)),
+        LaunchConfig(grid_dim=(2, 2, 2), block_dim=(3, 2, 2)),
     ],
 )
 def test_expf_evaluation_preserves_tail(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec, config: LaunchConfig
 ) -> None:
-    count = prod(config.grid) * prod(config.block) - 7
+    count = prod(config.grid_dim) * prod(config.block_dim) - 7
     source = np.linspace(-2, 2, count, dtype=np.float32)
     destination = np.full(count + 11, np.nan, dtype=np.float32)
 
@@ -208,7 +208,7 @@ def test_launch_observes_the_latest_host_copy(
     x = context.create_buffer(source.size, dtype=source.dtype)
     y = context.create_buffer(destination.size, dtype=destination.dtype)
     kernel = load_kernel(context, image, spec)
-    config = LaunchConfig(grid=(source.size // 256, 1, 1), block=(256, 1, 1))
+    config = LaunchConfig(grid_dim=(source.size // 256, 1, 1), block_dim=(256, 1, 1))
 
     for value in (-1, 1) * 16:
         source.fill(value)
@@ -265,23 +265,24 @@ def test_native_execution_accepts_keyword_arguments(
     context: DeviceContext, image: DeviceImage
 ) -> None:
     native = context._native
-    module = native.load_module(path=str(image.image_path))
-    symbol = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATION).symbol
-    kernel = module.get_kernel(symbol=symbol)
-
     source = np.array([-1, 0, 1], dtype=np.float32)
     destination = np.empty_like(source)
     x = native.create_buffer(byte_count=source.nbytes)
     y = native.create_buffer(byte_count=destination.nbytes)
+
+    native.copy_to_device(destination=x, source=source)
+
+    module = native.load_module(path=str(image.image_path))
+    symbol = KernelRequest("llvm-libm", "expf", KernelKind.EVALUATION).symbol
+    kernel = module.get_kernel(symbol=symbol)
     launch_arguments = {
         "kernel": kernel,
         "kernel_arguments": (x, y, np.uint64(source.size)),
-        "grid": (1, 1, 1),
-        "block": (32, 1, 1),
+        "grid_dim": (1, 1, 1),
+        "block_dim": (32, 1, 1),
         "shared_memory_bytes": 0,
     }
 
-    native.copy_to_device(destination=x, source=source)
     native.launch(**launch_arguments)
     native.copy_to_host(destination=destination, source=y)
 
@@ -307,7 +308,7 @@ def test_profile_collects_requested_metrics_and_executes_once(
     result = np.empty_like(source)
     buffer = context.create_buffer(source.size, dtype=source.dtype)
     kernel = load_kernel(context, image, spec)
-    config = LaunchConfig(grid=(source.size // 256, 1, 1), block=(256, 1, 1))
+    config = LaunchConfig(grid_dim=(source.size // 256, 1, 1), block_dim=(256, 1, 1))
 
     for requested_metrics in (metrics, set(KernelMetric), metrics):
         context.copy_to_device(buffer, source)

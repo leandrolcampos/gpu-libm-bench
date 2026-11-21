@@ -7,124 +7,23 @@
 #include "KernelProfiler.hpp"
 #include "Utils.hpp"
 
+#include <array>
 #include <filesystem>
 
 namespace gpu_libm_bench::cuda {
 
 //
-// Device queries
-//
-
-Expected<int> getDeviceCount() {
-  CUresult Result = cuInit(0);
-  if (Result == CUDA_ERROR_NO_DEVICE)
-    return 0;
-  if (auto Err = check(Result, "cuInit"))
-    return Err;
-
-  int Count = 0;
-  if (auto Err = check(cuDeviceGetCount(&Count), "cuDeviceGetCount"))
-    return Err;
-
-  return Count;
-}
-
-Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
-  if (DeviceID < 0)
-    return Error{ErrorKind::InvalidArgument, "device ID must be nonnegative"};
-
-  auto Count = getDeviceCount();
-  if (!Count)
-    return std::move(Count).error();
-  if (DeviceID >= *Count)
-    return Error{ErrorKind::InvalidArgument,
-                 "device ID " + std::to_string(DeviceID) +
-                     " is out of range; available device count is " +
-                     std::to_string(*Count)};
-
-  CUdevice Device;
-  if (auto Err = check(cuDeviceGet(&Device, DeviceID), "cuDeviceGet"))
-    return Err;
-
-  char Name[256] = {};
-  if (auto Err =
-          check(cuDeviceGetName(Name, sizeof(Name), Device), "cuDeviceGetName"))
-    return Err;
-
-  int Major = 0;
-  int Minor = 0;
-  if (auto Err = check(
-          cuDeviceGetAttribute(
-              &Major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, Device),
-          "cuDeviceGetAttribute(COMPUTE_CAPABILITY_MAJOR)"))
-    return Err;
-  if (auto Err = check(
-          cuDeviceGetAttribute(
-              &Minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, Device),
-          "cuDeviceGetAttribute(COMPUTE_CAPABILITY_MINOR)"))
-    return Err;
-
-  int NumComputeUnits = 0;
-  if (auto Err = check(cuDeviceGetAttribute(
-                           &NumComputeUnits,
-                           CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, Device),
-                       "cuDeviceGetAttribute(MULTIPROCESSOR_COUNT)"))
-    return Err;
-
-  int ClockFrequencyKHz = 0;
-  if (auto Err =
-          check(cuDeviceGetAttribute(&ClockFrequencyKHz,
-                                     CU_DEVICE_ATTRIBUTE_CLOCK_RATE, Device),
-                "cuDeviceGetAttribute(CLOCK_RATE)"))
-    return Err;
-
-  std::size_t TotalMemoryBytes = 0;
-  if (auto Err = check(cuDeviceTotalMem(&TotalMemoryBytes, Device),
-                       "cuDeviceTotalMem"))
-    return Err;
-
-  // %globaltimer reports nanoseconds, independently of the GPU core clock.
-  return DeviceInfoTy{DeviceID,
-                      Name,
-                      "sm_" + std::to_string(Major) + std::to_string(Minor),
-                      static_cast<std::uint32_t>(NumComputeUnits),
-                      static_cast<std::uint64_t>(ClockFrequencyKHz) * 1000,
-                      TotalMemoryBytes,
-                      {"%globaltimer", 64, 1'000'000'000}};
-}
-
-//
-// Support image configuration
-//
-
-static std::filesystem::path ImagesBuildRoot;
-
-static std::string getSupportImagePath(const std::string &Architecture) {
-  if (ImagesBuildRoot.empty())
-    return {};
-
-  return (ImagesBuildRoot / "cuda" / Architecture / "support" / "support.cubin")
-      .string();
-}
-
-Error detail::setImagesBuildRoot(const std::string &Root) {
-  std::filesystem::path Path(Root);
-  if (Path.empty() || !Path.is_absolute())
-    return Error{ErrorKind::InvalidArgument,
-                 "kernel images build root must be an absolute path"};
-
-  Path = Path.lexically_normal();
-  if (!ImagesBuildRoot.empty() && ImagesBuildRoot != Path)
-    return Error{ErrorKind::InvalidArgument,
-                 "kernel images build root is already configured"};
-
-  ImagesBuildRoot = std::move(Path);
-  return Error::success();
-}
-
-//
 // Context lifecycle
 //
+
+DeviceContext::DeviceContext(DeviceContext &&Other) noexcept
+    : DeviceState(std::move(Other.DeviceState)),
+      Stream(std::exchange(Other.Stream, nullptr)),
+      SupportImagePath(std::move(Other.SupportImagePath)),
+      SupportModule(std::move(Other.SupportModule)),
+      Profiler(std::move(Other.Profiler)) {}
+
+DeviceContext::~DeviceContext() noexcept { reportCleanupError(release()); }
 
 Expected<DeviceContext> DeviceContext::create(int DeviceID) {
   auto DeviceState = detail::DeviceStateTy::create(DeviceID);
@@ -148,15 +47,6 @@ Expected<DeviceContext> DeviceContext::create(int DeviceID) {
   return DeviceContext(*std::move(DeviceState), Stream,
                        DeviceInfo->Architecture);
 }
-
-DeviceContext::DeviceContext(DeviceContext &&Other) noexcept
-    : DeviceState(std::move(Other.DeviceState)),
-      Stream(std::exchange(Other.Stream, nullptr)),
-      SupportImagePath(std::move(Other.SupportImagePath)),
-      SupportModule(std::move(Other.SupportModule)),
-      Profiler(std::move(Other.Profiler)) {}
-
-DeviceContext::~DeviceContext() noexcept { reportCleanupError(release()); }
 
 Error DeviceContext::release() {
   if (isReleased())
@@ -194,6 +84,148 @@ Error DeviceContext::release() {
 }
 
 //
+// Device queries
+//
+
+Expected<int> getDeviceCount() {
+  CUresult Result = cuInit(0);
+  if (Result == CUDA_ERROR_NO_DEVICE)
+    return 0;
+  if (auto Err = check(Result, "cuInit"))
+    return Err;
+
+  int Count = 0;
+  if (auto Err = check(cuDeviceGetCount(&Count), "cuDeviceGetCount"))
+    return Err;
+
+  return Count;
+}
+
+static Expected<Dim3>
+getLaunchDimLimit(CUdevice Device,
+                  const std::array<CUdevice_attribute, 3> &Attributes,
+                  const char *Operation) {
+  std::array<int, 3> Limits{};
+  for (std::size_t Axis = 0; Axis < Limits.size(); ++Axis) {
+    if (auto Err =
+            check(cuDeviceGetAttribute(&Limits[Axis], Attributes[Axis], Device),
+                  Operation))
+      return Err;
+  }
+
+  return Dim3{static_cast<std::uint32_t>(Limits[0]),
+              static_cast<std::uint32_t>(Limits[1]),
+              static_cast<std::uint32_t>(Limits[2])};
+}
+
+Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
+  if (DeviceID < 0)
+    return Error{ErrorKind::InvalidArgument, "device ID must be nonnegative"};
+
+  auto Count = getDeviceCount();
+  if (!Count)
+    return std::move(Count).error();
+  if (DeviceID >= *Count)
+    return Error{ErrorKind::InvalidArgument,
+                 "device ID " + std::to_string(DeviceID) +
+                     " is out of range; available device count is " +
+                     std::to_string(*Count)};
+
+  CUdevice Device;
+  if (auto Err = check(cuDeviceGet(&Device, DeviceID), "cuDeviceGet"))
+    return Err;
+
+  char Name[256] = {};
+  if (auto Err =
+          check(cuDeviceGetName(Name, sizeof(Name), Device), "cuDeviceGetName"))
+    return Err;
+
+  int Major = 0;
+  int Minor = 0;
+  if (auto Err = check(
+          cuDeviceGetAttribute(
+              &Major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, Device),
+          "cuDeviceGetAttribute(COMPUTE_CAPABILITY_MAJOR)"))
+    return Err;
+  if (auto Err = check(
+          cuDeviceGetAttribute(
+              &Minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, Device),
+          "cuDeviceGetAttribute(COMPUTE_CAPABILITY_MINOR)"))
+    return Err;
+
+  int MultiprocessorCount = 0;
+  if (auto Err = check(cuDeviceGetAttribute(
+                           &MultiprocessorCount,
+                           CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, Device),
+                       "cuDeviceGetAttribute(MULTIPROCESSOR_COUNT)"))
+    return Err;
+
+  int WarpSize = 0;
+  if (auto Err = check(cuDeviceGetAttribute(
+                           &WarpSize, CU_DEVICE_ATTRIBUTE_WARP_SIZE, Device),
+                       "cuDeviceGetAttribute(WARP_SIZE)"))
+    return Err;
+
+  int ClockFrequencyKHz = 0;
+  if (auto Err =
+          check(cuDeviceGetAttribute(&ClockFrequencyKHz,
+                                     CU_DEVICE_ATTRIBUTE_CLOCK_RATE, Device),
+                "cuDeviceGetAttribute(CLOCK_RATE)"))
+    return Err;
+
+  std::size_t TotalMemoryBytes = 0;
+  if (auto Err = check(cuDeviceTotalMem(&TotalMemoryBytes, Device),
+                       "cuDeviceTotalMem"))
+    return Err;
+
+  auto MaxGridDim = getLaunchDimLimit(Device,
+                                      {CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X,
+                                       CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y,
+                                       CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z},
+                                      "cuDeviceGetAttribute(MAX_GRID_DIM)");
+  if (!MaxGridDim)
+    return std::move(MaxGridDim).error();
+
+  auto MaxBlockDim = getLaunchDimLimit(Device,
+                                       {CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X,
+                                        CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y,
+                                        CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z},
+                                       "cuDeviceGetAttribute(MAX_BLOCK_DIM)");
+  if (!MaxBlockDim)
+    return std::move(MaxBlockDim).error();
+
+  int MaxThreadsPerBlock = 0;
+  if (auto Err = check(cuDeviceGetAttribute(
+                           &MaxThreadsPerBlock,
+                           CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, Device),
+                       "cuDeviceGetAttribute(MAX_THREADS_PER_BLOCK)"))
+    return Err;
+
+  int MaxSharedMemoryBytesPerBlock = 0;
+  if (auto Err =
+          check(cuDeviceGetAttribute(
+                    &MaxSharedMemoryBytesPerBlock,
+                    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK, Device),
+                "cuDeviceGetAttribute(MAX_SHARED_MEMORY_PER_BLOCK)"))
+    return Err;
+
+  LaunchLimitsTy LaunchLimits{
+      *MaxGridDim, *MaxBlockDim, static_cast<std::uint32_t>(MaxThreadsPerBlock),
+      static_cast<std::size_t>(MaxSharedMemoryBytesPerBlock)};
+
+  // %globaltimer reports nanoseconds, independently of the GPU core clock.
+  return DeviceInfoTy{DeviceID,
+                      Name,
+                      "sm_" + std::to_string(Major) + std::to_string(Minor),
+                      static_cast<std::uint32_t>(MultiprocessorCount),
+                      static_cast<std::uint32_t>(WarpSize),
+                      static_cast<std::uint64_t>(ClockFrequencyKHz) * 1000,
+                      TotalMemoryBytes,
+                      LaunchLimits,
+                      {"%globaltimer", 64, 1'000'000'000}};
+}
+
+//
 // Resources and memory transfers
 //
 
@@ -203,14 +235,6 @@ DeviceContext::createBuffer(std::size_t ByteCount) const {
     return Err;
 
   return DeviceBuffer::create(DeviceState, ByteCount);
-}
-
-Expected<DeviceModule>
-DeviceContext::loadModule(const std::string &Path) const {
-  if (auto Err = ensureActive())
-    return Err;
-
-  return DeviceModule::load(DeviceState, Path);
 }
 
 Error DeviceContext::copyToDevice(DeviceBuffer &Destination, const void *Source,
@@ -261,6 +285,14 @@ Error DeviceContext::copyToHost(void *Destination, const DeviceBuffer &Source,
 
   return check(cuStreamSynchronize(static_cast<CUstream>(Stream)),
                "cuStreamSynchronize");
+}
+
+Expected<DeviceModule>
+DeviceContext::loadModule(const std::string &Path) const {
+  if (auto Err = ensureActive())
+    return Err;
+
+  return DeviceModule::load(DeviceState, Path);
 }
 
 //
@@ -314,6 +346,35 @@ DeviceContext::profile(const DeviceKernel &Kernel,
 
   return Profiler->profile(
       [&] { return enqueueKernel(Kernel, KernelArguments, Config); }, Metrics);
+}
+
+//
+// Support image configuration
+//
+
+static std::filesystem::path ImagesBuildRoot;
+
+static std::string getSupportImagePath(const std::string &Architecture) {
+  if (ImagesBuildRoot.empty())
+    return {};
+
+  return (ImagesBuildRoot / "cuda" / Architecture / "support" / "support.cubin")
+      .string();
+}
+
+Error detail::setImagesBuildRoot(const std::string &Root) {
+  std::filesystem::path Path(Root);
+  if (Path.empty() || !Path.is_absolute())
+    return Error{ErrorKind::InvalidArgument,
+                 "kernel images build root must be an absolute path"};
+
+  Path = Path.lexically_normal();
+  if (!ImagesBuildRoot.empty() && ImagesBuildRoot != Path)
+    return Error{ErrorKind::InvalidArgument,
+                 "kernel images build root is already configured"};
+
+  ImagesBuildRoot = std::move(Path);
+  return Error::success();
 }
 
 //
@@ -374,9 +435,9 @@ Error DeviceContext::enqueueKernel(
   }
 
   return check(
-      cuLaunchKernel(static_cast<CUfunction>(Kernel.Function), Config.Grid.X,
-                     Config.Grid.Y, Config.Grid.Z, Config.Block.X,
-                     Config.Block.Y, Config.Block.Z,
+      cuLaunchKernel(static_cast<CUfunction>(Kernel.Function), Config.GridDim.X,
+                     Config.GridDim.Y, Config.GridDim.Z, Config.BlockDim.X,
+                     Config.BlockDim.Y, Config.BlockDim.Z,
                      static_cast<unsigned int>(Config.SharedMemoryBytes),
                      static_cast<CUstream>(Stream), Pointers.data(), nullptr),
       "cuLaunchKernel");
