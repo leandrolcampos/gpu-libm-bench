@@ -129,7 +129,7 @@ def test_measurement_preserves_input_association_and_excludes_warmup(
     benchmark = latency.LatencyBenchmark(
         context,
         kernel,
-        timeout_secs=60.0,
+        timeout_s=60.0,
         chain_length=7,
         warmup_runs=warmup_runs,
     )
@@ -333,11 +333,11 @@ def test_latency_throttling(
     benchmark = latency.LatencyBenchmark(
         context,
         latency_kernel,
-        timeout_secs=0.025 if scenario == "timeout" else 1.0,
+        timeout_s=0.025 if scenario == "timeout" else 1.0,
         chain_length=1,
         warmup_runs=0,
         min_clock_ratio=0.0 if scenario == "disabled" else 0.75,
-        initial_delay_secs=0.05,
+        initial_delay_s=0.05,
     )
     batch = inputs.InputBatch("central", {"argument": np.array([11, 22], np.float32)})
 

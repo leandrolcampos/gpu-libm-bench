@@ -61,13 +61,13 @@ class MetricConfig:
 @dataclass
 class SampleConfig:
     size: int
-    timeout_secs: float
+    timeout_s: float
 
 
 @dataclass
 class ThrottleConfig:
     min_clock_ratio: float
-    initial_delay_secs: float
+    initial_delay_s: float
 
 
 @dataclass

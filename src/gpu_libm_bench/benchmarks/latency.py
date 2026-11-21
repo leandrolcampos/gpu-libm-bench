@@ -69,11 +69,11 @@ class LatencyBenchmark:
         context: DeviceContext,
         kernel: DeviceKernel,
         *,
-        timeout_secs: float | None = None,
+        timeout_s: float | None = None,
         chain_length: int,
         warmup_runs: int,
         min_clock_ratio: float = 0.0,
-        initial_delay_secs: float = 0.0,
+        initial_delay_s: float = 0.0,
     ) -> None:
         arguments = iter(kernel.spec.arguments)
         latency_dtypes = {}
@@ -90,10 +90,8 @@ class LatencyBenchmark:
         if not input_arguments:
             raise ValueError("latency kernel must declare at least one input argument")
 
-        if timeout_secs is not None and (
-            not isfinite(timeout_secs) or timeout_secs <= 0
-        ):
-            raise ValueError("sample.timeout_secs must be finite and positive")
+        if timeout_s is not None and (not isfinite(timeout_s) or timeout_s <= 0):
+            raise ValueError("timeout_s must be finite and positive")
 
         chain_length = _as_integer(chain_length, "chain_length")
         max_chain_length = np.iinfo(latency_dtypes["chain_length"]).max
@@ -105,23 +103,21 @@ class LatencyBenchmark:
             raise ValueError("warmup_runs must be nonnegative")
 
         if not isfinite(min_clock_ratio) or min_clock_ratio < 0:
-            raise ValueError("throttle.min_clock_ratio must be finite and nonnegative")
-        if not isfinite(initial_delay_secs) or initial_delay_secs < 0:
-            raise ValueError(
-                "throttle.initial_delay_secs must be finite and nonnegative"
-            )
+            raise ValueError("min_clock_ratio must be finite and nonnegative")
+        if not isfinite(initial_delay_s) or initial_delay_s < 0:
+            raise ValueError("initial_delay_s must be finite and nonnegative")
 
         self._context = context
         self._kernel = kernel
         self._latency_dtypes = latency_dtypes
         self._input_arguments = input_arguments
 
-        self._timeout_secs = timeout_secs
+        self._timeout_s = timeout_s
         self._pass_count = latency_dtypes["pass_count"].type(_PASS_COUNT)
         self._chain_length = latency_dtypes["chain_length"].type(chain_length)
         self._warmup_runs = warmup_runs
         self._min_clock_ratio = min_clock_ratio
-        self._initial_delay_secs = initial_delay_secs
+        self._initial_delay_s = initial_delay_s
 
     def measure(self, batch: inputs.InputBatch) -> LatencyMeasurement:
         snapshot = self._snapshot_batch(batch)
@@ -150,23 +146,23 @@ class LatencyBenchmark:
         self._warmup(input_arrays, buffers, self._warmup_runs)
 
         deadline = inf
-        if self._timeout_secs is not None:
+        if self._timeout_s is not None:
             if self._warmup_runs:
                 self._context.copy_to_host(
                     buffers.host_elapsed_ticks, buffers.elapsed_ticks
                 )
-            deadline = monotonic() + self._timeout_secs
+            deadline = monotonic() + self._timeout_s
 
-        delay_secs = self._initial_delay_secs
+        delay_s = self._initial_delay_s
         consecutive_discards = 0
 
         for input_index in range(snapshot.size):
             self._copy_inputs_to_device(input_arrays, buffers, input_index)
 
             while True:
-                _remaining_sample_secs(deadline, snapshot, input_index)
+                _remaining_sample_s(deadline, snapshot, input_index)
                 ticks = self._measure_chain(buffers, min_clock_hz)
-                remaining_secs = _remaining_sample_secs(deadline, snapshot, input_index)
+                remaining_s = _remaining_sample_s(deadline, snapshot, input_index)
 
                 if ticks is not None:
                     elapsed_ticks[input_index] = ticks
@@ -175,10 +171,10 @@ class LatencyBenchmark:
 
                 consecutive_discards += 1
                 if consecutive_discards >= 4:
-                    delay_secs += min(1.5 * delay_secs, 0.5)
+                    delay_s += min(1.5 * delay_s, 0.5)
 
-                if delay_secs > 0:
-                    sleep(min(delay_secs, remaining_secs))
+                if delay_s > 0:
+                    sleep(min(delay_s, remaining_s))
 
         return LatencyMeasurement(
             inputs=snapshot,
@@ -298,7 +294,7 @@ class LatencyBenchmark:
 
 
 def analyze(measurement: LatencyMeasurement) -> LatencyResult:
-    times = measurement.device_info.timer_info.to_nanoseconds(measurement.elapsed_ticks)
+    times = measurement.device_info.timer_info.to_ns(measurement.elapsed_ticks)
     latencies = times / measurement.chain_length
 
     return LatencyResult(
@@ -321,14 +317,14 @@ def _as_integer(value: int, name: str) -> int:
         raise TypeError(f"{name} must be an integer") from error
 
 
-def _remaining_sample_secs(
+def _remaining_sample_s(
     deadline: float, batch: inputs.InputBatch, input_index: int
 ) -> float:
-    remaining_secs = deadline - monotonic()
-    if remaining_secs <= 0:
+    remaining_s = deadline - monotonic()
+    if remaining_s <= 0:
         raise TimeoutError(
             f"latency sample for domain {batch.domain!r} is incomplete after timeout: "
             f"{input_index}/{batch.size} observations accepted, "
             f"input index {input_index} pending"
         )
-    return remaining_secs
+    return remaining_s

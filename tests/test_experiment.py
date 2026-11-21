@@ -140,11 +140,11 @@ def execution(
         context,
         kernel,
         *,
-        timeout_secs,
+        timeout_s,
         chain_length,
         warmup_runs,
         min_clock_ratio,
-        initial_delay_secs,
+        initial_delay_s,
     ):
         value = Mock()
         value.measure.side_effect = lambda batch: latency.LatencyMeasurement(
