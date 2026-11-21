@@ -28,14 +28,37 @@ class DeviceImage:
     manifest_path: Path | None
 
 
+@dataclass(frozen=True, slots=True)
+class KernelInfo:
+    max_threads_per_block: int
+    registers_per_thread: int
+    static_shared_memory_bytes: int
+    local_memory_bytes_per_thread: int
+
+
 class DeviceKernel:
     def __init__(self, native: "_cuda.DeviceKernel", spec: KernelSpec) -> None:
         self._native = native
         self._spec = spec
+        self._info: KernelInfo | None = None
 
     @property
     def spec(self) -> KernelSpec:
         return self._spec
+
+    @property
+    def info(self) -> KernelInfo:
+        if self._info is None:
+            self._info = KernelInfo(**self._native.info)
+        return self._info
+
+    def max_active_blocks_per_multiprocessor(
+        self, *, threads_per_block: int, dynamic_shared_memory_bytes: int = 0
+    ) -> int:
+        return self._native.max_active_blocks_per_multiprocessor(
+            threads_per_block=threads_per_block,
+            dynamic_shared_memory_bytes=dynamic_shared_memory_bytes,
+        )
 
     def _validate_arguments(
         self, arguments: tuple[DeviceBuffer[Any] | Scalar, ...]

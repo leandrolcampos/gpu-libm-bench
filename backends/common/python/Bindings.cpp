@@ -114,8 +114,33 @@ PYBIND11_MODULE(GPU_LIBM_BENCH_PYTHON_MODULE, Module) {
   py::class_<DeviceBuffer>(Module, "DeviceBuffer")
       .def_property_readonly("nbytes", &DeviceBuffer::getByteCount);
 
-  // NOLINTNEXTLINE(bugprone-unused-raii): Register the Python class.
-  py::class_<DeviceKernel>(Module, "DeviceKernel");
+  py::class_<DeviceKernel>(Module, "DeviceKernel")
+      .def_property_readonly(
+          "info",
+          [](const DeviceKernel &Kernel) {
+            const auto Info = unwrap(Kernel.getInfo());
+            py::dict Result;
+            Result["max_threads_per_block"] = Info.MaxThreadsPerBlock;
+            Result["registers_per_thread"] = Info.RegistersPerThread;
+            Result["static_shared_memory_bytes"] = Info.StaticSharedMemoryBytes;
+            Result["local_memory_bytes_per_thread"] =
+                Info.LocalMemoryBytesPerThread;
+            return Result;
+          })
+      .def(
+          "max_active_blocks_per_multiprocessor",
+          [](const DeviceKernel &Kernel, int ThreadsPerBlock,
+             py::ssize_t DynamicSharedMemoryBytes) {
+            if (DynamicSharedMemoryBytes < 0)
+              throw py::value_error(
+                  "dynamic shared memory bytes must be nonnegative");
+
+            return unwrap(Kernel.maxActiveBlocksPerMultiprocessor(
+                ThreadsPerBlock,
+                static_cast<std::size_t>(DynamicSharedMemoryBytes)));
+          },
+          py::kw_only(), py::arg("threads_per_block"),
+          py::arg("dynamic_shared_memory_bytes") = 0);
 
   py::class_<DeviceModule>(Module, "DeviceModule")
       .def(

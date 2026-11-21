@@ -38,6 +38,61 @@ DeviceKernel::DeviceKernel(std::shared_ptr<detail::ModuleState> Module,
                            void *Function)
     : Module(std::move(Module)), Function(Function) {}
 
+Expected<KernelInfoTy> DeviceKernel::getInfo() const {
+  if (!Module)
+    return Error{ErrorKind::InvalidArgument, "kernel is invalid"};
+
+  auto Guard =
+      detail::CurrentContextGuard::create(getDeviceState()->getContext());
+  if (!Guard)
+    return std::move(Guard).error();
+
+  auto *Kernel = static_cast<CUfunction>(Function);
+  KernelInfoTy Info{};
+  if (auto Err = check(
+          cuFuncGetAttribute(&Info.MaxThreadsPerBlock,
+                             CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, Kernel),
+          "cuFuncGetAttribute(MAX_THREADS_PER_BLOCK)"))
+    return Err;
+  if (auto Err = check(cuFuncGetAttribute(&Info.RegistersPerThread,
+                                          CU_FUNC_ATTRIBUTE_NUM_REGS, Kernel),
+                       "cuFuncGetAttribute(NUM_REGS)"))
+    return Err;
+  if (auto Err =
+          check(cuFuncGetAttribute(&Info.StaticSharedMemoryBytes,
+                                   CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, Kernel),
+                "cuFuncGetAttribute(SHARED_SIZE_BYTES)"))
+    return Err;
+  if (auto Err =
+          check(cuFuncGetAttribute(&Info.LocalMemoryBytesPerThread,
+                                   CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES, Kernel),
+                "cuFuncGetAttribute(LOCAL_SIZE_BYTES)"))
+    return Err;
+  return Info;
+}
+
+Expected<int> DeviceKernel::maxActiveBlocksPerMultiprocessor(
+    int ThreadsPerBlock, std::size_t DynamicSharedMemoryBytes) const {
+  if (!Module)
+    return Error{ErrorKind::InvalidArgument, "kernel is invalid"};
+  if (ThreadsPerBlock <= 0)
+    return Error{ErrorKind::InvalidArgument,
+                 "threads per block must be positive"};
+
+  auto Guard =
+      detail::CurrentContextGuard::create(getDeviceState()->getContext());
+  if (!Guard)
+    return std::move(Guard).error();
+
+  int Blocks = 0;
+  if (auto Err = check(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+                           &Blocks, static_cast<CUfunction>(Function),
+                           ThreadsPerBlock, DynamicSharedMemoryBytes),
+                       "cuOccupancyMaxActiveBlocksPerMultiprocessor"))
+    return Err;
+  return Blocks;
+}
+
 const std::shared_ptr<detail::DeviceStateTy> &
 DeviceKernel::getDeviceState() const {
   return Module->DeviceState;

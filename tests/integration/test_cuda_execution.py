@@ -368,6 +368,15 @@ def test_operations_restore_an_external_cuda_context(
             assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
             assert current.value == external.value
 
+        info = kernel.info
+        assert info.max_threads_per_block > 0
+        assert info.registers_per_thread > 0
+        assert info.static_shared_memory_bytes >= 0
+        assert info.local_memory_bytes_per_thread >= 0
+        assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
+        assert current.value == external.value
+
+        assert kernel.max_active_blocks_per_multiprocessor(threads_per_block=1) > 0
         assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
         assert current.value == external.value
     finally:
