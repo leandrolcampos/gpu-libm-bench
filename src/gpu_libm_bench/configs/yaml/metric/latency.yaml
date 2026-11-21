@@ -10,11 +10,11 @@ unit: ns/call
 
 sample:
   size: 8192
-  timeout_secs: 60.0
+  timeout_s: 60.0
 
 chain_length: 8192
 warmup_runs: 10
 
 throttle:
   min_clock_ratio: 0.75
-  initial_delay_secs: 0.05
+  initial_delay_s: 0.05

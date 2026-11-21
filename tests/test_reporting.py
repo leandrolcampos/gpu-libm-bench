@@ -70,10 +70,10 @@ def experiment() -> ExperimentResult:
         LatencyConfig(
             name="latency",
             unit="ns/call",
-            sample=SampleConfig(size=2, timeout_secs=60.0),
+            sample=SampleConfig(size=2, timeout_s=60.0),
             chain_length=512,
             warmup_runs=10,
-            throttle=ThrottleConfig(min_clock_ratio=0.75, initial_delay_secs=0.05),
+            throttle=ThrottleConfig(min_clock_ratio=0.75, initial_delay_s=0.05),
         ),
         BackendConfig("cuda", target.target_triple, target.architecture, 0, "/cuda"),
         {

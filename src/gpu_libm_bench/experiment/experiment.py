@@ -150,7 +150,7 @@ class Experiment:
                 image_build_infos,
                 tuple(self._input_generators.values()),
                 sample_size=metric.sample.size,
-                timeout_secs=metric.sample.timeout_secs,
+                timeout_s=metric.sample.timeout_s,
                 chain_length=metric.chain_length,
                 warmup_runs=metric.warmup_runs,
                 throttle=metric.throttle,

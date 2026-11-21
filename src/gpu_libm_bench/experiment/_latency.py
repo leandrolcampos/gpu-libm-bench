@@ -81,7 +81,7 @@ def run(
     input_generators: Sequence[inputs.InputGenerator],
     *,
     sample_size: int,
-    timeout_secs: float,
+    timeout_s: float,
     chain_length: int,
     warmup_runs: int,
     throttle: ThrottleConfig,
@@ -96,11 +96,11 @@ def run(
         benchmark = LatencyBenchmark(
             context,
             kernel,
-            timeout_secs=timeout_secs,
+            timeout_s=timeout_s,
             chain_length=chain_length,
             warmup_runs=warmup_runs,
             min_clock_ratio=throttle.min_clock_ratio,
-            initial_delay_secs=throttle.initial_delay_secs,
+            initial_delay_s=throttle.initial_delay_s,
         )
 
         try:

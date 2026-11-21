@@ -45,7 +45,7 @@ class TimerInfo:
         if self.frequency_hz <= 0:
             raise ValueError("timer frequency must be positive")
 
-    def to_nanoseconds(self, ticks: NDArray[np.uint64]) -> NDArray[np.float64]:
+    def to_ns(self, ticks: NDArray[np.uint64]) -> NDArray[np.float64]:
         return ticks.astype(np.float64) * (1_000_000_000 / self.frequency_hz)
 
 

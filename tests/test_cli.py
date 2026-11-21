@@ -67,9 +67,9 @@ def test_config_can_be_inspected_without_running_experiment(tmp_path: Path) -> N
         config.backend.name,
     ) == ("expf", "latency", "llvm-libm", "cuda")
     assert config.metric.sample.size == 16
-    assert config.metric.sample.timeout_secs == 60.0
+    assert config.metric.sample.timeout_s == 60.0
     assert config.metric.throttle.min_clock_ratio == 0.75
-    assert config.metric.throttle.initial_delay_secs == 0.05
+    assert config.metric.throttle.initial_delay_s == 0.05
     assert list(config.metric) == [
         "name",
         "unit",
@@ -100,7 +100,7 @@ def test_cli_runs_and_reports_experiment(
             *SELECTIONS,
             *(["--details"] if show_details else []),
             "metric.sample.size=16",
-            "metric.sample.timeout_secs=25.0",
+            "metric.sample.timeout_s=25.0",
             "run.domains=[wide,central]",
         ],
     )
@@ -111,7 +111,7 @@ def test_cli_runs_and_reports_experiment(
     config = factory.call_args.args[0]
     assert config.function.name == "expf"
     assert config.metric.sample.size == 16
-    assert config.metric.sample.timeout_secs == 25.0
+    assert config.metric.sample.timeout_s == 25.0
     assert config.run.domains == ["wide", "central"]
 
     experiment.run.assert_called_once_with()
