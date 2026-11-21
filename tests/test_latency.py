@@ -23,6 +23,7 @@ from gpu_libm_bench.devices import (
     DeviceKernel,
     KernelMetric,
     KernelProfile,
+    LaunchLimits,
     TimerInfo,
 )
 from gpu_libm_bench.kernels import KernelKind, KernelSpec
@@ -79,8 +80,10 @@ def test_measurement_preserves_input_association_and_excludes_warmup(
         "test device",
         "sm_120",
         16,
+        32,
         2_000_000_000,
         1024,
+        LaunchLimits((2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024),
         TimerInfo("test timer", 64, 10**9),
     )
     context.create_buffer.side_effect = lambda size, *, dtype: Mock(
@@ -285,8 +288,10 @@ def test_latency_throttling(
         "test GPU",
         "sm_120",
         16,
+        32,
         2_000_000_000,
         1024,
+        LaunchLimits((2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024),
         TimerInfo("timer", 64, 10**9),
     )
     context.create_buffer.side_effect = lambda size, *, dtype: Mock(spec=DeviceBuffer)
@@ -366,8 +371,12 @@ def test_analysis_summarizes_per_input_latencies() -> None:
             "test device",
             "sm_120",
             16,
+            32,
             2_000_000_000,
             1024,
+            LaunchLimits(
+                (2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024
+            ),
             TimerInfo("test timer", 64, 500_000_000),
         ),
         chain_length=4,
@@ -393,8 +402,12 @@ def test_single_observation_has_no_sample_standard_deviation() -> None:
             "test GPU",
             "sm_120",
             16,
+            32,
             2_000_000_000,
             1024,
+            LaunchLimits(
+                (2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024
+            ),
             TimerInfo("timer", 64, 10**9),
         ),
         pass_count=2,

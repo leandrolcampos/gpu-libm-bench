@@ -10,13 +10,11 @@ from typing import TypedDict
 import numpy as np
 from numpy.typing import NDArray
 
-class KernelMetric(Enum):
-    CLOCK_FREQUENCY = ...
-    DURATION = ...
-
-class KernelProfile(TypedDict):
-    clock_frequency_hz: float | None
-    duration_ms: float | None
+class LaunchLimits(TypedDict):
+    max_grid_dim: tuple[int, int, int]
+    max_block_dim: tuple[int, int, int]
+    max_threads_per_block: int
+    max_shared_memory_bytes_per_block: int
 
 class TimerInfo(TypedDict):
     source: str
@@ -27,14 +25,20 @@ class DeviceInfo(TypedDict):
     id: int
     name: str
     architecture: str
-    num_compute_units: int
+    multiprocessor_count: int
+    warp_size: int
     default_clock_frequency_hz: int
     total_memory_bytes: int
+    launch_limits: LaunchLimits
     timer_info: TimerInfo
 
-def device_count() -> int: ...
-def get_device_info(device_id: int = 0) -> DeviceInfo: ...
-def _set_images_build_root(root: str) -> None: ...
+class KernelMetric(Enum):
+    CLOCK_FREQUENCY = ...
+    DURATION = ...
+
+class KernelProfile(TypedDict):
+    clock_frequency_hz: float | None
+    duration_ms: float | None
 
 class DeviceBuffer:
     @property
@@ -47,31 +51,35 @@ class DeviceModule:
 
 class DeviceContext:
     def __init__(self, device_id: int = 0) -> None: ...
+    def release(self) -> None: ...
     @property
     def released(self) -> bool: ...
-    def release(self) -> None: ...
     def create_buffer(self, byte_count: int) -> DeviceBuffer: ...
-    def load_module(self, path: str) -> DeviceModule: ...
     def copy_to_device(
         self, destination: DeviceBuffer, source: NDArray[np.generic]
     ) -> None: ...
     def copy_to_host(
         self, destination: NDArray[np.generic], source: DeviceBuffer
     ) -> None: ...
+    def load_module(self, path: str) -> DeviceModule: ...
     def launch(
         self,
         kernel: DeviceKernel,
         kernel_arguments: tuple[DeviceBuffer | np.generic, ...],
-        grid: tuple[int, int, int],
-        block: tuple[int, int, int],
+        grid_dim: tuple[int, int, int],
+        block_dim: tuple[int, int, int],
         shared_memory_bytes: int,
     ) -> None: ...
     def profile(
         self,
         kernel: DeviceKernel,
         kernel_arguments: tuple[DeviceBuffer | np.generic, ...],
-        grid: tuple[int, int, int],
-        block: tuple[int, int, int],
+        grid_dim: tuple[int, int, int],
+        block_dim: tuple[int, int, int],
         shared_memory_bytes: int,
         metrics: Set[KernelMetric],
     ) -> KernelProfile: ...
+
+def device_count() -> int: ...
+def get_device_info(device_id: int = 0) -> DeviceInfo: ...
+def _set_images_build_root(root: str) -> None: ...

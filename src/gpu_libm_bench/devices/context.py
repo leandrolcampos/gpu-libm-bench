@@ -28,6 +28,14 @@ _SUPPORTED_BACKENDS = (Backend.CUDA,)
 
 
 @dataclass(frozen=True, slots=True)
+class LaunchLimits:
+    max_grid_dim: tuple[int, int, int]
+    max_block_dim: tuple[int, int, int]
+    max_threads_per_block: int
+    max_shared_memory_bytes_per_block: int
+
+
+@dataclass(frozen=True, slots=True)
 class TimerInfo:
     source: str
     counter_bits: int
@@ -47,9 +55,11 @@ class DeviceInfo:
     id: int
     name: str
     architecture: str
-    num_compute_units: int
+    multiprocessor_count: int
+    warp_size: int
     default_clock_frequency_hz: int
     total_memory_bytes: int
+    launch_limits: LaunchLimits
     timer_info: TimerInfo
 
     def __post_init__(self) -> None:
@@ -86,6 +96,13 @@ class DeviceContext:
 
             exc_value.add_note(f"device context cleanup failed: {error}")
 
+    def release(self) -> None:
+        self._native.release()
+
+    @property
+    def released(self) -> bool:
+        return self._native.released
+
     @property
     def backend(self) -> Backend:
         return self._backend
@@ -102,12 +119,31 @@ class DeviceContext:
             )
         return self._device_info
 
-    @property
-    def released(self) -> bool:
-        return self._native.released
+    @staticmethod
+    def supported_backends() -> tuple[Backend, ...]:
+        return _SUPPORTED_BACKENDS
 
-    def release(self) -> None:
-        self._native.release()
+    @staticmethod
+    def device_count(*, backend: Backend | str = Backend.CUDA) -> int:
+        return _load_backend_module(backend).device_count()
+
+    @staticmethod
+    def get_device_info(
+        device_id: int = 0, *, backend: Backend | str = Backend.CUDA
+    ) -> DeviceInfo:
+        properties = _load_backend_module(backend).get_device_info(device_id)
+        return DeviceInfo(
+            backend=Backend(backend),
+            id=properties["id"],
+            name=properties["name"],
+            architecture=properties["architecture"],
+            multiprocessor_count=properties["multiprocessor_count"],
+            warp_size=properties["warp_size"],
+            default_clock_frequency_hz=properties["default_clock_frequency_hz"],
+            total_memory_bytes=properties["total_memory_bytes"],
+            launch_limits=LaunchLimits(**properties["launch_limits"]),
+            timer_info=TimerInfo(**properties["timer_info"]),
+        )
 
     @overload
     def create_buffer[T: Scalar](
@@ -128,16 +164,6 @@ class DeviceContext:
         return DeviceBuffer(
             self._native.create_buffer(size * resolved.itemsize), resolved
         )
-
-    def load_module(self, image: DeviceImage) -> DeviceModule:
-        self._ensure_active()
-
-        if image.target.backend != self.backend:
-            raise ValueError("device image backend does not match the device context")
-        if not image.image_path.is_file():
-            raise FileNotFoundError(f"device image was not found: {image.image_path}")
-
-        return DeviceModule(self._native.load_module(str(image.image_path)), image)
 
     def copy_to_device[T: Scalar](
         self, destination: DeviceBuffer[T], source: NDArray[T]
@@ -181,6 +207,16 @@ class DeviceContext:
 
         self._native.copy_to_host(destination, source._native)
 
+    def load_module(self, image: DeviceImage) -> DeviceModule:
+        self._ensure_active()
+
+        if image.target.backend != self.backend:
+            raise ValueError("device image backend does not match the device context")
+        if not image.image_path.is_file():
+            raise FileNotFoundError(f"device image was not found: {image.image_path}")
+
+        return DeviceModule(self._native.load_module(str(image.image_path)), image)
+
     def launch(
         self,
         kernel: DeviceKernel,
@@ -194,8 +230,8 @@ class DeviceContext:
         self._native.launch(
             kernel._native,
             native_kernel_arguments,
-            config.grid,
-            config.block,
+            config.grid_dim,
+            config.block_dim,
             config.shared_memory_bytes,
         )
 
@@ -220,36 +256,12 @@ class DeviceContext:
         result = self._native.profile(
             kernel._native,
             native_kernel_arguments,
-            config.grid,
-            config.block,
+            config.grid_dim,
+            config.block_dim,
             config.shared_memory_bytes,
             native_metrics,
         )
         return KernelProfile(**result)
-
-    @staticmethod
-    def supported_backends() -> tuple[Backend, ...]:
-        return _SUPPORTED_BACKENDS
-
-    @staticmethod
-    def device_count(*, backend: Backend | str = Backend.CUDA) -> int:
-        return _load_backend_module(backend).device_count()
-
-    @staticmethod
-    def get_device_info(
-        device_id: int = 0, *, backend: Backend | str = Backend.CUDA
-    ) -> DeviceInfo:
-        properties = _load_backend_module(backend).get_device_info(device_id)
-        return DeviceInfo(
-            backend=Backend(backend),
-            id=properties["id"],
-            name=properties["name"],
-            architecture=properties["architecture"],
-            num_compute_units=properties["num_compute_units"],
-            default_clock_frequency_hz=properties["default_clock_frequency_hz"],
-            total_memory_bytes=properties["total_memory_bytes"],
-            timer_info=TimerInfo(**properties["timer_info"]),
-        )
 
     def _prepare_kernel_arguments(
         self,

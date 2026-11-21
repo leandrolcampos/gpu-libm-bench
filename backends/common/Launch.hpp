@@ -19,12 +19,13 @@ struct Dim3 {
 };
 
 struct LaunchConfig {
-  Dim3 Grid;
-  Dim3 Block;
+  Dim3 GridDim;
+  Dim3 BlockDim;
   std::size_t SharedMemoryBytes = 0;
 
   bool isValid() const {
-    return Grid.X && Grid.Y && Grid.Z && Block.X && Block.Y && Block.Z &&
+    return GridDim.X && GridDim.Y && GridDim.Z && BlockDim.X && BlockDim.Y &&
+           BlockDim.Z &&
            SharedMemoryBytes <= std::numeric_limits<unsigned int>::max();
   }
 };

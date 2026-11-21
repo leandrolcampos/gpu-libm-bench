@@ -24,7 +24,7 @@ from gpu_libm_bench.compiler.toolchains import (
     ROCmCoreSDK,
 )
 from gpu_libm_bench.configs import BackendConfig, LibraryBitcodeConfig, LibraryConfig
-from gpu_libm_bench.devices import DeviceInfo, TimerInfo
+from gpu_libm_bench.devices import DeviceInfo, LaunchLimits, TimerInfo
 
 
 @pytest.fixture
@@ -60,8 +60,12 @@ def compiler(llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
                 "GPU",
                 "sm_90",
                 16,
+                32,
                 2_000_000_000,
                 1024,
+                LaunchLimits(
+                    (2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024
+                ),
                 TimerInfo("timer", 64, 10**9),
             )
         ),

@@ -38,13 +38,13 @@ inline uint64_t globalThreadId() {
   return blockId() * blockSize() + threadId();
 }
 
-// Hardware identifier of the current compute unit.
+// Hardware identifier of the current multiprocessor.
 
-inline uint32_t computeUnitId() {
+inline uint32_t multiprocessorId() {
 #if defined(__NVPTX__)
   return __nvvm_read_ptx_sreg_smid();
 #else
-#error "computeUnitId is not implemented for this GPU target"
+#error "multiprocessorId is not implemented for this GPU target"
 #endif
 }
 

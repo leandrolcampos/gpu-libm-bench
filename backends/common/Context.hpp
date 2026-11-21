@@ -23,6 +23,13 @@
 
 namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND {
 
+struct LaunchLimitsTy {
+  Dim3 MaxGridDim;
+  Dim3 MaxBlockDim;
+  std::uint32_t MaxThreadsPerBlock;
+  std::size_t MaxSharedMemoryBytesPerBlock;
+};
+
 struct TimerInfoTy {
   std::string Source;
   std::uint32_t CounterBits;
@@ -33,14 +40,13 @@ struct DeviceInfoTy {
   int ID;
   std::string Name;
   std::string Architecture;
-  std::uint32_t NumComputeUnits;
+  std::uint32_t MultiprocessorCount;
+  std::uint32_t WarpSize;
   std::uint64_t DefaultClockFrequencyHz;
   std::size_t TotalMemoryBytes;
+  LaunchLimitsTy LaunchLimits;
   TimerInfoTy TimerInfo;
 };
-
-Expected<int> getDeviceCount();
-Expected<DeviceInfoTy> getDeviceInfo(int DeviceID);
 
 namespace detail {
 class KernelProfiler;
@@ -51,8 +57,6 @@ using KernelArgument = std::variant<const DeviceBuffer *, const void *>;
 
 class DeviceContext {
 public:
-  static Expected<DeviceContext> create(int DeviceID);
-
   DeviceContext(DeviceContext &&Other) noexcept;
   ~DeviceContext() noexcept;
 
@@ -60,16 +64,18 @@ public:
   DeviceContext &operator=(const DeviceContext &) = delete;
   DeviceContext &operator=(DeviceContext &&) = delete;
 
-  bool isReleased() const noexcept { return !DeviceState; }
+  static Expected<DeviceContext> create(int DeviceID);
+
   Error release();
+  bool isReleased() const noexcept { return !DeviceState; }
 
   Expected<DeviceBuffer> createBuffer(std::size_t ByteCount) const;
-  Expected<DeviceModule> loadModule(const std::string &Path) const;
-
   Error copyToDevice(DeviceBuffer &Destination, const void *Source,
                      std::size_t ByteCount) const;
   Error copyToHost(void *Destination, const DeviceBuffer &Source,
                    std::size_t ByteCount) const;
+
+  Expected<DeviceModule> loadModule(const std::string &Path) const;
 
   Error launch(const DeviceKernel &Kernel,
                const std::vector<KernelArgument> &KernelArguments,
@@ -103,6 +109,9 @@ private:
   mutable std::optional<DeviceModule> SupportModule;
   mutable std::unique_ptr<detail::KernelProfiler> Profiler;
 };
+
+Expected<int> getDeviceCount();
+Expected<DeviceInfoTy> getDeviceInfo(int DeviceID);
 
 } // namespace gpu_libm_bench::GPU_LIBM_BENCH_BACKEND
 
