@@ -33,7 +33,7 @@ The command builds the required native backend and device images as needed, then
 
 By default, the benchmark runs all available libraries that provide the selected function. To run only `libdevice`, for instance, add `run.libraries=[libdevice]`.
 
-For throughput, use `metric=throughput`. The report shows the highest observed rate among configurations with a complete sample, in Gcall/s. Saturation is reported as not evaluated. Use `metric.batch_size` to set the number of input tuples per launch.
+Use `metric=throughput` to measure throughput in Gcall/s. Add `--details` to see the selected launch configuration and the evidence for saturation.
 
 The following latency results (in ns/call) come from separate runs on an NVIDIA GeForce RTX 5070.
 

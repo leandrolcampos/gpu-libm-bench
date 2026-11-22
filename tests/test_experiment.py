@@ -46,6 +46,7 @@ from gpu_libm_bench.experiment import (
     _throughput,
 )
 from gpu_libm_bench.experiment import experiment as experiment_module
+from gpu_libm_bench.kernels import KernelKind, KernelSpec
 from gpu_libm_bench.reporting.terminal import print_result
 
 
@@ -205,8 +206,21 @@ def execution(
     return context, benchmarks
 
 
-def test_throughput_replays_batches_and_reports_the_best_complete_sample(
-    execution, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("outcome", "expected_reason"),
+    [
+        ("plateau", None),
+        ("gain", "Gain beyond the equivalence margin: larger batch"),
+        ("noisy", "Equivalence not established: larger batch"),
+        ("partial", "Incomplete search collection"),
+        ("timeout", "Incomplete larger batch contrast collection"),
+    ],
+)
+def test_throughput_search_and_confirmation(
+    execution,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+    expected_reason: str | None,
 ) -> None:
     with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
         composed = compose(
@@ -216,33 +230,56 @@ def test_throughput_replays_batches_and_reports_the_best_complete_sample(
                 "metric=throughput",
                 "backend=cuda",
                 "run.domains=[central]",
-                "metric.batch_size=8192",
+                "metric.search.max_candidates=4",
                 "metric.sample.size=2",
             ],
         )
     config = validate_experiment_config(composed)
     context, _ = execution
+    context.device_info = replace(
+        context.device_info,
+        multiprocessor_count=2,
+        total_memory_bytes=1 << 30,
+        l2_cache_size_bytes=48 << 10,
+    )
     kernel = context.load_module.return_value.get_kernel.return_value
-    kernel.info = KernelInfo(128, 16, 0, 0)
+    kernel.info = KernelInfo(256, 16, 0, 0)
+    kernel.spec = KernelSpec.from_config(config.function, kind=KernelKind.THROUGHPUT)
     kernel.max_active_blocks_per_multiprocessor.return_value = 1
     monkeypatch.setattr(
         experiment_module._libraries,
         "select_libraries",
         Mock(
-            return_value=tuple(
+            side_effect=lambda configuration, **_: tuple(
                 ResolvedLibrary(library, Path("/libm.bc"))
-                for library in config.libraries
+                for library in configuration.run.libraries or configuration.libraries
             )
         ),
     )
-    observed_inputs = []
+    measured_inputs = {library: [] for library in config.libraries}
 
     def benchmark(context, kernel, launch, *, sample_size, warmup_runs, **kwargs):
         def measure(domain, batches):
-            observed_inputs.append(tuple(batch.arguments["x"] for batch in batches))
-            factor = launch.request.unroll_factor
-            duration_ms = {1: 4.0, 2: 2.0, 4: 1.0}[factor]
-            timed_out = factor == 4
+            observed = measured_inputs[launch.request.library]
+            search = len(observed) < config.metric.search.max_candidates
+            rate = 100.0 if launch.request.unroll_factor == 2 else 50.0
+            timed_out = (
+                search and outcome == "partial" and launch.request.unroll_factor == 4
+            )
+            if timed_out:
+                rate = 200.0
+            if not search:
+                timed_out = outcome == "timeout" and launch.batch_size > 8192
+                rate = 101.0
+                if launch.batch_size > 8192:
+                    if outcome == "gain":
+                        rate = 120.0
+                    elif outcome == "noisy":
+                        repetition = (len(observed) - 4) // 4
+                        rate = (90.0, 112.0)[repetition % 2]
+            observed.append(
+                (launch.batch_size, tuple(batch.arguments["x"] for batch in batches))
+            )
             return throughput.ThroughputMeasurement(
                 domain=domain,
                 device_info=context.device_info,
@@ -251,7 +288,9 @@ def test_throughput_replays_batches_and_reports_the_best_complete_sample(
                 warmup_runs=warmup_runs,
                 min_clock_hz=0,
                 attempts=tuple(
-                    throughput.ThroughputAttempt(index, duration_ms, None, None)
+                    throughput.ThroughputAttempt(
+                        index, launch.batch_size / rate / 1e6, None, None
+                    )
                     for index in range(1 if timed_out else sample_size)
                 ),
                 timed_out=timed_out,
@@ -259,31 +298,58 @@ def test_throughput_replays_batches_and_reports_the_best_complete_sample(
 
         return Mock(measure=measure)
 
-    monkeypatch.setattr(_throughput, "ThroughputBenchmark", benchmark)
+    monkeypatch.setattr(_throughput._experiment, "ThroughputBenchmark", benchmark)
 
-    result = Experiment(config).run()
+    experiment = Experiment(config).run()
 
-    libraries = result.results_for(ThroughputResults)
+    libraries = experiment.results_for(ThroughputResults)
     assert len(libraries) == 2
-    assert len(observed_inputs) == 6
-    assert len(observed_inputs[0]) == 2
-    for batches in observed_inputs[1:]:
-        np.testing.assert_array_equal(batches, observed_inputs[0])
-    for library in libraries:
-        best = library.domains["central"].best
-        assert best is not None
-        assert best.measurement.launch.request.unroll_factor == 2
-        assert library.exclusions[0].request.unroll_factor == 8
+    first_library, second_library = measured_inputs.values()
+    assert len(first_library) == 24
+    for (size, inputs_a), (other_size, inputs_b) in zip(
+        first_library, second_library, strict=True
+    ):
+        assert size == other_size
+        np.testing.assert_array_equal(inputs_a, inputs_b)
+    for _, batches in first_library[1:4]:
+        np.testing.assert_array_equal(batches, first_library[0][1])
+    confirmation_inputs = first_library[4][1]
+    assert not np.array_equal(confirmation_inputs, first_library[0][1])
+    assert not np.array_equal(confirmation_inputs, first_library[8][1])
+    np.testing.assert_array_equal(confirmation_inputs, first_library[6][1])
 
-    console = Console(width=120)
+    for library in libraries:
+        result = library.domains["central"]
+        assert len(result.search_measurements) == 4
+        assert result.search_winner is not None
+        assert result.search_winner.measurement.launch.request.unroll_factor == 2
+        assert result.confirmation is not None
+        assert result.confirmation.unconfirmed_reason == expected_reason
+        assert result.reported_result is not None
+        assert result.reported_result.mean == pytest.approx(
+            101.0 if expected_reason is None else 100.0
+        )
+
+    console = Console(width=132)
     with console.capture() as captured:
-        print_result(result, show_details=True, console=console)
+        print_result(experiment, show_details=True, console=console)
     output = captured.get()
     assert "Throughput (Gcall/s)" in output
-    assert "Not evaluated" in output
     assert "Unroll factor: 2" in output
-    assert "expfThroughput4: timed out (1/2 accepted, 0 discarded)" in output
-    assert "expfThroughput8: batch_size=8192" in output
+    assert "Larger batch: 12,288 calls" in output
+    assert "90% ratio interval" in output
+    assert "L2 cache:" in output
+    assert (expected_reason or "Confirmed plateau") in output
+
+    if outcome == "plateau":
+        library_name = next(iter(config.libraries))
+        measured_inputs[library_name] = []
+        isolated = replace(config, run=replace(config.run, libraries=[library_name]))
+        Experiment(isolated).run()
+        for (_, joint), (_, solo) in zip(
+            first_library, measured_inputs[library_name], strict=True
+        ):
+            np.testing.assert_array_equal(joint, solo)
 
 
 def test_run_generates_configured_domain_inputs(

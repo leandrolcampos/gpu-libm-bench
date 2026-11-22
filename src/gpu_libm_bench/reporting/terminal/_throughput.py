@@ -10,7 +10,11 @@ from rich.console import Group
 from rich.text import Text
 
 from gpu_libm_bench.experiment import ExperimentResult, ThroughputResults
-from gpu_libm_bench.experiment._throughput import ThroughputDomainResult
+from gpu_libm_bench.experiment._throughput import (
+    CONFIRMATION_REPETITIONS,
+    PLATEAU_MARGIN,
+    ThroughputDomainResult,
+)
 
 from ._layout import build_domain_report, format_number
 
@@ -39,26 +43,33 @@ def build_report(experiment: ExperimentResult) -> Group:
 
 def _format_row(library: ThroughputResults, domain: str) -> tuple[str, ...]:
     result = library.domains[domain]
-    completed = sum(measurement.complete for measurement in result.measurements)
-    total = len(result.measurements) + len(library.exclusions)
-    best = result.best
+    completed = sum(measurement.complete for measurement in result.search_measurements)
+    reported = result.reported_result
     statistics = (
         (
-            format_number(best.mean),
-            format_number(best.stdev),
-            format_number(best.min),
-            format_number(best.max),
-            str(best.measurement.accepted_count),
+            format_number(reported.mean),
+            format_number(reported.stdev),
+            format_number(reported.min),
+            format_number(reported.max),
+            str(reported.measurement.accepted_count),
         )
-        if best is not None
+        if reported is not None
         else ("N/A",) * 5
     )
     return (
         library.image_build_info.image.library,
         *statistics,
-        f"{completed}/{total}",
-        "Not evaluated",
+        f"{completed}/{len(library.plan.candidates)}",
+        _saturation_label(result),
     )
+
+
+def _saturation_label(result: ThroughputDomainResult) -> str:
+    if result.confirmation is None:
+        return "No result"
+    if result.confirmation.unconfirmed_reason is None:
+        return "Confirmed plateau"
+    return "Unconfirmed"
 
 
 def build_details(results: Sequence[ThroughputResults]) -> Group:
@@ -67,45 +78,45 @@ def build_details(results: Sequence[ThroughputResults]) -> Group:
             "Method: independent calls (input loads and output checksums included)\n"
             "Timer: CUDA events around each kernel launch\n"
             "Estimator: total accepted calls divided by total GPU time\n"
-            "Selection: highest mean among configurations with a complete sample\n"
-            "Saturation: not evaluated (one batch size and launch geometry per variant)"
+            "Selection: highest rate among complete samples in the search\n"
+            f"Confirmation: {CONFIRMATION_REPETITIONS} fresh repetitions, "
+            "paired 90% contrast-to-winner rate-ratio intervals within "
+            f"±{PLATEAU_MARGIN:.0%}\n"
+            "Reported rate: confirmation estimate for a confirmed local plateau, "
+            "otherwise the maximum observed in the search"
         )
     ]
     for library in results:
         name = library.image_build_info.image.library
+        plan = library.plan
+        sections.append(Text(f"\n{name}", style="bold"))
+        sections.append(
+            Text(
+                f"Batch selection: {plan.batch_source}\n"
+                f"Search plan: {len(plan.candidates)}/{len(plan.eligible)} "
+                f"eligible configurations selected, {len(plan.exclusions)} exclusions"
+            )
+        )
         for domain, result in library.domains.items():
             sections.append(Text(f"\n{name} · {domain}", style="bold"))
             sections.extend(_domain_details(result))
-        if library.exclusions:
-            sections.append(Text(f"\nExcluded configurations for {name}", style="bold"))
-            for exclusion in library.exclusions:
-                sections.append(Text(f"{exclusion.request.symbol}: {exclusion.reason}"))
     return Group(*sections)
 
 
 def _domain_details(result: ThroughputDomainResult) -> list[Text]:
-    details = []
-    complete = sum(measurement.complete for measurement in result.measurements)
-    details.append(
-        Text(f"Complete samples: {complete}/{len(result.measurements)} attempted")
-    )
-    for measurement in result.measurements:
-        if measurement.timed_out:
-            accepted = measurement.accepted_count
-            discarded = len(measurement.attempts) - accepted
-            details.append(
-                Text(
-                    f"{measurement.launch.request.symbol}: timed out "
-                    f"({accepted}/{measurement.sample_size} accepted, "
-                    f"{discarded} discarded)"
-                )
-            )
-
-    if result.best is None:
+    complete = sum(measurement.complete for measurement in result.search_measurements)
+    details = [
+        Text(
+            f"Complete search samples: {complete}/"
+            f"{len(result.search_measurements)} attempted"
+        )
+    ]
+    if result.reported_result is None:
         details.append(Text("No configuration completed collection."))
         return details
 
-    measurement = result.best.measurement
+    details.extend(_confirmation_details(result))
+    measurement = result.reported_result.measurement
     launch = measurement.launch
     kernel = launch.kernel_info
     discards = Counter(
@@ -137,4 +148,48 @@ def _domain_details(result: ThroughputDomainResult) -> list[Text]:
             f"Discarded attempts: {discard_counts or '0'}"
         )
     )
+    return details
+
+
+def _confirmation_details(result: ThroughputDomainResult) -> list[Text]:
+    confirmation = result.confirmation
+    assert result.search_winner is not None and confirmation is not None
+    state = (
+        confirmation.unconfirmed_reason
+        or "Confirmed plateau within tested neighborhood"
+    )
+    estimate = confirmation.winner_estimate
+    repetitions = sum(sample.complete for sample in confirmation.winner_measurements)
+    details = [
+        Text(
+            f"Saturation: {state}\n"
+            f"Search winner: {format_number(result.search_winner.mean)} Gcall/s\n"
+            f"Winner confirmation: {repetitions}/{CONFIRMATION_REPETITIONS} complete"
+            + (
+                f", {format_number(estimate.mean)} Gcall/s"
+                if estimate is not None
+                else ""
+            )
+        )
+    ]
+    for contrast in confirmation.contrasts:
+        launch = contrast.launch
+        if launch is None:
+            details.append(Text(f"{contrast.label}: unavailable"))
+            continue
+        complete = sum(sample.complete for sample in contrast.measurements)
+        interval = contrast.ratio_interval
+        evidence = (
+            f"90% ratio interval [{interval.lower:.3f}, {interval.upper:.3f}]"
+            if interval is not None
+            else "ratio interval unavailable"
+        )
+        details.append(
+            Text(
+                f"{contrast.label}: {launch.batch_size:,} calls, "
+                f"block {launch.config.block_dim[0]}, "
+                f"grid {launch.config.grid_dim[0]}, "
+                f"{complete}/{CONFIRMATION_REPETITIONS} complete, {evidence}"
+            )
+        )
     return details

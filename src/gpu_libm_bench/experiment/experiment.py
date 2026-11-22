@@ -34,6 +34,7 @@ from gpu_libm_bench.configs import ExperimentConfig, LatencyConfig, ThroughputCo
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 
 from . import _latency, _libraries, _throughput
+from ._throughput import CONFIRMATION_REPETITIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,15 +107,14 @@ class Experiment:
     def __init__(self, config: ExperimentConfig) -> None:
         self._config = config
         metric = config.metric
+        input_count: int | None
         match metric:
             case LatencyConfig(name="latency"):
                 input_count = metric.sample.size
             case ThroughputConfig(name="throughput"):
-                if metric.batch_size <= 0:
-                    raise ValueError("throughput batch_size must be positive")
                 if metric.sample.size <= 0:
                     raise ValueError("throughput sample size must be positive")
-                input_count = metric.sample.size * metric.batch_size
+                input_count = None
             case _:
                 raise ValueError(f"unsupported experiment metric: {metric.name!r}")
 
@@ -123,18 +123,36 @@ class Experiment:
 
         function = config.function
         names = function.domains if config.run.domains is None else config.run.domains
-        self._input_generators = {
-            name: inputs.InputGenerator.from_config(
-                function.domains[name].generator,
+        self._input_generators: dict[str, inputs.InputGenerator] = {}
+        self._confirmation_generators: dict[str, tuple[inputs.InputGenerator, ...]] = {}
+        stream_names = sorted(function.domains) if input_count is None else names
+        domain_rngs = dict(
+            zip(stream_names, inputs_rng.spawn(len(stream_names)), strict=True)
+        )
+        for name in names:
+            domain_rng = domain_rngs[name]
+            generator_config = function.domains[name].generator
+            if input_count is None:
+                domain_rng, *confirmation_rngs = domain_rng.spawn(
+                    1 + CONFIRMATION_REPETITIONS
+                )
+                self._confirmation_generators[name] = tuple(
+                    inputs.InputGenerator.from_config(
+                        generator_config,
+                        function.signature,
+                        sample_size=None,
+                        domain=name,
+                        rng=confirmation_rng,
+                    )
+                    for confirmation_rng in confirmation_rngs
+                )
+            self._input_generators[name] = inputs.InputGenerator.from_config(
+                generator_config,
                 function.signature,
                 sample_size=input_count,
                 domain=name,
                 rng=domain_rng,
             )
-            for name, domain_rng in zip(
-                names, inputs_rng.spawn(len(names)), strict=True
-            )
-        }
         self.generator_descriptions = {
             name: str(generator) for name, generator in self._input_generators.items()
         }
@@ -189,6 +207,7 @@ class Experiment:
                         config.function,
                         image_build_infos,
                         self._input_generators,
+                        self._confirmation_generators,
                         metric,
                     )
                 case _:

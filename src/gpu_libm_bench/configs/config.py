@@ -86,7 +86,6 @@ class ThroughputSearchConfig:
 @dataclass
 class ThroughputConfig(MetricConfig):
     sample: SampleConfig
-    batch_size: int
     search: ThroughputSearchConfig
     warmup_runs: int
     throttle: ThrottleConfig

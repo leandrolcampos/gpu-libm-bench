@@ -130,6 +130,7 @@ def _device_details(device_info: DeviceInfo, *, metric: str) -> Group:
             memory,
             Text(f"Multiprocessors: {device_info.multiprocessor_count}"),
             Text(f"Warp size: {device_info.warp_size} threads"),
+            Text(f"L2 cache: {device_info.l2_cache_size_bytes / 2**20:,.2f} MiB"),
         )
     timer_info = device_info.timer_info
     return Group(
