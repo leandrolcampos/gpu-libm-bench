@@ -29,6 +29,7 @@ class DeviceInfo(TypedDict):
     warp_size: int
     default_clock_frequency_hz: int
     total_memory_bytes: int
+    l2_cache_size_bytes: int
     launch_limits: LaunchLimits
     timer_info: TimerInfo
 

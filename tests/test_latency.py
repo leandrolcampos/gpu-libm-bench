@@ -83,6 +83,7 @@ def test_measurement_preserves_input_association_and_excludes_warmup(
         32,
         2_000_000_000,
         1024,
+        0,
         LaunchLimits((2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024),
         TimerInfo("test timer", 64, 10**9),
     )
@@ -291,6 +292,7 @@ def test_latency_throttling(
         32,
         2_000_000_000,
         1024,
+        0,
         LaunchLimits((2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024),
         TimerInfo("timer", 64, 10**9),
     )
@@ -374,6 +376,7 @@ def test_analysis_summarizes_per_input_latencies() -> None:
             32,
             2_000_000_000,
             1024,
+            0,
             LaunchLimits(
                 (2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024
             ),
@@ -405,6 +408,7 @@ def test_single_observation_has_no_sample_standard_deviation() -> None:
             32,
             2_000_000_000,
             1024,
+            0,
             LaunchLimits(
                 (2**31 - 1, 65_535, 65_535), (1024, 1024, 64), 1024, 48 * 1024
             ),

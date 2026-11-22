@@ -110,12 +110,12 @@ class LatencyBenchmark:
         if timeout_s is not None and (not isfinite(timeout_s) or timeout_s <= 0):
             raise ValueError("timeout_s must be finite and positive")
 
-        chain_length = _as_integer(chain_length, "chain_length")
+        chain_length = _normalize_integer(chain_length, "chain_length")
         max_chain_length = np.iinfo(latency_dtypes["chain_length"]).max
         if not 1 <= chain_length <= max_chain_length:
             raise ValueError(f"chain_length must be between 1 and {max_chain_length}")
 
-        warmup_runs = _as_integer(warmup_runs, "warmup_runs")
+        warmup_runs = _normalize_integer(warmup_runs, "warmup_runs")
         if warmup_runs < 0:
             raise ValueError("warmup_runs must be nonnegative")
 
@@ -323,7 +323,7 @@ def analyze(measurement: LatencyMeasurement) -> LatencyResult:
     )
 
 
-def _as_integer(value: int, name: str) -> int:
+def _normalize_integer(value: int, name: str) -> int:
     if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer")
 

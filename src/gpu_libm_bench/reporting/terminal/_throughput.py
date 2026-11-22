@@ -128,7 +128,7 @@ def _domain_details(result: ThroughputDomainResult) -> list[Text]:
             f"Batch size: {launch.batch_size:,} calls\n"
             f"Block: {launch.config.block_dim}, grid: {launch.config.grid_dim}\n"
             f"Estimated resident blocks per multiprocessor: "
-            f"{launch.blocks_per_multiprocessor}\n"
+            f"{launch.max_resident_blocks_per_multiprocessor}\n"
             f"Registers per thread: {kernel.registers_per_thread}\n"
             f"Static shared memory per block: {kernel.static_shared_memory_bytes} B\n"
             f"Local memory per thread: {kernel.local_memory_bytes_per_thread} B\n"

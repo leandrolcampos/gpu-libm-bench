@@ -57,8 +57,8 @@ class DeviceKernel:
     def max_active_blocks_per_multiprocessor(
         self, *, threads_per_block: int, dynamic_shared_memory_bytes: int = 0
     ) -> int:
-        threads_per_block = _as_integer(threads_per_block, "threads_per_block")
-        dynamic_shared_memory_bytes = _as_integer(
+        threads_per_block = _normalize_integer(threads_per_block, "threads_per_block")
+        dynamic_shared_memory_bytes = _normalize_integer(
             dynamic_shared_memory_bytes, "dynamic_shared_memory_bytes"
         )
         if threads_per_block <= 0:
@@ -110,7 +110,7 @@ class DeviceModule:
         return DeviceKernel(self._native.get_kernel(symbol), spec)
 
 
-def _as_integer(value: int, name: str) -> int:
+def _normalize_integer(value: int, name: str) -> int:
     if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer")
     try:

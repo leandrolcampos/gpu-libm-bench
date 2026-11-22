@@ -79,9 +79,15 @@ class LatencyConfig(MetricConfig):
 
 
 @dataclass
+class ThroughputSearchConfig:
+    max_candidates: int
+
+
+@dataclass
 class ThroughputConfig(MetricConfig):
     sample: SampleConfig
     batch_size: int
+    search: ThroughputSearchConfig
     warmup_runs: int
     throttle: ThrottleConfig
 
@@ -219,6 +225,11 @@ def validate_experiment_config(config: DictConfig) -> ExperimentConfig:
     experiment = cast("ExperimentConfig", OmegaConf.to_object(structured))
 
     _validate_backend_config(experiment.backend)
+    if (
+        isinstance(experiment.metric, ThroughputConfig)
+        and experiment.metric.search.max_candidates < 4
+    ):
+        raise ValueError("metric.search.max_candidates must be at least 4")
 
     domains = experiment.function.domains
     if not domains:

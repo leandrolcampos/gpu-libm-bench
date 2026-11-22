@@ -3,6 +3,7 @@
 
 """Tests for throughput launch planning and measurement."""
 
+from dataclasses import replace
 from unittest.mock import Mock, call
 
 import numpy as np
@@ -36,6 +37,7 @@ def throughput_device() -> tuple[Mock, DeviceKernel, KernelRequest]:
         32,
         2_000_000_000,
         1 << 24,
+        0,
         LaunchLimits((1024, 1, 1), (1024, 1, 1), 1024, 0),
         TimerInfo("test timer", 64, 10**9),
     )
@@ -62,6 +64,67 @@ def throughput_device() -> tuple[Mock, DeviceKernel, KernelRequest]:
         kernel,
         KernelRequest("llvm-libm", "expf", KernelKind.THROUGHPUT, unroll_factor=4),
     )
+
+
+def test_search_covers_factors_and_geometries_with_a_stable_budget(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+) -> None:
+    context, kernel, request = throughput_device
+    device_info = replace(
+        context.device_info,
+        total_memory_bytes=1 << 30,
+        l2_cache_size_bytes=48 << 20,
+        launch_limits=replace(
+            context.device_info.launch_limits, max_grid_dim=(2, 1, 1)
+        ),
+    )
+    kernels = {
+        replace(request, unroll_factor=factor): kernel for factor in (8, 4, 2, 1)
+    }
+
+    plan = throughput.plan_throughput_search(device_info, kernels, max_candidates=32)
+    short = throughput.plan_throughput_search(
+        device_info, dict(reversed(tuple(kernels.items()))), max_candidates=4
+    )
+
+    assert len(plan.candidates) == 32
+    assert short.candidates == plan.candidates[:4]
+    assert [launch.request.unroll_factor for launch in short.candidates] == [1, 2, 4, 8]
+    assert all(launch.batch_size == 1 << 23 for launch in short.candidates)
+    assert {launch.batch_size for launch in plan.candidates} == {
+        4 << 20,
+        8 << 20,
+        12 << 20,
+    }
+    assert {
+        (launch.config.block_dim[0], launch.config.grid_dim[0])
+        for launch in plan.candidates
+        if launch.request.unroll_factor == 4 and launch.batch_size == 1 << 23
+    } >= {(256, 2), (128, 2), (256, 1)}
+    assert len(plan.eligible) == len(set(plan.eligible))
+    assert len(plan.eligible) > len(plan.candidates)
+    assert any(
+        "input and checksum buffers exceed" in item.reason for item in plan.exclusions
+    )
+
+
+def test_search_uses_fixed_batch_sizes_on_devices_without_l2(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+) -> None:
+    context, kernel, request = throughput_device
+    device_info = replace(context.device_info, total_memory_bytes=12 << 30)
+
+    plan = throughput.plan_throughput_search(
+        device_info, {request: kernel}, max_candidates=4
+    )
+
+    assert plan.batch_source == "device has no L2 cache"
+    assert [launch.batch_size for launch in plan.candidates] == [
+        8 << 20,
+        4 << 20,
+        1 << 20,
+        16 << 20,
+    ]
 
 
 def test_plan_falls_back_when_primary_block_sizes_have_no_residency(
