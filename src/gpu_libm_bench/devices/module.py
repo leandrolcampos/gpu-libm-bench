@@ -4,6 +4,7 @@
 """GPU device images and modules."""
 
 from dataclasses import dataclass
+from operator import index
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +42,7 @@ class DeviceKernel:
         self._native = native
         self._spec = spec
         self._info: KernelInfo | None = None
+        self._occupancy: dict[tuple[int, int], int] = {}
 
     @property
     def spec(self) -> KernelSpec:
@@ -55,10 +57,26 @@ class DeviceKernel:
     def max_active_blocks_per_multiprocessor(
         self, *, threads_per_block: int, dynamic_shared_memory_bytes: int = 0
     ) -> int:
-        return self._native.max_active_blocks_per_multiprocessor(
-            threads_per_block=threads_per_block,
-            dynamic_shared_memory_bytes=dynamic_shared_memory_bytes,
+        threads_per_block = _as_integer(threads_per_block, "threads_per_block")
+        dynamic_shared_memory_bytes = _as_integer(
+            dynamic_shared_memory_bytes, "dynamic_shared_memory_bytes"
         )
+        if threads_per_block <= 0:
+            raise ValueError("threads_per_block must be positive")
+        if dynamic_shared_memory_bytes < 0:
+            raise ValueError("dynamic_shared_memory_bytes must be nonnegative")
+
+        configuration = (threads_per_block, dynamic_shared_memory_bytes)
+        blocks_per_multiprocessor = self._occupancy.get(configuration)
+        if blocks_per_multiprocessor is None:
+            blocks_per_multiprocessor = (
+                self._native.max_active_blocks_per_multiprocessor(
+                    threads_per_block=threads_per_block,
+                    dynamic_shared_memory_bytes=dynamic_shared_memory_bytes,
+                )
+            )
+            self._occupancy[configuration] = blocks_per_multiprocessor
+        return blocks_per_multiprocessor
 
     def _validate_arguments(
         self, arguments: tuple[DeviceBuffer[Any] | Scalar, ...]
@@ -90,3 +108,12 @@ class DeviceModule:
 
     def get_kernel(self, symbol: str, *, spec: KernelSpec) -> DeviceKernel:
         return DeviceKernel(self._native.get_kernel(symbol), spec)
+
+
+def _as_integer(value: int, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer")
+    try:
+        return index(value)
+    except TypeError:
+        raise TypeError(f"{name} must be an integer") from None

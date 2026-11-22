@@ -36,10 +36,35 @@ def test_kernel_info_and_occupancy() -> None:
     info.assert_called_once_with()
 
     assert kernel.max_active_blocks_per_multiprocessor(threads_per_block=128) == 0
+    assert (
+        kernel.max_active_blocks_per_multiprocessor(
+            threads_per_block=128, dynamic_shared_memory_bytes=0
+        )
+        == 0
+    )
     native.max_active_blocks_per_multiprocessor.assert_called_once_with(
         threads_per_block=128,
         dynamic_shared_memory_bytes=0,
     )
+
+    native.max_active_blocks_per_multiprocessor.return_value = 2
+    assert (
+        kernel.max_active_blocks_per_multiprocessor(
+            threads_per_block=128, dynamic_shared_memory_bytes=1024
+        )
+        == 2
+    )
+    assert kernel.max_active_blocks_per_multiprocessor(threads_per_block=64) == 2
+
+    with pytest.raises(TypeError, match="threads_per_block must be an integer"):
+        kernel.max_active_blocks_per_multiprocessor(threads_per_block=128.0)
+    with pytest.raises(
+        TypeError, match="dynamic_shared_memory_bytes must be an integer"
+    ):
+        kernel.max_active_blocks_per_multiprocessor(
+            threads_per_block=128, dynamic_shared_memory_bytes=False
+        )
+    assert native.max_active_blocks_per_multiprocessor.call_count == 3
 
 
 def test_import_does_not_load_cuda(tmp_path: Path) -> None:

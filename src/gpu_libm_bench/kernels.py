@@ -99,7 +99,7 @@ def _latency_spec(signature: "SignatureConfig") -> KernelSpec:
             KernelArgument("chain_length", "uint32", False),
             KernelArgument("mask", storage_dtype, True),
             KernelArgument("elapsed_ticks", "uint64", True),
-            KernelArgument("output", output_dtype, True),
+            KernelArgument("output", storage_dtype, True),
         )
         + arguments
     )

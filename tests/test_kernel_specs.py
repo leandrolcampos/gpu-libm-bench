@@ -131,7 +131,7 @@ def test_latency_contract_follows_function_signature(
             KernelArgument("chain_length", "uint32", False),
             KernelArgument("mask", storage_dtype, True),
             KernelArgument("elapsed_ticks", "uint64", True),
-            KernelArgument("output", inputs[0].dtype, True),
+            KernelArgument("output", storage_dtype, True),
         )
         + inputs
     )
