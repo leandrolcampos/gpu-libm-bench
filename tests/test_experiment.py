@@ -12,9 +12,10 @@ from unittest.mock import MagicMock, Mock
 import numpy as np
 import pytest
 from hydra import compose, initialize_config_module
+from rich.console import Console
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.benchmarks import latency
+from gpu_libm_bench.benchmarks import latency, throughput
 from gpu_libm_bench.compiler.backends import BackendModuleNotFoundError
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.compiler.libraries import ResolvedLibrary
@@ -29,14 +30,23 @@ from gpu_libm_bench.configs import (
     register_config_schema,
     validate_experiment_config,
 )
-from gpu_libm_bench.devices import DeviceImage, DeviceInfo, LaunchLimits, TimerInfo
+from gpu_libm_bench.devices import (
+    DeviceImage,
+    DeviceInfo,
+    KernelInfo,
+    LaunchLimits,
+    TimerInfo,
+)
 from gpu_libm_bench.experiment import (
     Experiment,
     ExperimentResult,
     LatencyResults,
+    ThroughputResults,
     _latency,
+    _throughput,
 )
 from gpu_libm_bench.experiment import experiment as experiment_module
+from gpu_libm_bench.reporting.terminal import print_result
 
 
 @pytest.fixture
@@ -192,6 +202,87 @@ def execution(
     monkeypatch.setattr(_latency, "LatencyBenchmark", Mock(side_effect=benchmark))
 
     return context, benchmarks
+
+
+def test_throughput_replays_batches_and_reports_the_best_complete_sample(
+    execution, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
+        composed = compose(
+            config_name="experiment_config",
+            overrides=[
+                "function=expf",
+                "metric=throughput",
+                "backend=cuda",
+                "run.domains=[central]",
+                "metric.batch_size=8192",
+                "metric.sample.size=2",
+            ],
+        )
+    config = validate_experiment_config(composed)
+    context, _ = execution
+    kernel = context.load_module.return_value.get_kernel.return_value
+    kernel.info = KernelInfo(128, 16, 0, 0)
+    kernel.max_active_blocks_per_multiprocessor.return_value = 1
+    monkeypatch.setattr(
+        experiment_module._libraries,
+        "select_libraries",
+        Mock(
+            return_value=tuple(
+                ResolvedLibrary(library, Path("/libm.bc"))
+                for library in config.libraries
+            )
+        ),
+    )
+    observed_inputs = []
+
+    def benchmark(context, kernel, launch, *, sample_size, warmup_runs, **kwargs):
+        def measure(domain, batches):
+            observed_inputs.append(tuple(batch.arguments["x"] for batch in batches))
+            factor = launch.request.unroll_factor
+            duration_ms = {1: 4.0, 2: 2.0, 4: 1.0}[factor]
+            timed_out = factor == 4
+            return throughput.ThroughputMeasurement(
+                domain=domain,
+                device_info=context.device_info,
+                launch=launch,
+                sample_size=sample_size,
+                warmup_runs=warmup_runs,
+                min_clock_hz=0,
+                attempts=tuple(
+                    throughput.ThroughputAttempt(index, duration_ms, None, None)
+                    for index in range(1 if timed_out else sample_size)
+                ),
+                timed_out=timed_out,
+            )
+
+        return Mock(measure=measure)
+
+    monkeypatch.setattr(_throughput, "ThroughputBenchmark", benchmark)
+
+    result = Experiment(config).run()
+
+    libraries = result.results_for(ThroughputResults)
+    assert len(libraries) == 2
+    assert len(observed_inputs) == 6
+    assert len(observed_inputs[0]) == 2
+    for batches in observed_inputs[1:]:
+        np.testing.assert_array_equal(batches, observed_inputs[0])
+    for library in libraries:
+        best = library.domains["central"].best
+        assert best is not None
+        assert best.measurement.launch.request.unroll_factor == 2
+        assert library.exclusions[0].request.unroll_factor == 8
+
+    console = Console(width=120)
+    with console.capture() as captured:
+        print_result(result, show_details=True, console=console)
+    output = captured.get()
+    assert "Throughput (Gcall/s)" in output
+    assert "Not evaluated" in output
+    assert "Unroll factor: 2" in output
+    assert "expfThroughput4: timed out (1/2 accepted, 0 discarded)" in output
+    assert "expfThroughput8: batch_size=8192" in output
 
 
 def test_run_generates_configured_domain_inputs(

@@ -8,9 +8,13 @@ from rich.text import Text
 
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.devices import DeviceInfo
-from gpu_libm_bench.experiment import ExperimentResult
+from gpu_libm_bench.experiment import (
+    ExperimentResult,
+    LatencyResults,
+    ThroughputResults,
+)
 
-from . import _latency
+from . import _latency, _throughput
 from ._layout import Indented
 
 
@@ -63,18 +67,28 @@ def _device_label(device_info: DeviceInfo) -> str:
 
 
 def _metric_report(experiment: ExperimentResult) -> Group:
-    metric = experiment.config.metric.name
-    if metric == "latency":
-        return _latency.build_report(experiment)
-    raise ValueError(f"unsupported report metric: {metric!r}")
+    match experiment.config.metric.name:
+        case "latency":
+            return _latency.build_report(experiment)
+        case "throughput":
+            return _throughput.build_report(experiment)
+        case metric:
+            raise ValueError(f"unsupported report metric: {metric!r}")
 
 
 def _configuration_report(experiment: ExperimentResult) -> Group:
     metric = experiment.config.metric.name
-    if metric == "latency":
-        metric_details = _latency.build_details(experiment.results)
-    else:
-        raise ValueError(f"unsupported report metric: {metric!r}")
+    match metric:
+        case "latency":
+            metric_details = _latency.build_details(
+                experiment.results_for(LatencyResults)
+            )
+        case "throughput":
+            metric_details = _throughput.build_details(
+                experiment.results_for(ThroughputResults)
+            )
+        case _:
+            raise ValueError(f"unsupported report metric: {metric!r}")
 
     libraries = []
     for result in experiment.results:
@@ -87,7 +101,9 @@ def _configuration_report(experiment: ExperimentResult) -> Group:
         )
 
     return Group(
-        Indented(_device_details(experiment.device_info), top=1, bottom=1),
+        Indented(
+            _device_details(experiment.device_info, metric=metric), top=1, bottom=1
+        ),
         Indented(
             Group(
                 Text(f"Seed: {experiment.config.run.seed}"),
@@ -105,11 +121,20 @@ def _configuration_report(experiment: ExperimentResult) -> Group:
     )
 
 
-def _device_details(device_info: DeviceInfo) -> Group:
+def _device_details(device_info: DeviceInfo, *, metric: str) -> Group:
+    label = Text(_device_label(device_info), style="bold")
+    memory = Text(f"Memory: {device_info.total_memory_bytes / 2**20:,.2f} MiB")
+    if metric == "throughput":
+        return Group(
+            label,
+            memory,
+            Text(f"Multiprocessors: {device_info.multiprocessor_count}"),
+            Text(f"Warp size: {device_info.warp_size} threads"),
+        )
     timer_info = device_info.timer_info
     return Group(
-        Text(_device_label(device_info), style="bold"),
-        Text(f"Memory: {device_info.total_memory_bytes / 2**20:,.2f} MiB"),
+        label,
+        memory,
         Text(
             f"Timer: {timer_info.source}, {timer_info.counter_bits} bits, "
             f"{timer_info.frequency_hz} Hz"

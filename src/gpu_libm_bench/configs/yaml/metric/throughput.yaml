@@ -1,0 +1,20 @@
+# Copyright 2026 Leandro Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+defaults:
+  - /schema/metric: throughput
+  - _self_
+
+name: throughput
+unit: Gcall/s
+
+sample:
+  size: 16
+  timeout_s: 60.0
+
+batch_size: 1048576
+warmup_runs: 10
+
+throttle:
+  min_clock_ratio: 0.75
+  initial_delay_s: 0.05

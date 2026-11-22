@@ -3,105 +3,42 @@
 
 """Terminal presentation of latency statistics and methodology."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
-from rich import box
-from rich.cells import cell_len
 from rich.console import Group
-from rich.table import Table
 from rich.text import Text
 
 from gpu_libm_bench.benchmarks.latency import LatencyResult
 from gpu_libm_bench.experiment import ExperimentResult, LatencyResults
 
-from ._layout import Indented
+from ._layout import build_domain_report, format_number
 
 
 def build_report(experiment: ExperimentResult) -> Group:
-    domain_rows = {
-        name: [
-            (library.image_build_info.image.library, library[name])
-            for library in experiment.results
-        ]
-        for name in experiment.results[0]
+    libraries = experiment.results_for(LatencyResults)
+    rows = {
+        domain: tuple(
+            _format_row(library.image_build_info.image.library, library[domain])
+            for library in libraries
+        )
+        for domain in libraries[0]
     }
-
-    sections = [
-        Indented(
-            Group(
-                Text(f"Domain: {name}", style="bold"),
-                Text(experiment.generator_descriptions[name]),
-                table,
-            ),
-            top=1,
-        )
-        for name, table in _build_tables(domain_rows).items()
-    ]
-
-    return Group(*sections)
-
-
-def _build_tables(
-    domains: Mapping[str, Sequence[tuple[str, LatencyResult]]],
-) -> dict[str, Table]:
-    formatted = {name: _format_table(rows) for name, rows in domains.items()}
-    if not formatted:
-        return {}
-
-    headers = [header for header, _ in formatted.values()]
-    cells = [row for header, rows in formatted.values() for row in (header, *rows)]
-    column_widths = tuple(
-        max(cell_len(row[index]) for row in cells) for index in range(len(headers[0]))
-    )
-
-    tables = {}
-    for name, (header, rows) in formatted.items():
-        table = Table(
-            box=box.SQUARE,
-            width=sum(column_widths) + 3 * len(header) + 1,
-        )
-
-        for index, (label, width) in enumerate(zip(header, column_widths, strict=True)):
-            table.add_column(
-                Text(label, justify="center"),
-                width=width,
-                justify="left" if index == 0 else "right",
-                no_wrap=True,
-                overflow="fold",
-            )
-
-        for row in rows:
-            table.add_row(*(Text(value) for value in row))
-
-        tables[name] = table
-
-    return tables
-
-
-def _format_table(
-    rows: Sequence[tuple[str, LatencyResult]],
-) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
-    cells = []
-    for library, result in rows:
-        cells.append(
-            (
-                library,
-                _format_number(result.mean),
-                _format_number(result.stdev) if result.stdev is not None else "N/A",
-                _format_number(result.min),
-                _format_number(result.max),
-                str(result.latencies.size),
-            )
-        )
-
-    return (
+    return build_domain_report(
         ("Library", "Mean", "StDev", "Min", "Max", "Sample size"),
-        tuple(cells),
+        rows,
+        experiment.generator_descriptions,
     )
 
 
-def _format_number(value: float) -> str:
-    return f"{value:.5g}"
+def _format_row(library: str, result: LatencyResult) -> tuple[str, ...]:
+    return (
+        library,
+        format_number(result.mean),
+        format_number(result.stdev),
+        format_number(result.min),
+        format_number(result.max),
+        str(result.latencies.size),
+    )
 
 
 def build_details(results: Sequence[LatencyResults]) -> Group:

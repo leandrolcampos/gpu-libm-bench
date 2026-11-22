@@ -26,6 +26,8 @@ def select_libraries(
 
     if config.metric.name == "latency":
         KernelSpec.from_config(config.function, kind=KernelKind.LATENCY)
+    elif config.metric.name == "throughput":
+        KernelSpec.from_config(config.function, kind=KernelKind.THROUGHPUT)
     else:
         raise ValueError(f"unsupported experiment metric: {config.metric.name!r}")
 

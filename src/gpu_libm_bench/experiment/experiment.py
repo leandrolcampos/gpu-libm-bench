@@ -30,10 +30,10 @@ from gpu_libm_bench.compiler.toolchains import (
     resolve_backend_sdk,
     resolve_llvm,
 )
-from gpu_libm_bench.configs import ExperimentConfig, LatencyConfig
+from gpu_libm_bench.configs import ExperimentConfig, LatencyConfig, ThroughputConfig
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 
-from . import _latency, _libraries
+from . import _latency, _libraries, _throughput
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +42,7 @@ class ExperimentResult:
     device_info: DeviceInfo
     environment: dict[str, str]
     generator_descriptions: dict[str, str]
-    results: tuple[_latency.LatencyResults, ...]
+    results: tuple[_latency.LatencyResults | _throughput.ThroughputResults, ...]
 
     def __post_init__(self) -> None:
         if self.device_info.backend != self.config.backend.name:
@@ -68,27 +68,55 @@ class ExperimentResult:
                     "result device image target does not match the experiment target"
                 )
 
-        if self.config.metric.name == "latency":
-            _latency.validate_results(
-                self.results,
-                device_info=self.device_info,
-                domain_names=self.config.function.domains
-                if self.config.run.domains is None
-                else self.config.run.domains,
-                generator_descriptions=self.generator_descriptions,
-            )
-        else:
-            raise ValueError(
-                f"unsupported experiment metric: {self.config.metric.name!r}"
-            )
+        domain_names = (
+            self.config.function.domains
+            if self.config.run.domains is None
+            else self.config.run.domains
+        )
+        match self.config.metric.name:
+            case "latency":
+                _latency.validate_results(
+                    self.results_for(_latency.LatencyResults),
+                    device_info=self.device_info,
+                    domain_names=domain_names,
+                    generator_descriptions=self.generator_descriptions,
+                )
+            case "throughput":
+                _throughput.validate_results(
+                    self.results_for(_throughput.ThroughputResults),
+                    device_info=self.device_info,
+                    domain_names=domain_names,
+                    generator_descriptions=self.generator_descriptions,
+                )
+            case name:
+                raise ValueError(f"unsupported experiment metric: {name!r}")
+
+    def results_for[T: (_latency.LatencyResults, _throughput.ThroughputResults)](
+        self, result_type: type[T]
+    ) -> tuple[T, ...]:
+        results = tuple(
+            result for result in self.results if isinstance(result, result_type)
+        )
+        if len(results) != len(self.results):
+            raise ValueError("experiment result types must match the metric")
+        return results
 
 
 class Experiment:
     def __init__(self, config: ExperimentConfig) -> None:
         self._config = config
         metric = config.metric
-        if not isinstance(metric, LatencyConfig) or metric.name != "latency":
-            raise ValueError(f"unsupported experiment metric: {metric.name!r}")
+        match metric:
+            case LatencyConfig(name="latency"):
+                input_count = metric.sample.size
+            case ThroughputConfig(name="throughput"):
+                if metric.batch_size <= 0:
+                    raise ValueError("throughput batch_size must be positive")
+                if metric.sample.size <= 0:
+                    raise ValueError("throughput sample size must be positive")
+                input_count = metric.sample.size * metric.batch_size
+            case _:
+                raise ValueError(f"unsupported experiment metric: {metric.name!r}")
 
         rng = np.random.Generator(np.random.PCG64DXSM(config.run.seed))
         inputs_rng, self.ordering_rng = rng.spawn(2)
@@ -99,7 +127,7 @@ class Experiment:
             name: inputs.InputGenerator.from_config(
                 function.domains[name].generator,
                 function.signature,
-                sample_size=metric.sample.size,
+                sample_size=input_count,
                 domain=name,
                 rng=domain_rng,
             )
@@ -114,9 +142,6 @@ class Experiment:
     def run(self) -> ExperimentResult:
         config = self._config
         metric = config.metric
-        if not isinstance(metric, LatencyConfig) or metric.name != "latency":
-            raise ValueError(f"unsupported experiment metric: {metric.name!r}")
-
         backend = config.backend
         backend_sdk = resolve_backend_sdk(
             backend=backend.name,
@@ -144,17 +169,30 @@ class Experiment:
 
             # TODO: Replace this temporary message with progress reporting.
             print("Running benchmark. This may take a few minutes...", file=sys.stderr)
-            results = _latency.run(
-                context,
-                config.function,
-                image_build_infos,
-                tuple(self._input_generators.values()),
-                sample_size=metric.sample.size,
-                timeout_s=metric.sample.timeout_s,
-                chain_length=metric.chain_length,
-                warmup_runs=metric.warmup_runs,
-                throttle=metric.throttle,
-            )
+            results: tuple[_latency.LatencyResults | _throughput.ThroughputResults, ...]
+            match metric:
+                case LatencyConfig():
+                    results = _latency.run(
+                        context,
+                        config.function,
+                        image_build_infos,
+                        tuple(self._input_generators.values()),
+                        sample_size=metric.sample.size,
+                        timeout_s=metric.sample.timeout_s,
+                        chain_length=metric.chain_length,
+                        warmup_runs=metric.warmup_runs,
+                        throttle=metric.throttle,
+                    )
+                case ThroughputConfig():
+                    results = _throughput.run(
+                        context,
+                        config.function,
+                        image_build_infos,
+                        self._input_generators,
+                        metric,
+                    )
+                case _:
+                    raise ValueError(f"unsupported experiment metric: {metric.name!r}")
 
         effective_config = replace(
             config,

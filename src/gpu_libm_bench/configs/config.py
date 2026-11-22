@@ -79,6 +79,14 @@ class LatencyConfig(MetricConfig):
 
 
 @dataclass
+class ThroughputConfig(MetricConfig):
+    sample: SampleConfig
+    batch_size: int
+    warmup_runs: int
+    throttle: ThrottleConfig
+
+
+@dataclass
 class BackendConfig:
     name: str
     target_triple: str
@@ -156,6 +164,15 @@ def register_config_schema() -> None:
         group="schema/metric",
         name="latency",
         node=LatencyConfig,
+        package="metric",
+        provider="gpu-libm-bench",
+        replace=True,
+    )
+
+    ConfigStore.instance().store(
+        group="schema/metric",
+        name="throughput",
+        node=ThroughputConfig,
         package="metric",
         provider="gpu-libm-bench",
         replace=True,
