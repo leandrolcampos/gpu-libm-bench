@@ -151,11 +151,15 @@ def test_image_exports_registered_kernels(
     assert image.functions
     for function in image.functions:
         for kind in KernelKind:
-            request = KernelRequest(image.library, function, kind)
-            assert request.symbol in symbols
-            assert re.search(
-                rf"\.visible\s+\.entry\s+{re.escape(request.symbol)}\(", ptx
-            )
+            factors = (1, 2, 4, 8) if kind is KernelKind.THROUGHPUT else (None,)
+            for factor in factors:
+                request = KernelRequest(
+                    image.library, function, kind, unroll_factor=factor
+                )
+                assert request.symbol in symbols
+                assert re.search(
+                    rf"\.visible\s+\.entry\s+{re.escape(request.symbol)}\(", ptx
+                )
 
     cuobjdump = Path(metadata["sdk_root"]) / "bin" / "cuobjdump"
     dump = run_tool([cuobjdump, "--dump-sass", image.image_path])

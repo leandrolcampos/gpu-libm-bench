@@ -6,7 +6,7 @@
 import pytest
 
 from gpu_libm_bench.configs import ArgumentConfig, FunctionConfig, SignatureConfig
-from gpu_libm_bench.kernels import KernelArgument, KernelKind, KernelSpec
+from gpu_libm_bench.kernels import KernelArgument, KernelKind, KernelRequest, KernelSpec
 
 
 @pytest.mark.parametrize(
@@ -135,3 +135,29 @@ def test_latency_contract_follows_function_signature(
         )
         + inputs
     )
+
+
+def test_throughput_contract_uses_result_storage_for_checksums() -> None:
+    signature = SignatureConfig(
+        "double",
+        [
+            ArgumentConfig("x", "float", "input"),
+            ArgumentConfig("exponent", "int", "input"),
+        ],
+    )
+    function = FunctionConfig("example", signature, domains={})
+    assert KernelSpec.from_config(function, kind=KernelKind.THROUGHPUT).arguments == (
+        KernelArgument("x", "float32", True),
+        KernelArgument("exponent", "int32", True),
+        KernelArgument("checksums", "uint64", True),
+        KernelArgument("count", "uint64", False),
+    )
+
+
+def test_throughput_request_resolves_symbol_by_unroll_factor() -> None:
+    kind = KernelKind.THROUGHPUT
+    request = KernelRequest("libdevice", "expf", kind, unroll_factor=4)
+    assert request.symbol == "expfThroughput4"
+
+    with pytest.raises(ValueError, match="unroll_factor"):
+        KernelRequest("libdevice", "expf", kind, unroll_factor=3)

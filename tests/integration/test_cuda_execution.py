@@ -17,7 +17,12 @@ from hydra import compose, initialize_config_module
 from gpu_libm_bench.compiler.backends import get_backend_module
 from gpu_libm_bench.compiler.images import resolve_device_image
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.configs import register_config_schema, validate_experiment_config
+from gpu_libm_bench.configs import (
+    FunctionConfig,
+    load_function_signature_config,
+    register_config_schema,
+    validate_experiment_config,
+)
 from gpu_libm_bench.devices import (
     DeviceContext,
     DeviceImage,
@@ -197,6 +202,47 @@ def test_expf_evaluation_preserves_tail(
 
     np.testing.assert_allclose(destination[:count], np.exp(source), rtol=4e-7)
     assert np.isnan(destination[count:]).all()
+
+
+@pytest.mark.parametrize("unroll_factor", (1, 2, 4, 8))
+def test_expf_throughput_checksums(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec, unroll_factor: int
+) -> None:
+    config = LaunchConfig(grid_dim=(2, 2, 1), block_dim=(8, 2, 1))
+    stride = prod(config.grid_dim) * prod(config.block_dim)
+    counts = (stride - 3, (2 * unroll_factor + 1) * stride + 5)
+    source = np.linspace(-3, 5, counts[-1], dtype=np.float32)
+    values = np.empty_like(source)
+    checksums = np.empty(stride, dtype=np.uint32)
+    x = context.create_buffer(source.size, dtype=source.dtype)
+    y = context.create_buffer(values.size, dtype=values.dtype)
+    output = context.create_buffer(checksums.size, dtype=checksums.dtype)
+    context.copy_to_device(x, source)
+
+    evaluation = load_kernel(context, image, spec)
+    context.launch(
+        evaluation,
+        x,
+        y,
+        np.uint64(source.size),
+        config=LaunchConfig(grid_dim=(source.size, 1, 1)),
+    )
+    context.copy_to_host(values, y)
+
+    kind = KernelKind.THROUGHPUT
+    request = KernelRequest(image.library, "expf", kind, unroll_factor=unroll_factor)
+    function = FunctionConfig("expf", load_function_signature_config("expf"), {})
+    kernel = context.load_module(image).get_kernel(
+        request.symbol, spec=KernelSpec.from_config(function, kind=kind)
+    )
+    bits = values.view(np.uint32)
+    for count in counts:
+        context.launch(kernel, x, output, np.uint64(count), config=config)
+        context.copy_to_host(checksums, output)
+        expected = [
+            np.bitwise_xor.reduce(bits[thread:count:stride]) for thread in range(stride)
+        ]
+        np.testing.assert_array_equal(checksums, expected)
 
 
 def test_launch_observes_the_latest_host_copy(

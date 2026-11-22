@@ -10,6 +10,7 @@
 #include "Evaluation.hpp"
 #include "Latency.hpp"
 #include "Macros.hpp"
+#include "Throughput.hpp"
 
 namespace gpu_libm_bench::libm::LIBM_NAME {
 
@@ -30,6 +31,26 @@ extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_NAME, Latency)(
     uint64_t *ElapsedTicks, StorageType *Output, const ArgType *X) {
   gpu_libm_bench::measureLatency<LIBM_SYMBOL>(PassCount, ChainLength, ZeroMask,
                                               ElapsedTicks, Output, X);
+}
+
+extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_NAME, Throughput1)(
+    const ArgType *X, StorageType *Checksums, uint64_t Count) {
+  gpu_libm_bench::measureThroughput<LIBM_SYMBOL, 1>(Count, Checksums, X);
+}
+
+extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_NAME, Throughput2)(
+    const ArgType *X, StorageType *Checksums, uint64_t Count) {
+  gpu_libm_bench::measureThroughput<LIBM_SYMBOL, 2>(Count, Checksums, X);
+}
+
+extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_NAME, Throughput4)(
+    const ArgType *X, StorageType *Checksums, uint64_t Count) {
+  gpu_libm_bench::measureThroughput<LIBM_SYMBOL, 4>(Count, Checksums, X);
+}
+
+extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_NAME, Throughput8)(
+    const ArgType *X, StorageType *Checksums, uint64_t Count) {
+  gpu_libm_bench::measureThroughput<LIBM_SYMBOL, 8>(Count, Checksums, X);
 }
 
 } // namespace gpu_libm_bench::libm::LIBM_NAME
