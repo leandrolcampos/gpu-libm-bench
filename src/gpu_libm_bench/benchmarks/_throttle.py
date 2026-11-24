@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Recovery policy for benchmark attempts rejected by the clock filter."""
+"""Recovery policy for detected throttling during benchmarks."""
 
 
 def recovery_delay_s(delay_s: float, consecutive_discards: int) -> float:

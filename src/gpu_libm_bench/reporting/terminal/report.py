@@ -7,6 +7,7 @@ from rich.console import Console, Group
 from rich.text import Text
 
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
+from gpu_libm_bench.configs import LatencyConfig, ThroughputConfig
 from gpu_libm_bench.devices import DeviceInfo
 from gpu_libm_bench.experiment import (
     ExperimentResult,
@@ -77,18 +78,18 @@ def _metric_report(experiment: ExperimentResult) -> Group:
 
 
 def _configuration_report(experiment: ExperimentResult) -> Group:
-    metric = experiment.config.metric.name
+    metric = experiment.config.metric
     match metric:
-        case "latency":
+        case LatencyConfig(name="latency"):
             metric_details = _latency.build_details(
                 experiment.results_for(LatencyResults)
             )
-        case "throughput":
+        case ThroughputConfig(name="throughput"):
             metric_details = _throughput.build_details(
-                experiment.results_for(ThroughputResults)
+                experiment.results_for(ThroughputResults), metric
             )
         case _:
-            raise ValueError(f"unsupported report metric: {metric!r}")
+            raise ValueError(f"unsupported report metric: {metric.name!r}")
 
     libraries = []
     for result in experiment.results:
@@ -102,7 +103,7 @@ def _configuration_report(experiment: ExperimentResult) -> Group:
 
     return Group(
         Indented(
-            _device_details(experiment.device_info, metric=metric), top=1, bottom=1
+            _device_details(experiment.device_info, metric=metric.name), top=1, bottom=1
         ),
         Indented(
             Group(

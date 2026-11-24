@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Integration tests for math library calls, linking, and compiled device images."""
+"""Integration tests for device image builds and math library linkage."""
 
 import json
 import os
@@ -88,7 +88,7 @@ def unlinked_command(
     return command
 
 
-def test_wrappers_preserve_math_function_calls(
+def test_kernel_wrappers_call_the_configured_math_symbol(
     unlinked_command: list[str],
     native_symbol: str,
     tmp_path: Path,
@@ -101,7 +101,7 @@ def test_wrappers_preserve_math_function_calls(
     assert "@llvm.exp.f32(" not in raw_ir
 
 
-def test_missing_library_cannot_be_replaced_by_a_builtin(
+def test_linking_fails_without_the_configured_math_library(
     compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
     unlinked_command: list[str],
     native_symbol: str,
@@ -127,7 +127,7 @@ def test_missing_library_cannot_be_replaced_by_a_builtin(
     )
 
 
-def test_image_exports_registered_kernels(
+def test_device_image_targets_configured_architecture_and_exports_kernels(
     compiled_image: tuple[DeviceImage, LLVMToolchain, dict[str, Any]],
 ) -> None:
     image, llvm, metadata = compiled_image
@@ -151,8 +151,7 @@ def test_image_exports_registered_kernels(
     assert image.functions
     for function in image.functions:
         for kind in KernelKind:
-            factors = (1, 2, 4, 8) if kind is KernelKind.THROUGHPUT else (None,)
-            for factor in factors:
+            for factor in kind.unroll_factors or (None,):
                 request = KernelRequest(
                     image.library, function, kind, unroll_factor=factor
                 )

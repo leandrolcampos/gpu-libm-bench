@@ -21,13 +21,16 @@ _FLOAT_STORAGE_DTYPES = {
     "float32": "uint32",
     "float64": "uint64",
 }
-_THROUGHPUT_UNROLL_FACTORS = (1, 2, 4, 8)
 
 
 class KernelKind(StrEnum):
     EVALUATION = "evaluation"
     LATENCY = "latency"
     THROUGHPUT = "throughput"
+
+    @property
+    def unroll_factors(self) -> tuple[int, ...]:
+        return (1, 2, 4, 8) if self is KernelKind.THROUGHPUT else ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +41,10 @@ class KernelRequest:
     unroll_factor: int | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
-        if self.kind is KernelKind.THROUGHPUT:
+        if self.kind.unroll_factors:
             if (
                 type(self.unroll_factor) is not int
-                or self.unroll_factor not in _THROUGHPUT_UNROLL_FACTORS
+                or self.unroll_factor not in self.kind.unroll_factors
             ):
                 raise ValueError("throughput unroll_factor must be 1, 2, 4, or 8")
         elif self.unroll_factor is not None:
@@ -113,7 +116,11 @@ def _throughput_spec(signature: "SignatureConfig") -> KernelSpec:
         raise ValueError("throughput kernels require a floating-point return value")
 
     return KernelSpec(
-        arguments
+        (
+            KernelArgument("pass_count", "uint32", False),
+            KernelArgument("mask", "uint32", False),
+        )
+        + arguments
         + (
             KernelArgument("checksums", _FLOAT_STORAGE_DTYPES[output_dtype], True),
             KernelArgument("count", "uint64", False),

@@ -16,6 +16,7 @@ dependencies = [
     "numpy>=2.0,<3",
     "omegaconf>=2.4.1rc1,<2.5",
     "rich>=14,<15",
+    "scipy>=1.13,<2",
 ]
 
 [project.optional-dependencies]

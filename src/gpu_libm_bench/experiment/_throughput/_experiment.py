@@ -6,6 +6,7 @@
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
+from gpu_libm_bench import inputs
 from gpu_libm_bench.benchmarks.throughput import (
     ThroughputBenchmark,
     ThroughputMeasurement,
@@ -18,13 +19,7 @@ from gpu_libm_bench.benchmarks.throughput import (
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.configs import FunctionConfig, ThroughputConfig
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo, DeviceKernel
-from gpu_libm_bench.inputs import InputGenerator
-from gpu_libm_bench.kernels import (
-    _THROUGHPUT_UNROLL_FACTORS,
-    KernelKind,
-    KernelRequest,
-    KernelSpec,
-)
+from gpu_libm_bench.kernels import KernelKind, KernelRequest, KernelSpec
 
 from ._confirmation import ThroughputConfirmation, confirm_winner
 
@@ -38,38 +33,43 @@ class ThroughputDomainResult:
     @property
     def reported_result(self) -> ThroughputResult | None:
         confirmation = self.confirmation
-        if confirmation is not None and confirmation.unconfirmed_reason is None:
-            return confirmation.winner_estimate
-        return self.search_winner
+        return confirmation.reference_estimate if confirmation is not None else None
 
     def iter_measurements(self) -> Iterator[ThroughputMeasurement]:
         yield from self.search_measurements
         if self.confirmation is not None:
-            yield from self.confirmation.winner_measurements
+            yield from self.confirmation.reference_measurements
             for contrast in self.confirmation.contrasts:
                 yield from contrast.measurements
 
 
 @dataclass(frozen=True, slots=True)
-class ThroughputResults:
+class ThroughputResults(Mapping[str, ThroughputDomainResult]):
     image_build_info: DeviceImageBuildInfo
     plan: ThroughputSearchPlan
     domains: dict[str, ThroughputDomainResult]
 
+    def __getitem__(self, domain: str) -> ThroughputDomainResult:
+        return self.domains[domain]
 
-def validate_results(
-    results: tuple[ThroughputResults, ...],
-    *,
-    device_info: DeviceInfo,
-    domain_names: Collection[str],
-    generator_descriptions: Mapping[str, str],
-) -> None:
-    for library in results:
-        if library.domains.keys() != set(domain_names):
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.domains)
+
+    def __len__(self) -> int:
+        return len(self.domains)
+
+    def validate_against(
+        self,
+        *,
+        device_info: DeviceInfo,
+        domain_names: Collection[str],
+        generator_descriptions: Mapping[str, str],
+    ) -> None:
+        if self.keys() != set(domain_names):
             raise ValueError(
                 "throughput libraries must have results for all selected domains"
             )
-        for domain, result in library.domains.items():
+        for domain, result in self.items():
             if domain not in generator_descriptions:
                 raise ValueError(f"domain {domain!r} has no generator description")
             for measurement in result.iter_measurements():
@@ -81,12 +81,27 @@ def validate_results(
                     )
 
 
+def validate_results(
+    results: tuple[ThroughputResults, ...],
+    *,
+    device_info: DeviceInfo,
+    domain_names: Collection[str],
+    generator_descriptions: Mapping[str, str],
+) -> None:
+    for library_result in results:
+        library_result.validate_against(
+            device_info=device_info,
+            domain_names=domain_names,
+            generator_descriptions=generator_descriptions,
+        )
+
+
 def run(
     context: DeviceContext,
     function: FunctionConfig,
     image_build_infos: Sequence[DeviceImageBuildInfo],
-    input_generators: Mapping[str, InputGenerator],
-    confirmation_generators: Mapping[str, tuple[InputGenerator, ...]],
+    input_generators: Mapping[str, inputs.InputGenerator],
+    confirmation_generators: Mapping[str, tuple[inputs.InputGenerator, ...]],
     metric: ThroughputConfig,
 ) -> tuple[ThroughputResults, ...]:
     kind = KernelKind.THROUGHPUT
@@ -96,15 +111,22 @@ def run(
         image = image_build_info.image
         module = context.load_module(image)
         requests = (
-            KernelRequest(image.library, function.name, kind, unroll_factor=factor)
-            for factor in _THROUGHPUT_UNROLL_FACTORS
+            KernelRequest(
+                image.library,
+                function.name,
+                kind,
+                unroll_factor=factor,
+            )
+            for factor in kind.unroll_factors
         )
         kernels = {
             request: module.get_kernel(request.symbol, spec=spec)
             for request in requests
         }
         plan = plan_throughput_search(
-            context.device_info, kernels, max_candidates=metric.search.max_candidates
+            context.device_info,
+            kernels,
+            search=metric.search,
         )
         domains = {
             domain: _measure_domain(
@@ -129,11 +151,11 @@ def _measure_domain(
     plan: ThroughputSearchPlan,
     metric: ThroughputConfig,
     domain: str,
-    search_generator: InputGenerator,
-    confirmation_generators: tuple[InputGenerator, ...],
+    search_generator: inputs.InputGenerator,
+    confirmation_generators: tuple[inputs.InputGenerator, ...],
 ) -> ThroughputDomainResult:
     def measure_launch(
-        launch: ThroughputPlannedLaunch, generator: InputGenerator
+        launch: ThroughputPlannedLaunch, generator: inputs.InputGenerator
     ) -> ThroughputMeasurement:
         benchmark = ThroughputBenchmark(
             context,
@@ -141,6 +163,7 @@ def _measure_domain(
             launch,
             sample_size=metric.sample.size,
             timeout_s=metric.sample.timeout_s,
+            pass_count=metric.pass_count,
             warmup_runs=metric.warmup_runs,
             min_clock_ratio=metric.throttle.min_clock_ratio,
             initial_delay_s=metric.throttle.initial_delay_s,
@@ -161,18 +184,18 @@ def _measure_domain(
             for measurement in search_measurements
             if (result := analyze(measurement)) is not None
         ),
-        key=lambda result: result.mean,
+        key=lambda result: result.aggregate,
         default=None,
     )
     confirmation = (
         confirm_winner(
-            search_winner,
+            search_winner.measurement.launch,
             plan.eligible,
+            context.device_info,
+            kernels,
+            metric,
             confirmation_generators,
             measure_launch,
-            search_complete=all(
-                measurement.complete for measurement in search_measurements
-            ),
         )
         if search_winner is not None
         else None

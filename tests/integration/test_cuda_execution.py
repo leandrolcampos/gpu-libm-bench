@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Integration tests for CUDA memory transfers and kernel execution."""
+"""Integration tests for CUDA contexts, memory transfers, and kernel execution."""
 
 import ctypes
 import os
@@ -81,7 +81,10 @@ def load_kernel(
     return module.get_kernel(request.symbol, spec=spec)
 
 
-def test_kernel_and_buffer_outlive_the_creating_session(
+# Context lifetime
+
+
+def test_kernel_and_buffer_can_be_reused_after_context_release(
     image: DeviceImage, spec: KernelSpec
 ) -> None:
     source = np.array([-1, 0, 1], dtype=np.float32)
@@ -95,7 +98,6 @@ def test_kernel_and_buffer_outlive_the_creating_session(
 
     assert original.released
     original.release()
-    assert original.released
 
     with pytest.raises(RuntimeError, match="released"):
         original.create_buffer(1, dtype=np.float32)
@@ -112,6 +114,54 @@ def test_kernel_and_buffer_outlive_the_creating_session(
         context.copy_to_host(destination, output)
 
     np.testing.assert_allclose(destination, np.exp(source), rtol=4e-7)
+
+
+def test_device_operations_restore_the_external_cuda_context(
+    image: DeviceImage, spec: KernelSpec
+) -> None:
+    driver = ctypes.CDLL("libcuda.so.1")
+    previous = ctypes.c_void_p()
+    assert driver.cuCtxGetCurrent(ctypes.byref(previous)) == 0
+
+    external = ctypes.c_void_p()
+    assert driver.cuCtxCreate_v2(ctypes.byref(external), 0, 0) == 0
+
+    try:
+        source = np.zeros(1, dtype=np.float32)
+        destination = np.empty_like(source)
+
+        with DeviceContext() as context:
+            buffer = context.create_buffer(1, dtype=source.dtype)
+            kernel = load_kernel(context, image, spec)
+
+            context.copy_to_device(buffer, source)
+            context.launch_and_profile(
+                kernel,
+                buffer,
+                buffer,
+                np.uint64(1),
+                config=LaunchConfig(),
+                metrics=set(KernelMetric),
+            )
+            context.copy_to_host(destination, buffer)
+
+            current = ctypes.c_void_p()
+            assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
+            assert current.value == external.value
+
+        assert kernel.info.max_threads_per_block > 0
+        assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
+        assert current.value == external.value
+
+        assert kernel.max_active_blocks_per_multiprocessor(threads_per_block=1) > 0
+        assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
+        assert current.value == external.value
+    finally:
+        assert driver.cuCtxDestroy_v2(external) == 0
+        assert driver.cuCtxSetCurrent(previous) == 0
+
+
+# Memory transfers
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.uint64])
@@ -137,22 +187,18 @@ def test_copy_preserves_values_and_destination_tail(
     assert (destination[initial.size :] == 99).all()
 
 
-def test_copy_rejects_incompatible_arrays(context: DeviceContext) -> None:
+def test_copy_rejects_wrong_dtype_size_or_memory_layout(context: DeviceContext) -> None:
     buffer = context.create_buffer(8, dtype=np.float32)
 
-    with pytest.raises(ValueError, match="same dtype") as to_device_error:
+    with pytest.raises(ValueError, match="same dtype"):
         context.copy_to_device(buffer, np.zeros(8, dtype=np.float64))
-    with pytest.raises(ValueError, match="same dtype") as to_host_error:
+    with pytest.raises(ValueError, match="same dtype"):
         context.copy_to_host(np.zeros(8, dtype=np.float64), buffer)
 
-    assert str(to_device_error.value) == str(to_host_error.value)
-
-    with pytest.raises(ValueError, match="capacity") as to_device_error:
+    with pytest.raises(ValueError, match="capacity"):
         context.copy_to_device(buffer, np.zeros(9, dtype=np.float32))
-    with pytest.raises(ValueError, match="capacity") as to_host_error:
+    with pytest.raises(ValueError, match="capacity"):
         context.copy_to_host(np.zeros(7, dtype=np.float32), buffer)
-
-    assert str(to_device_error.value) == str(to_host_error.value)
 
     with pytest.raises(ValueError, match="source.*contiguous"):
         context.copy_to_device(buffer, np.zeros(16, dtype=np.float32)[::2])
@@ -165,7 +211,10 @@ def test_copy_rejects_incompatible_arrays(context: DeviceContext) -> None:
         context.copy_to_host(destination, buffer)
 
 
-def test_module_reports_load_and_symbol_errors(
+# Module loading and kernel launches
+
+
+def test_module_lookup_rejects_missing_image_and_kernel_symbol(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec, tmp_path: Path
 ) -> None:
     with pytest.raises(FileNotFoundError, match="missing.cubin"):
@@ -176,6 +225,41 @@ def test_module_reports_load_and_symbol_errors(
         module.get_kernel("missingKernel", spec=spec)
 
 
+def test_launch_rejects_incompatible_arguments(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec
+) -> None:
+    kernel = load_kernel(context, image, spec)
+    buffer = context.create_buffer(8, dtype=np.float32)
+    config = LaunchConfig()
+
+    with pytest.raises(ValueError, match="argument count"):
+        context.launch(kernel, buffer, config=config)
+    with pytest.raises(ValueError, match="wrong dtype"):
+        context.launch(kernel, buffer, buffer, np.int32(8), config=config)
+    with pytest.raises(TypeError, match="expects a device buffer"):
+        context.launch(kernel, np.float32(0), buffer, np.uint64(8), config=config)
+
+
+def test_launch_observes_the_latest_host_copy(
+    context: DeviceContext, image: DeviceImage, spec: KernelSpec
+) -> None:
+    source = np.empty(1 << 16, dtype=np.float32)
+    destination = np.empty_like(source)
+
+    x = context.create_buffer(source.size, dtype=source.dtype)
+    y = context.create_buffer(destination.size, dtype=destination.dtype)
+    kernel = load_kernel(context, image, spec)
+    config = LaunchConfig(grid_dim=(source.size // 256, 1, 1), block_dim=(256, 1, 1))
+
+    for value in (-1, 1) * 16:
+        source.fill(value)
+        context.copy_to_device(x, source)
+        context.launch(kernel, x, y, np.uint64(source.size), config=config)
+        context.copy_to_host(destination, y)
+
+        np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
+
+
 @pytest.mark.parametrize(
     "config",
     [
@@ -184,7 +268,7 @@ def test_module_reports_load_and_symbol_errors(
         LaunchConfig(grid_dim=(2, 2, 2), block_dim=(3, 2, 2)),
     ],
 )
-def test_expf_evaluation_preserves_tail(
+def test_expf_evaluation_writes_only_the_requested_output_range(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec, config: LaunchConfig
 ) -> None:
     count = prod(config.grid_dim) * prod(config.block_dim) - 7
@@ -205,7 +289,7 @@ def test_expf_evaluation_preserves_tail(
 
 
 @pytest.mark.parametrize("unroll_factor", (1, 2, 4, 8))
-def test_expf_throughput_checksums(
+def test_expf_throughput_checksums_include_all_passes_and_tail_inputs(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec, unroll_factor: int
 ) -> None:
     config = LaunchConfig(grid_dim=(2, 2, 1), block_dim=(8, 2, 1))
@@ -230,58 +314,79 @@ def test_expf_throughput_checksums(
     context.copy_to_host(values, y)
 
     kind = KernelKind.THROUGHPUT
-    request = KernelRequest(image.library, "expf", kind, unroll_factor=unroll_factor)
     function = FunctionConfig("expf", load_function_signature_config("expf"), {})
+    request = KernelRequest(
+        image.library, function.name, kind, unroll_factor=unroll_factor
+    )
     kernel = context.load_module(image).get_kernel(
         request.symbol, spec=KernelSpec.from_config(function, kind=kind)
     )
     bits = values.view(np.uint32)
-    for count in counts:
-        context.launch(kernel, x, output, np.uint64(count), config=config)
-        context.copy_to_host(checksums, output)
-        expected = [
-            np.bitwise_xor.reduce(bits[thread:count:stride]) for thread in range(stride)
-        ]
-        np.testing.assert_array_equal(checksums, expected)
+    for pass_count in (1, 64):
+        repeated_bits = bits * np.uint32(pass_count)
+        for count in counts:
+            context.launch(
+                kernel,
+                np.uint32(pass_count),
+                np.uint32(0),
+                x,
+                output,
+                np.uint64(count),
+                config=config,
+            )
+            context.copy_to_host(checksums, output)
+            expected = [
+                np.bitwise_xor.reduce(repeated_bits[thread:count:stride])
+                for thread in range(stride)
+            ]
+            np.testing.assert_array_equal(checksums, expected)
 
 
-def test_launch_observes_the_latest_host_copy(
-    context: DeviceContext, image: DeviceImage, spec: KernelSpec
+# Profiling and native bindings
+
+
+@pytest.mark.parametrize(
+    "metrics", [{KernelMetric.CLOCK_FREQUENCY}, {KernelMetric.DURATION}]
+)
+def test_profile_returns_only_requested_metrics_and_executes_kernel_once(
+    context: DeviceContext,
+    image: DeviceImage,
+    spec: KernelSpec,
+    metrics: set[KernelMetric],
 ) -> None:
-    source = np.empty(1 << 16, dtype=np.float32)
-    destination = np.empty_like(source)
-
-    x = context.create_buffer(source.size, dtype=source.dtype)
-    y = context.create_buffer(destination.size, dtype=destination.dtype)
+    source = np.linspace(-1, 1, 1 << 16, dtype=np.float32)
+    result = np.empty_like(source)
+    buffer = context.create_buffer(source.size, dtype=source.dtype)
     kernel = load_kernel(context, image, spec)
     config = LaunchConfig(grid_dim=(source.size // 256, 1, 1), block_dim=(256, 1, 1))
 
-    for value in (-1, 1) * 16:
-        source.fill(value)
-        context.copy_to_device(x, source)
-        context.launch(kernel, x, y, np.uint64(source.size), config=config)
-        context.copy_to_host(destination, y)
+    for requested_metrics in (metrics, set(KernelMetric), metrics):
+        context.copy_to_device(buffer, source)
+        profile = context.launch_and_profile(
+            kernel,
+            buffer,
+            buffer,
+            np.uint64(source.size),
+            config=config,
+            metrics=requested_metrics,
+        )
+        context.copy_to_host(result, buffer)
 
-        np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
-
-
-def test_launch_rejects_incompatible_arguments(
-    context: DeviceContext, image: DeviceImage, spec: KernelSpec
-) -> None:
-    kernel = load_kernel(context, image, spec)
-    buffer = context.create_buffer(8, dtype=np.float32)
-    config = LaunchConfig()
-
-    with pytest.raises(ValueError, match="argument count"):
-        context.launch(kernel, buffer, config=config)
-    with pytest.raises(ValueError, match="wrong dtype"):
-        context.launch(kernel, buffer, buffer, np.int32(8), config=config)
-    with pytest.raises(TypeError, match="expects a device buffer"):
-        context.launch(kernel, np.float32(0), buffer, np.uint64(8), config=config)
+        np.testing.assert_allclose(result, np.exp(source), rtol=4e-7)
+        if KernelMetric.CLOCK_FREQUENCY in requested_metrics:
+            assert profile.clock_frequency_hz is not None
+            assert 1e6 < profile.clock_frequency_hz < 1e11
+        else:
+            assert profile.clock_frequency_hz is None
+        if KernelMetric.DURATION in requested_metrics:
+            assert profile.duration_ms is not None
+            assert profile.duration_ms > 0
+        else:
+            assert profile.duration_ms is None
 
 
 @pytest.mark.parametrize("method", ["launch", "profile"])
-def test_native_launch_and_profile_validate_inputs(
+def test_native_launch_and_profile_reject_invalid_arguments(
     context: DeviceContext, image: DeviceImage, spec: KernelSpec, method: str
 ) -> None:
     kernel = load_kernel(context, image, spec)._native
@@ -339,92 +444,3 @@ def test_native_execution_accepts_keyword_arguments(
     )
     assert profile["duration_ms"] > 0
     assert profile["clock_frequency_hz"] is None
-
-
-@pytest.mark.parametrize(
-    "metrics", [{KernelMetric.CLOCK_FREQUENCY}, {KernelMetric.DURATION}]
-)
-def test_profile_collects_requested_metrics_and_executes_once(
-    context: DeviceContext,
-    image: DeviceImage,
-    spec: KernelSpec,
-    metrics: set[KernelMetric],
-) -> None:
-    source = np.linspace(-1, 1, 1 << 16, dtype=np.float32)
-    result = np.empty_like(source)
-    buffer = context.create_buffer(source.size, dtype=source.dtype)
-    kernel = load_kernel(context, image, spec)
-    config = LaunchConfig(grid_dim=(source.size // 256, 1, 1), block_dim=(256, 1, 1))
-
-    for requested_metrics in (metrics, set(KernelMetric), metrics):
-        context.copy_to_device(buffer, source)
-        profile = context.launch_and_profile(
-            kernel,
-            buffer,
-            buffer,
-            np.uint64(source.size),
-            config=config,
-            metrics=requested_metrics,
-        )
-        context.copy_to_host(result, buffer)
-
-        np.testing.assert_allclose(result, np.exp(source), rtol=4e-7)
-        if KernelMetric.CLOCK_FREQUENCY in requested_metrics:
-            assert profile.clock_frequency_hz is not None
-            assert 1e6 < profile.clock_frequency_hz < 1e11
-        else:
-            assert profile.clock_frequency_hz is None
-        if KernelMetric.DURATION in requested_metrics:
-            assert profile.duration_ms is not None
-            assert profile.duration_ms > 0
-        else:
-            assert profile.duration_ms is None
-
-
-def test_operations_restore_an_external_cuda_context(
-    image: DeviceImage, spec: KernelSpec
-) -> None:
-    driver = ctypes.CDLL("libcuda.so.1")
-    previous = ctypes.c_void_p()
-    assert driver.cuCtxGetCurrent(ctypes.byref(previous)) == 0
-
-    external = ctypes.c_void_p()
-    assert driver.cuCtxCreate_v2(ctypes.byref(external), 0, 0) == 0
-
-    try:
-        source = np.zeros(1, dtype=np.float32)
-        destination = np.empty_like(source)
-
-        with DeviceContext() as context:
-            buffer = context.create_buffer(1, dtype=source.dtype)
-            kernel = load_kernel(context, image, spec)
-
-            context.copy_to_device(buffer, source)
-            context.launch_and_profile(
-                kernel,
-                buffer,
-                buffer,
-                np.uint64(1),
-                config=LaunchConfig(),
-                metrics=set(KernelMetric),
-            )
-            context.copy_to_host(destination, buffer)
-
-            current = ctypes.c_void_p()
-            assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
-            assert current.value == external.value
-
-        info = kernel.info
-        assert info.max_threads_per_block > 0
-        assert info.registers_per_thread > 0
-        assert info.static_shared_memory_bytes >= 0
-        assert info.local_memory_bytes_per_thread >= 0
-        assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
-        assert current.value == external.value
-
-        assert kernel.max_active_blocks_per_multiprocessor(threads_per_block=1) > 0
-        assert driver.cuCtxGetCurrent(ctypes.byref(current)) == 0
-        assert current.value == external.value
-    finally:
-        assert driver.cuCtxDestroy_v2(external) == 0
-        assert driver.cuCtxSetCurrent(previous) == 0

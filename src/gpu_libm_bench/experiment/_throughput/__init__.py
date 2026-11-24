@@ -1,9 +1,8 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Throughput search and confirmation for benchmark experiments."""
+"""Throughput execution and result aggregation for experiments."""
 
-from ._confirmation import CONFIRMATION_REPETITIONS, PLATEAU_MARGIN
 from ._experiment import (
     ThroughputDomainResult,
     ThroughputResults,
@@ -12,8 +11,6 @@ from ._experiment import (
 )
 
 __all__ = [
-    "CONFIRMATION_REPETITIONS",
-    "PLATEAU_MARGIN",
     "ThroughputDomainResult",
     "ThroughputResults",
     "run",

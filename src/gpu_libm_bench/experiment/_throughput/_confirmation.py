@@ -1,67 +1,216 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Fixed-budget confirmation of the throughput winner and its neighbors."""
+"""Confirmation of the selected throughput launch configuration."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from fractions import Fraction
-from math import exp, log, sqrt
+from math import exp, isfinite, log, sqrt
 from statistics import mean, stdev
+
+from scipy.stats import t  # type: ignore[import-untyped]
 
 from gpu_libm_bench.benchmarks.throughput import (
     ThroughputMeasurement,
     ThroughputPlannedLaunch,
     ThroughputResult,
     analyze,
+    try_increase_throughput_batch,
+    try_plan_throughput_launch,
 )
+from gpu_libm_bench.configs import ThroughputConfig
+from gpu_libm_bench.devices import DeviceInfo, DeviceKernel
 from gpu_libm_bench.inputs import InputGenerator
-
-CONFIRMATION_REPETITIONS = 5
-PLATEAU_MARGIN = 0.05
-# The 0.95 Student t quantile for four degrees of freedom.
-_T_CRITICAL = 2.131846786
+from gpu_libm_bench.kernels import KernelRequest
 
 
 @dataclass(frozen=True, slots=True)
-class RateRatioInterval:
+class _RateRatioBounds:
+    estimate: float
     lower: float
     upper: float
 
 
 @dataclass(frozen=True, slots=True)
-class ThroughputContrast:
+class _Contrast:
     label: str
     launch: ThroughputPlannedLaunch | None
     measurements: tuple[ThroughputMeasurement, ...]
-    ratio_interval: RateRatioInterval | None
+    ratio_bounds: _RateRatioBounds | None
 
 
 @dataclass(frozen=True, slots=True)
 class ThroughputConfirmation:
-    winner_measurements: tuple[ThroughputMeasurement, ...]
-    contrasts: tuple[ThroughputContrast, ...]
-    winner_estimate: ThroughputResult | None
-    unconfirmed_reason: str | None
+    reference_measurements: tuple[ThroughputMeasurement, ...]
+    reference_estimate: ThroughputResult | None
+    contrasts: tuple[_Contrast, ...]
+    best_gain: _Contrast | None
+    inconclusive_reason: str | None
 
 
 def confirm_winner(
-    winner: ThroughputResult,
+    winner: ThroughputPlannedLaunch,
     eligible: Sequence[ThroughputPlannedLaunch],
+    device_info: DeviceInfo,
+    kernels: Mapping[KernelRequest, DeviceKernel],
+    metric: ThroughputConfig,
+    generators: Sequence[InputGenerator],
+    measure: Callable[[ThroughputPlannedLaunch, InputGenerator], ThroughputMeasurement],
+) -> ThroughputConfirmation:
+    confirmation = metric.confirmation
+    if len(generators) != confirmation.repetitions:
+        raise ValueError("confirmation requires one input generator per repetition")
+    confidence_level = confirmation.confidence_level
+    if not 0.5 < confidence_level < 1:
+        raise ValueError(
+            "metric.confirmation.confidence_level must be "
+            "greater than 0.5 and less than 1"
+        )
+    relative_gain_threshold = confirmation.relative_gain_threshold
+    if not isfinite(relative_gain_threshold) or relative_gain_threshold < 0:
+        raise ValueError(
+            "metric.confirmation.relative_gain_threshold must be finite and nonnegative"
+        )
+
+    critical_value = float(t.ppf(confidence_level, df=confirmation.repetitions - 1))
+    neighbors = _plan_contrasts(
+        winner,
+        eligible,
+        device_info,
+        kernels,
+        include_larger_block=metric.pass_count > 1,
+        batch_volume_growth_ratio=confirmation.batch_volume_growth_ratio,
+        max_waves_per_grid=confirmation.max_waves_per_grid,
+    )
+    return _measure_confirmation(
+        winner,
+        neighbors,
+        generators,
+        measure,
+        critical_value=critical_value,
+        gain_ratio=1 + relative_gain_threshold,
+    )
+
+
+def _plan_contrasts(
+    reference: ThroughputPlannedLaunch,
+    eligible: Sequence[ThroughputPlannedLaunch],
+    device_info: DeviceInfo,
+    kernels: Mapping[KernelRequest, DeviceKernel],
+    *,
+    include_larger_block: bool,
+    batch_volume_growth_ratio: float,
+    max_waves_per_grid: int,
+) -> tuple[tuple[str, ThroughputPlannedLaunch | None], ...]:
+    if max_waves_per_grid < 1:
+        raise ValueError("metric.confirmation.max_waves_per_grid must be at least 1")
+
+    request = reference.request
+    unroll_factor = request.unroll_factor
+    assert unroll_factor is not None
+    batch_size = reference.batch_size
+    threads_per_block = reference.config.block_dim[0]
+    blocks_in_grid = reference.config.grid_dim[0]
+
+    kernel = kernels[request]
+    batch_contrast = try_increase_throughput_batch(
+        reference,
+        device_info,
+        kernel,
+        batch_volume_growth_ratio=batch_volume_growth_ratio,
+    )
+
+    blocks_per_wave = (
+        device_info.multiprocessor_count
+        * reference.max_resident_blocks_per_multiprocessor
+    )
+    next_grid_size = min(
+        2 * blocks_in_grid,
+        max_waves_per_grid * blocks_per_wave,
+        batch_size // (threads_per_block * unroll_factor),
+        device_info.launch_limits.max_grid_dim[0],
+    )
+    grid_contrast = None
+    if next_grid_size > blocks_in_grid:
+        grid_contrast = try_plan_throughput_launch(
+            device_info,
+            kernel,
+            request,
+            batch_size=batch_size,
+            threads_per_block=threads_per_block,
+            blocks_in_grid=next_grid_size,
+        )
+
+    next_request = next(
+        (
+            candidate
+            for candidate in kernels
+            if candidate.unroll_factor == 2 * unroll_factor
+        ),
+        None,
+    )
+    unroll_contrast = None
+    if next_request is not None:
+        unroll_contrast = try_plan_throughput_launch(
+            device_info,
+            kernels[next_request],
+            next_request,
+            batch_size=batch_size,
+            threads_per_block=threads_per_block,
+            blocks_in_grid=blocks_in_grid,
+        )
+
+    contrasts = (
+        ("Larger batch", batch_contrast),
+        ("Larger grid", grid_contrast),
+        ("Higher unroll factor", unroll_contrast),
+    )
+    if not include_larger_block:
+        return contrasts
+    return (
+        *contrasts,
+        ("Larger block", _plan_larger_block(reference, eligible, device_info, kernel)),
+    )
+
+
+def _plan_larger_block(
+    reference: ThroughputPlannedLaunch,
+    eligible: Sequence[ThroughputPlannedLaunch],
+    device_info: DeviceInfo,
+    kernel: DeviceKernel,
+) -> ThroughputPlannedLaunch | None:
+    larger_blocks = sorted(
+        {
+            launch.config.block_dim[0]
+            for launch in eligible
+            if launch.request == reference.request
+            and launch.config.block_dim[0] > reference.config.block_dim[0]
+        }
+    )
+    for threads_per_block in larger_blocks:
+        block_contrast = try_plan_throughput_launch(
+            device_info,
+            kernel,
+            reference.request,
+            batch_size=reference.batch_size,
+            threads_per_block=threads_per_block,
+            blocks_in_grid=reference.config.grid_dim[0],
+        )
+        if block_contrast is not None:
+            return block_contrast
+    return None
+
+
+def _measure_confirmation(
+    reference: ThroughputPlannedLaunch,
+    neighbors: Sequence[tuple[str, ThroughputPlannedLaunch | None]],
     generators: Sequence[InputGenerator],
     measure: Callable[[ThroughputPlannedLaunch, InputGenerator], ThroughputMeasurement],
     *,
-    search_complete: bool,
+    critical_value: float,
+    gain_ratio: float,
 ) -> ThroughputConfirmation:
-    if len(generators) != CONFIRMATION_REPETITIONS:
-        raise ValueError("confirmation requires one generator per repetition")
-
-    winner_launch = winner.measurement.launch
-    neighbors = _select_contrasts(winner_launch, eligible)
-    launches = (
-        winner_launch,
-        *(launch for _, launch in neighbors if launch is not None),
-    )
+    launches = (reference, *(launch for _, launch in neighbors if launch is not None))
     series: dict[ThroughputPlannedLaunch, list[ThroughputMeasurement]] = {
         launch: [] for launch in launches
     }
@@ -71,117 +220,109 @@ def confirm_winner(
         for launch in launches[offset:] + launches[:offset]:
             series[launch].append(measure(launch, generator))
 
-    winner_measurements = tuple(series[winner_launch])
-    winner_rates = _get_complete_rates(winner_measurements)
+    reference_measurements = tuple(series[reference])
+    reference_rates = _get_complete_rates(reference_measurements)
+    reference_estimate = (
+        _estimate_reference(reference_measurements)
+        if reference_rates is not None
+        else None
+    )
+
     contrasts = []
+    best_gain = None
+    best_gain_ratio = gain_ratio
     for label, neighbor in neighbors:
         measurements = tuple(series[neighbor]) if neighbor is not None else ()
         rates = _get_complete_rates(measurements)
-        contrasts.append(
-            ThroughputContrast(
-                label=label,
-                launch=neighbor,
-                measurements=measurements,
-                ratio_interval=(
-                    _get_paired_ratio_interval(winner_rates, rates)
-                    if winner_rates is not None and rates is not None
-                    else None
-                ),
+        bounds = (
+            _compute_paired_ratio_bounds(
+                reference_rates, rates, critical_value=critical_value
             )
+            if reference_rates is not None and rates is not None
+            else None
         )
+        contrast = _Contrast(label, neighbor, measurements, bounds)
+        contrasts.append(contrast)
+        if (
+            bounds is not None
+            and bounds.lower > gain_ratio
+            and bounds.estimate > best_gain_ratio
+        ):
+            best_gain = contrast
+            best_gain_ratio = bounds.estimate
 
-    estimate = (
-        _combine_winner_samples(winner_measurements)
-        if winner_rates is not None
-        else None
-    )
     return ThroughputConfirmation(
-        winner_measurements=winner_measurements,
+        reference_measurements=reference_measurements,
+        reference_estimate=reference_estimate,
         contrasts=tuple(contrasts),
-        winner_estimate=estimate,
-        unconfirmed_reason=_get_unconfirmed_reason(
-            winner, estimate, contrasts, search_complete
-        ),
-    )
-
-
-def _select_contrasts(
-    winner: ThroughputPlannedLaunch, eligible: Sequence[ThroughputPlannedLaunch]
-) -> tuple[tuple[str, ThroughputPlannedLaunch | None], ...]:
-    block = winner.config.block_dim[0]
-    grid = winner.config.grid_dim[0]
-    larger_batch = None
-    other_grids = []
-    other_blocks = []
-
-    for launch in eligible:
-        if launch.request != winner.request or launch == winner:
-            continue
-        if launch.batch_size > winner.batch_size and launch.config == winner.config:
-            if larger_batch is None or launch.batch_size < larger_batch.batch_size:
-                larger_batch = launch
-        elif launch.batch_size == winner.batch_size:
-            if launch.config.block_dim[0] == block:
-                other_grids.append(launch)
-            else:
-                other_blocks.append(launch)
-
-    other_grid = min(
-        other_grids,
-        key=lambda launch: (
-            launch.config.grid_dim[0] < grid,
-            abs(launch.config.grid_dim[0] - grid),
-        ),
-        default=None,
-    )
-    winner_grid_to_residency = Fraction(
-        grid, winner.max_resident_blocks_per_multiprocessor
-    )
-    other_block = min(
-        other_blocks,
-        key=lambda launch: abs(
-            Fraction(
-                launch.config.grid_dim[0], launch.max_resident_blocks_per_multiprocessor
+        best_gain=best_gain,
+        inconclusive_reason=(
+            _get_inconclusive_reason(
+                reference_estimate, contrasts, gain_ratio=gain_ratio
             )
-            - winner_grid_to_residency
+            if best_gain is None
+            else None
         ),
-        default=None,
     )
-    return (
-        ("Larger batch", larger_batch),
-        ("Grid", other_grid),
-        ("Block size", other_block),
-    )
+
+
+def _get_inconclusive_reason(
+    reference: ThroughputResult | None,
+    contrasts: Sequence[_Contrast],
+    *,
+    gain_ratio: float,
+) -> str | None:
+    if reference is None:
+        return "Incomplete reference collection"
+    batch_contrast, *parallelism_contrasts = contrasts
+    if batch_contrast.launch is None:
+        return "No viable larger batch contrast"
+    if all(contrast.launch is None for contrast in parallelism_contrasts):
+        return "No viable parallelism contrast"
+
+    for contrast in contrasts:
+        if contrast.launch is None:
+            continue
+        if contrast.ratio_bounds is None:
+            return f"Incomplete {contrast.label.lower()} contrast collection"
+        if contrast.ratio_bounds.upper > gain_ratio:
+            return f"Relevant gain not ruled out: {contrast.label.lower()}"
+    return None
 
 
 def _get_complete_rates(
     measurements: tuple[ThroughputMeasurement, ...],
 ) -> tuple[float, ...] | None:
-    if len(measurements) != CONFIRMATION_REPETITIONS or not all(
-        measurement.complete for measurement in measurements
-    ):
+    if not measurements:
         return None
+
     rates = []
     for measurement in measurements:
         result = analyze(measurement)
-        assert result is not None
-        rates.append(result.mean)
+        if result is None:
+            return None
+        rates.append(result.aggregate)
     return tuple(rates)
 
 
-def _get_paired_ratio_interval(
-    winner_rates: tuple[float, ...], contrast_rates: tuple[float, ...]
-) -> RateRatioInterval:
+def _compute_paired_ratio_bounds(
+    reference_rates: tuple[float, ...],
+    contrast_rates: tuple[float, ...],
+    *,
+    critical_value: float,
+) -> _RateRatioBounds:
     log_ratios = tuple(
-        log(contrast) - log(winner)
-        for winner, contrast in zip(winner_rates, contrast_rates, strict=True)
+        log(contrast) - log(reference)
+        for reference, contrast in zip(reference_rates, contrast_rates, strict=True)
     )
     center = mean(log_ratios)
-    half_width = _T_CRITICAL * stdev(log_ratios) / sqrt(len(log_ratios))
-    return RateRatioInterval(exp(center - half_width), exp(center + half_width))
+    half_width = critical_value * stdev(log_ratios) / sqrt(len(log_ratios))
+    return _RateRatioBounds(
+        exp(center), exp(center - half_width), exp(center + half_width)
+    )
 
 
-def _combine_winner_samples(
+def _estimate_reference(
     measurements: tuple[ThroughputMeasurement, ...],
 ) -> ThroughputResult:
     first = measurements[0]
@@ -202,39 +343,3 @@ def _combine_winner_samples(
     result = analyze(combined)
     assert result is not None
     return result
-
-
-def _get_unconfirmed_reason(
-    winner: ThroughputResult,
-    estimate: ThroughputResult | None,
-    contrasts: Sequence[ThroughputContrast],
-    search_complete: bool,
-) -> str | None:
-    if estimate is None:
-        return "Incomplete winner confirmation"
-
-    lower_limit = 1 - PLATEAU_MARGIN
-    upper_limit = 1 + PLATEAU_MARGIN
-    for contrast in contrasts:
-        if (
-            contrast.ratio_interval is not None
-            and contrast.ratio_interval.lower > upper_limit
-        ):
-            return f"Gain beyond the equivalence margin: {contrast.label.lower()}"
-
-    if not search_complete:
-        return "Incomplete search collection"
-    for contrast in contrasts:
-        if contrast.launch is None:
-            return f"No viable {contrast.label.lower()} contrast"
-        if contrast.ratio_interval is None:
-            return f"Incomplete {contrast.label.lower()} contrast collection"
-        if (
-            contrast.ratio_interval.lower < lower_limit
-            or contrast.ratio_interval.upper > upper_limit
-        ):
-            return f"Equivalence not established: {contrast.label.lower()}"
-
-    if not lower_limit <= estimate.mean / winner.mean <= upper_limit:
-        return "Winner rate changed between search and confirmation"
-    return None

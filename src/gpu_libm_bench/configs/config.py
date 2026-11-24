@@ -81,14 +81,29 @@ class LatencyConfig(MetricConfig):
 @dataclass
 class ThroughputSearchConfig:
     max_candidates: int
+    batch_volume_to_l2_ratios: list[float]
+    fallback_batch_volumes_mib: list[int]
+    warps_per_block: list[int]
+    waves_per_grid: list[int]
+
+
+@dataclass
+class ThroughputConfirmationConfig:
+    repetitions: int
+    confidence_level: float
+    relative_gain_threshold: float
+    batch_volume_growth_ratio: float
+    max_waves_per_grid: int
 
 
 @dataclass
 class ThroughputConfig(MetricConfig):
     sample: SampleConfig
-    search: ThroughputSearchConfig
+    pass_count: int
     warmup_runs: int
     throttle: ThrottleConfig
+    search: ThroughputSearchConfig
+    confirmation: ThroughputConfirmationConfig
 
 
 @dataclass
@@ -224,11 +239,6 @@ def validate_experiment_config(config: DictConfig) -> ExperimentConfig:
     experiment = cast("ExperimentConfig", OmegaConf.to_object(structured))
 
     _validate_backend_config(experiment.backend)
-    if (
-        isinstance(experiment.metric, ThroughputConfig)
-        and experiment.metric.search.max_candidates < 4
-    ):
-        raise ValueError("metric.search.max_candidates must be at least 4")
 
     domains = experiment.function.domains
     if not domains:

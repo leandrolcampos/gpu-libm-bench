@@ -34,7 +34,6 @@ from gpu_libm_bench.configs import ExperimentConfig, LatencyConfig, ThroughputCo
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 
 from . import _latency, _libraries, _throughput
-from ._throughput import CONFIRMATION_REPETITIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,8 +111,10 @@ class Experiment:
             case LatencyConfig(name="latency"):
                 input_count = metric.sample.size
             case ThroughputConfig(name="throughput"):
-                if metric.sample.size <= 0:
-                    raise ValueError("throughput sample size must be positive")
+                if metric.confirmation.repetitions < 2:
+                    raise ValueError(
+                        "metric.confirmation.repetitions must be at least 2"
+                    )
                 input_count = None
             case _:
                 raise ValueError(f"unsupported experiment metric: {metric.name!r}")
@@ -132,9 +133,9 @@ class Experiment:
         for name in names:
             domain_rng = domain_rngs[name]
             generator_config = function.domains[name].generator
-            if input_count is None:
+            if isinstance(metric, ThroughputConfig):
                 domain_rng, *confirmation_rngs = domain_rng.spawn(
-                    1 + CONFIRMATION_REPETITIONS
+                    1 + metric.confirmation.repetitions
                 )
                 self._confirmation_generators[name] = tuple(
                     inputs.InputGenerator.from_config(

@@ -1,20 +1,24 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for throughput launch planning and measurement."""
+"""Tests for independent-call throughput measurement, analysis, and launch planning."""
 
 from dataclasses import replace
-from unittest.mock import Mock, call
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
 from gpu_libm_bench.benchmarks import throughput
+from gpu_libm_bench.configs import (
+    FunctionConfig,
+    ThroughputSearchConfig,
+    load_function_signature_config,
+)
 from gpu_libm_bench.devices import (
     DeviceContext,
     DeviceInfo,
     DeviceKernel,
-    KernelInfo,
     KernelMetric,
     KernelProfile,
     LaunchConfig,
@@ -22,7 +26,7 @@ from gpu_libm_bench.devices import (
     TimerInfo,
 )
 from gpu_libm_bench.inputs import InputBatch
-from gpu_libm_bench.kernels import KernelArgument, KernelKind, KernelRequest, KernelSpec
+from gpu_libm_bench.kernels import KernelKind, KernelRequest, KernelSpec
 
 
 @pytest.fixture
@@ -49,15 +53,9 @@ def throughput_device() -> tuple[Mock, DeviceKernel, KernelRequest]:
         "local_memory_bytes_per_thread": 0,
     }
     native.max_active_blocks_per_multiprocessor.return_value = 1
+    function = FunctionConfig("expf", load_function_signature_config("expf"), {})
     kernel = DeviceKernel(
-        native,
-        KernelSpec(
-            (
-                KernelArgument("x", "float32", True),
-                KernelArgument("checksums", "uint32", True),
-                KernelArgument("count", "uint64", False),
-            )
-        ),
+        native, KernelSpec.from_config(function, kind=KernelKind.THROUGHPUT)
     )
     return (
         context,
@@ -66,141 +64,62 @@ def throughput_device() -> tuple[Mock, DeviceKernel, KernelRequest]:
     )
 
 
-def test_search_covers_factors_and_geometries_with_a_stable_budget(
-    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+@pytest.fixture
+def search() -> ThroughputSearchConfig:
+    return ThroughputSearchConfig(
+        max_candidates=64,
+        batch_volume_to_l2_ratios=[0.75, 2.25],
+        fallback_batch_volumes_mib=[32, 64],
+        warps_per_block=[4, 8, 16, 32],
+        waves_per_grid=[1, 2],
+    )
+
+
+# Measurement and analysis
+
+
+@pytest.mark.parametrize("pass_count", (0, 2**32))
+def test_benchmark_rejects_pass_count_outside_positive_uint32_range(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest], pass_count: int
 ) -> None:
     context, kernel, request = throughput_device
-    device_info = replace(
+    launch = throughput.try_plan_throughput_launch(
         context.device_info,
-        total_memory_bytes=1 << 30,
-        l2_cache_size_bytes=48 << 20,
-        launch_limits=replace(
-            context.device_info.launch_limits, max_grid_dim=(2, 1, 1)
-        ),
-    )
-    kernels = {
-        replace(request, unroll_factor=factor): kernel for factor in (8, 4, 2, 1)
-    }
-
-    plan = throughput.plan_throughput_search(device_info, kernels, max_candidates=32)
-    short = throughput.plan_throughput_search(
-        device_info, dict(reversed(tuple(kernels.items()))), max_candidates=4
-    )
-
-    assert len(plan.candidates) == 32
-    assert short.candidates == plan.candidates[:4]
-    assert [launch.request.unroll_factor for launch in short.candidates] == [1, 2, 4, 8]
-    assert all(launch.batch_size == 1 << 23 for launch in short.candidates)
-    assert {launch.batch_size for launch in plan.candidates} == {
-        4 << 20,
-        8 << 20,
-        12 << 20,
-    }
-    assert {
-        (launch.config.block_dim[0], launch.config.grid_dim[0])
-        for launch in plan.candidates
-        if launch.request.unroll_factor == 4 and launch.batch_size == 1 << 23
-    } >= {(256, 2), (128, 2), (256, 1)}
-    assert len(plan.eligible) == len(set(plan.eligible))
-    assert len(plan.eligible) > len(plan.candidates)
-    assert any(
-        "input and checksum buffers exceed" in item.reason for item in plan.exclusions
-    )
-
-
-def test_search_uses_fixed_batch_sizes_on_devices_without_l2(
-    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
-) -> None:
-    context, kernel, request = throughput_device
-    device_info = replace(context.device_info, total_memory_bytes=12 << 30)
-
-    plan = throughput.plan_throughput_search(
-        device_info, {request: kernel}, max_candidates=4
-    )
-
-    assert plan.batch_source == "device has no L2 cache"
-    assert [launch.batch_size for launch in plan.candidates] == [
-        8 << 20,
-        4 << 20,
-        1 << 20,
-        16 << 20,
-    ]
-
-
-def test_plan_falls_back_when_primary_block_sizes_have_no_residency(
-    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    context, kernel, request = throughput_device
-    occupancy = Mock(side_effect=[0, 0, 2])
-    monkeypatch.setattr(kernel, "max_active_blocks_per_multiprocessor", occupancy)
-
-    launch = throughput.try_plan_throughput_launch(
-        context.device_info, kernel, request, batch_size=2048
-    )
-    assert launch == throughput.ThroughputPlannedLaunch(
+        kernel,
         request,
-        KernelInfo(256, 32, 0, 0),
-        LaunchConfig(grid_dim=(2, 1, 1), block_dim=(224, 1, 1)),
-        2,
-        2048,
+        batch_size=1024,
+        threads_per_block=256,
+        blocks_in_grid=1,
     )
-    assert occupancy.call_args_list == [
-        call(threads_per_block=256),
-        call(threads_per_block=128),
-        call(threads_per_block=224),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("occupancy", "batch_size", "expected"),
-    [
-        ((2, 4), 8192, (256, 8)),
-        ((2, 4), 4096, (256, 4)),
-        ((2, 4), 2048, (256, 2)),
-        ((2, 4), 2047, None),
-        ((1, 3), 8192, (128, 12)),
-    ],
-)
-def test_plan_prioritizes_resident_warps_and_reduces_waves_for_small_batches(
-    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
-    monkeypatch: pytest.MonkeyPatch,
-    occupancy: tuple[int, int],
-    batch_size: int,
-    expected: tuple[int, int] | None,
-) -> None:
-    context, kernel, request = throughput_device
-    monkeypatch.setattr(
-        kernel, "max_active_blocks_per_multiprocessor", Mock(side_effect=occupancy)
-    )
-
-    launch = throughput.try_plan_throughput_launch(
-        context.device_info, kernel, request, batch_size=batch_size
-    )
-    if expected is None:
-        assert isinstance(launch, throughput.ThroughputExcludedLaunch)
-        assert launch.reason == (
-            f"batch_size={batch_size} cannot give each thread 4 evaluations "
-            "at any candidate launch geometry"
-        )
-    else:
-        assert isinstance(launch, throughput.ThroughputPlannedLaunch)
-        block_size, grid_size = expected
-        assert launch.config == LaunchConfig(
-            grid_dim=(grid_size, 1, 1), block_dim=(block_size, 1, 1)
+    assert launch is not None
+    with pytest.raises(ValueError, match="pass_count must"):
+        throughput.ThroughputBenchmark(
+            context, kernel, launch, sample_size=2, pass_count=pass_count, warmup_runs=0
         )
 
 
-def test_measure_retries_the_same_batch_and_aggregates_accepted_gpu_time(
+def test_measure_retries_throttled_batches_and_analyze_uses_accepted_gpu_time(
     throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
 ) -> None:
     context, kernel, request = throughput_device
+    pass_count = 64
     launch = throughput.try_plan_throughput_launch(
-        context.device_info, kernel, request, batch_size=1024
+        context.device_info,
+        kernel,
+        request,
+        batch_size=1024,
+        threads_per_block=256,
+        blocks_in_grid=1,
     )
-    assert isinstance(launch, throughput.ThroughputPlannedLaunch)
+    assert launch is not None
     benchmark = throughput.ThroughputBenchmark(
-        context, kernel, launch, sample_size=2, warmup_runs=1, min_clock_ratio=0.75
+        context,
+        kernel,
+        launch,
+        sample_size=2,
+        pass_count=pass_count,
+        warmup_runs=1,
+        min_clock_ratio=0.75,
     )
     context.launch_and_profile.side_effect = [
         KernelProfile(clock_frequency_hz=1e9, duration_ms=7.0),
@@ -216,7 +135,6 @@ def test_measure_retries_the_same_batch_and_aggregates_accepted_gpu_time(
     context.launch.assert_called_once()
     copies = [transfer.args[1] for transfer in context.copy_to_device.call_args_list]
     assert [array[0] for array in copies] == [1, 1, 1, 2]
-    assert [attempt.batch_index for attempt in measurement.attempts] == [0, 0, 1]
     assert [attempt.discard_reason for attempt in measurement.attempts] == [
         "clock below threshold",
         None,
@@ -226,23 +144,33 @@ def test_measure_retries_the_same_batch_and_aggregates_accepted_gpu_time(
         KernelMetric.DURATION,
         KernelMetric.CLOCK_FREQUENCY,
     }
+    assert context.launch_and_profile.call_args.args[1:3] == (
+        np.uint32(pass_count),
+        np.uint32(0),
+    )
+
     result = throughput.analyze(measurement)
     assert result is not None
-    assert result.mean == pytest.approx(2048 / (4 * 1e6))
-    assert result.min == pytest.approx(1024 / (3 * 1e6))
-    assert result.max == pytest.approx(1024 / 1e6)
+    assert result.aggregate == pytest.approx(2048 * pass_count / (4 * 1e6))
+    assert result.min == pytest.approx(1024 * pass_count / (3 * 1e6))
+    assert result.max == pytest.approx(1024 * pass_count / 1e6)
     assert result.stdev == pytest.approx((result.max - result.min) / np.sqrt(2))
 
 
-def test_timeout_preserves_attempts_without_producing_a_complete_result(
+def test_measure_keeps_partial_sample_and_analyze_rejects_it_on_timeout(
     throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context, kernel, request = throughput_device
     launch = throughput.try_plan_throughput_launch(
-        context.device_info, kernel, request, batch_size=1024
+        context.device_info,
+        kernel,
+        request,
+        batch_size=1024,
+        threads_per_block=256,
+        blocks_in_grid=1,
     )
-    assert isinstance(launch, throughput.ThroughputPlannedLaunch)
+    assert launch is not None
     benchmark = throughput.ThroughputBenchmark(
         context, kernel, launch, sample_size=3, timeout_s=1, warmup_runs=0
     )
@@ -265,3 +193,187 @@ def test_timeout_preserves_attempts_without_producing_a_complete_result(
         KernelMetric.DURATION
     }
     assert throughput.analyze(measurement) is None
+
+
+# Launch geometry
+
+
+@pytest.mark.parametrize(
+    ("occupancy", "batch_size", "expected"),
+    [
+        ((2, 4), 2048, (256, 2)),
+        ((2, 4), 1023, (128, 1)),
+        ((2, 4), 511, None),
+        ((1, 3), 8192, (128, 3)),
+    ],
+)
+def test_launch_planner_prioritizes_residency_and_checks_batch_capacity(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+    search: ThroughputSearchConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    occupancy: tuple[int, int],
+    batch_size: int,
+    expected: tuple[int, int] | None,
+) -> None:
+    context, kernel, request = throughput_device
+    monkeypatch.setattr(
+        kernel, "max_active_blocks_per_multiprocessor", Mock(side_effect=occupancy)
+    )
+
+    device_info = context.device_info
+    planner = throughput._LaunchPlanner(
+        device_info, kernel, request, warps_per_block=search.warps_per_block
+    )
+    budget = throughput._LaunchBufferBudget.from_device(kernel.spec, device_info)
+    launches, exclusions = planner.plan_launches(
+        (batch_size,), budget, waves_per_grid=search.waves_per_grid
+    )
+    if expected is None:
+        assert not launches
+        assert exclusions
+        assert all(
+            item.reason.endswith("too few input tuples for a full group per thread")
+            for item in exclusions
+        )
+    else:
+        block_size, grid_size = expected
+        assert launches[0].config == LaunchConfig(
+            grid_dim=(grid_size, 1, 1), block_dim=(block_size, 1, 1)
+        )
+
+
+def test_try_increase_throughput_batch_caps_growth_at_input_and_checksum_budget(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+    search: ThroughputSearchConfig,
+) -> None:
+    context, kernel, request = throughput_device
+    native = kernel._native
+    native.info["max_threads_per_block"] = 512
+    cache_bytes = 256 << 20
+    device_info = replace(
+        context.device_info,
+        l2_cache_size_bytes=cache_bytes,
+        total_memory_bytes=8 << 30,
+    )
+
+    plan = throughput.plan_throughput_search(
+        device_info, {request: kernel}, search=replace(search, max_candidates=80)
+    )
+
+    largest = max(plan.candidates, key=lambda launch: launch.batch_size)
+    larger_batch = throughput.try_increase_throughput_batch(
+        largest, device_info, kernel, batch_volume_growth_ratio=0.5
+    )
+    assert larger_batch is not None and larger_batch.batch_size > largest.batch_size
+    assert larger_batch.config == largest.config
+    assert (larger_batch.batch_size + larger_batch.thread_count) * 4 == 512 << 20
+
+
+# Search planning
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_candidates", 3),
+        ("batch_volume_to_l2_ratios", [float("inf")]),
+        ("fallback_batch_volumes_mib", [0]),
+        ("warps_per_block", [8, 8]),
+        ("waves_per_grid", []),
+    ],
+)
+def test_plan_throughput_search_rejects_invalid_parameters(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+    search: ThroughputSearchConfig,
+    field: str,
+    value: int | list[int] | list[float],
+) -> None:
+    context, kernel, request = throughput_device
+    with pytest.raises(ValueError, match=f"{field} must"):
+        throughput.plan_throughput_search(
+            context.device_info,
+            {request: kernel},
+            search=replace(search, **{field: value}),
+        )
+
+
+def test_plan_throughput_search_falls_back_to_largest_resident_block(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+    search: ThroughputSearchConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context, kernel, request = throughput_device
+    monkeypatch.setattr(
+        kernel,
+        "max_active_blocks_per_multiprocessor",
+        lambda *, threads_per_block: 2 if threads_per_block in (224, 192) else 0,
+    )
+
+    device_info = replace(context.device_info, total_memory_bytes=1 << 30)
+    plan = throughput.plan_throughput_search(
+        device_info, {request: kernel}, search=replace(search, max_candidates=4)
+    )
+
+    assert plan.candidates
+    assert {launch.config.block_dim[0] for launch in plan.candidates} == {224}
+
+
+def test_plan_throughput_search_interleaves_unroll_factors_within_budget(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+    search: ThroughputSearchConfig,
+) -> None:
+    context, kernel, request = throughput_device
+    device_info = replace(
+        context.device_info,
+        total_memory_bytes=1 << 30,
+        l2_cache_size_bytes=48 << 20,
+        launch_limits=replace(
+            context.device_info.launch_limits, max_grid_dim=(2, 1, 1)
+        ),
+    )
+    kernels = {
+        replace(request, unroll_factor=factor): kernel for factor in (8, 4, 2, 1)
+    }
+
+    plan = throughput.plan_throughput_search(
+        device_info, kernels, search=replace(search, max_candidates=24)
+    )
+    short = throughput.plan_throughput_search(
+        device_info,
+        dict(reversed(tuple(kernels.items()))),
+        search=replace(search, max_candidates=4),
+    )
+
+    assert len(plan.candidates) == 24
+    assert short.candidates == plan.candidates[:4]
+    assert [launch.request.unroll_factor for launch in short.candidates] == [1, 2, 4, 8]
+    assert {launch.batch_size for launch in plan.eligible} == {9 << 20, 15 << 20}
+    assert {
+        (launch.config.block_dim[0], launch.config.grid_dim[0])
+        for launch in plan.eligible
+    } == {(256, 1), (128, 1), (256, 2), (128, 2)}
+    assert len(plan.eligible) == len(set(plan.eligible))
+
+
+def test_plan_throughput_search_preserves_fallback_volume_order_without_l2_size(
+    throughput_device: tuple[Mock, DeviceKernel, KernelRequest],
+    search: ThroughputSearchConfig,
+) -> None:
+    context, kernel, request = throughput_device
+    device_info = replace(context.device_info, total_memory_bytes=12 << 30)
+    fallback_volumes_mib = [48, 16]
+
+    plan = throughput.plan_throughput_search(
+        device_info,
+        {request: kernel},
+        search=replace(
+            search, max_candidates=4, fallback_batch_volumes_mib=fallback_volumes_mib
+        ),
+    )
+
+    assert plan.batch_source == "fallback batch volumes (L2 cache size unavailable)"
+    assert [launch.batch_size for launch in plan.candidates] == [
+        volume * (1 << 20) // np.dtype(np.float32).itemsize
+        for volume in fallback_volumes_mib
+        for _ in range(2)
+    ]
