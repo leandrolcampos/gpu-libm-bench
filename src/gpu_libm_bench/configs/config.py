@@ -79,6 +79,34 @@ class LatencyConfig(MetricConfig):
 
 
 @dataclass
+class ThroughputSearchConfig:
+    max_candidates: int
+    batch_volume_to_l2_ratios: list[float]
+    fallback_batch_volumes_mib: list[int]
+    warps_per_block: list[int]
+    waves_per_grid: list[int]
+
+
+@dataclass
+class ThroughputConfirmationConfig:
+    repetitions: int
+    confidence_level: float
+    relative_gain_threshold: float
+    batch_volume_growth_ratio: float
+    max_waves_per_grid: int
+
+
+@dataclass
+class ThroughputConfig(MetricConfig):
+    sample: SampleConfig
+    pass_count: int
+    warmup_runs: int
+    throttle: ThrottleConfig
+    search: ThroughputSearchConfig
+    confirmation: ThroughputConfirmationConfig
+
+
+@dataclass
 class BackendConfig:
     name: str
     target_triple: str
@@ -156,6 +184,15 @@ def register_config_schema() -> None:
         group="schema/metric",
         name="latency",
         node=LatencyConfig,
+        package="metric",
+        provider="gpu-libm-bench",
+        replace=True,
+    )
+
+    ConfigStore.instance().store(
+        group="schema/metric",
+        name="throughput",
+        node=ThroughputConfig,
         package="metric",
         provider="gpu-libm-bench",
         replace=True,

@@ -1,7 +1,7 @@
 # Copyright 2026 Leandro Lacerda Campos
 # SPDX-License-Identifier: Apache-2.0
 
-"""Configuration schemas, packaged settings, and validation for the benchmark."""
+"""Build and experiment configuration schemas, loaders, and validators."""
 
 from .config import (
     ArgumentConfig,
@@ -23,6 +23,9 @@ from .config import (
     SampleConfig,
     SignatureConfig,
     ThrottleConfig,
+    ThroughputConfig,
+    ThroughputConfirmationConfig,
+    ThroughputSearchConfig,
     load_function_signature_config,
     load_library_config,
     register_config_schema,
@@ -50,6 +53,9 @@ __all__ = [
     "SampleConfig",
     "SignatureConfig",
     "ThrottleConfig",
+    "ThroughputConfig",
+    "ThroughputConfirmationConfig",
+    "ThroughputSearchConfig",
     "load_function_signature_config",
     "load_library_config",
     "register_config_schema",

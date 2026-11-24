@@ -44,6 +44,7 @@ struct DeviceInfoTy {
   std::uint32_t WarpSize;
   std::uint64_t DefaultClockFrequencyHz;
   std::size_t TotalMemoryBytes;
+  std::size_t L2CacheSizeBytes;
   LaunchLimitsTy LaunchLimits;
   TimerInfoTy TimerInfo;
 };

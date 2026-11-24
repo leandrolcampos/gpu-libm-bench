@@ -5,7 +5,7 @@ GPU Libm Bench is a benchmarking framework for evaluating GPU math libraries acr
 > [!WARNING]
 > This project is being developed as part of PhD research and is still at an early stage. Its interfaces, supported configurations, and benchmarking methodologies are subject to change.
 
-The current implementation measures the latency of `expf` on NVIDIA GPUs using `llvm-libm` from LLVM-libc and `libdevice` from the CUDA Toolkit.
+The current implementation measures latency and throughput of `expf` on NVIDIA GPUs using `llvm-libm` from LLVM-libc and `libdevice` from the CUDA Toolkit.
 
 ## Environment Setup
 
@@ -32,6 +32,8 @@ pixi run -e native gpu-libm-bench --details function=expf metric=latency backend
 The command builds the required native backend and device images as needed, then runs the benchmark. `--details` adds experiment configuration and provenance to the report.
 
 By default, the benchmark runs all available libraries that provide the selected function. To run only `libdevice`, for instance, add `run.libraries=[libdevice]`.
+
+Use `metric=throughput` to measure throughput in Gcall/s.
 
 The following latency results (in ns/call) come from separate runs on an NVIDIA GeForce RTX 5070.
 

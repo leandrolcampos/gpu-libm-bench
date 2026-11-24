@@ -59,6 +59,7 @@ class DeviceInfo:
     warp_size: int
     default_clock_frequency_hz: int
     total_memory_bytes: int
+    l2_cache_size_bytes: int
     launch_limits: LaunchLimits
     timer_info: TimerInfo
 
@@ -141,6 +142,7 @@ class DeviceContext:
             warp_size=properties["warp_size"],
             default_clock_frequency_hz=properties["default_clock_frequency_hz"],
             total_memory_bytes=properties["total_memory_bytes"],
+            l2_cache_size_bytes=properties["l2_cache_size_bytes"],
             launch_limits=LaunchLimits(**properties["launch_limits"]),
             timer_info=TimerInfo(**properties["timer_info"]),
         )

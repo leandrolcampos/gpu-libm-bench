@@ -1,0 +1,34 @@
+# Copyright 2026 Leandro Lacerda Campos
+# SPDX-License-Identifier: Apache-2.0
+
+defaults:
+  - /schema/metric: throughput
+  - _self_
+
+name: throughput
+unit: Gcall/s
+
+sample:
+  size: 16
+  timeout_s: 60.0
+
+pass_count: 64
+warmup_runs: 10
+
+throttle:
+  min_clock_ratio: 0.75
+  initial_delay_s: 0.05
+
+search:
+  max_candidates: 64
+  batch_volume_to_l2_ratios: [0.75, 2.25]
+  fallback_batch_volumes_mib: [32, 64]
+  warps_per_block: [4, 8, 16, 32]
+  waves_per_grid: [1, 2]
+
+confirmation:
+  repetitions: 5
+  confidence_level: 0.95
+  relative_gain_threshold: 0.05
+  batch_volume_growth_ratio: 0.5
+  max_waves_per_grid: 8

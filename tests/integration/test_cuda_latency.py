@@ -137,9 +137,9 @@ def test_latency_benchmark_preserves_evaluation_results(
     ) -> None:
         launch(kernel, *arguments, config=config)
 
-        value = np.empty(1, dtype=np.float32)
+        value = np.empty(1, dtype=np.uint32)
         context.copy_to_host(value, arguments[4])
-        observed.append(value.view(np.uint32)[0])
+        observed.append(value[0])
 
     monkeypatch.setattr(context, "launch", record_result)
     benchmark.measure(inputs.InputBatch("central", {"x": source}))
@@ -171,7 +171,7 @@ def test_all_calls_preserve_input_bits_across_passes(
     x = context.create_buffer(1, dtype=np.float32)
     mask = context.create_buffer(1, dtype=np.uint32)
     elapsed = context.create_buffer(1, dtype=np.uint64)
-    output = context.create_buffer(1, dtype=np.float32)
+    output = context.create_buffer(1, dtype=np.uint32)
 
     count = chain_length * pass_count
     observed = context.create_buffer(count + 1, dtype=np.uint64)
@@ -179,7 +179,7 @@ def test_all_calls_preserve_input_bits_across_passes(
 
     trace = np.empty(count + 1, dtype=np.uint64)
     call_count = np.empty(1, dtype=np.uint32)
-    result = np.empty(1, dtype=np.float32)
+    result = np.empty(1, dtype=np.uint32)
 
     context.copy_to_device(mask, np.zeros(1, dtype=np.uint32))
 
@@ -220,7 +220,7 @@ def test_all_calls_preserve_input_bits_across_passes(
         assert call_count[0] == count
         assert (trace[:count] == pattern).all()
         assert trace[count] == 0xDEADBEEF
-        assert result.view(np.uint32)[0] == pattern
+        assert result[0] == pattern
 
 
 @pytest.mark.parametrize(
@@ -269,7 +269,7 @@ def test_latency_preserves_all_arguments_for_scalar_signatures(
 
     mask = context.create_buffer(1, dtype=storage_dtype)
     elapsed = context.create_buffer(1, dtype=np.uint64)
-    output = context.create_buffer(1, dtype=sources[0].dtype)
+    output = context.create_buffer(1, dtype=storage_dtype)
     trace = np.full(count * len(inputs) + 1, 0xDEADBEEF, dtype=np.uint64)
     observed = context.create_buffer(trace.size, dtype=trace.dtype)
     calls = context.create_buffer(1, dtype=np.uint32)
@@ -304,7 +304,7 @@ def test_latency_preserves_all_arguments_for_scalar_signatures(
     )
 
     call_count = np.empty(1, dtype=np.uint32)
-    result = np.empty_like(sources[0])
+    result = np.empty(1, dtype=storage_dtype)
 
     context.copy_to_host(trace, observed)
     context.copy_to_host(call_count, calls)
@@ -318,6 +318,4 @@ def test_latency_preserves_all_arguments_for_scalar_signatures(
     assert call_count[0] == count
     np.testing.assert_array_equal(trace[:-1], np.tile(expected_inputs, count))
     assert trace[-1] == 0xDEADBEEF
-    np.testing.assert_array_equal(
-        result.view(storage_dtype), sources[0].view(storage_dtype)
-    )
+    np.testing.assert_array_equal(result, sources[0].view(storage_dtype))

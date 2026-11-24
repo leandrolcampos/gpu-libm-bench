@@ -7,11 +7,64 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock, PropertyMock
 
 import pytest
 
 from gpu_libm_bench.compiler import backends
-from gpu_libm_bench.devices import DeviceContext, LaunchConfig
+from gpu_libm_bench.devices import DeviceContext, DeviceKernel, KernelInfo, LaunchConfig
+from gpu_libm_bench.kernels import KernelSpec
+
+
+def test_kernel_info_and_occupancy() -> None:
+    native = Mock()
+    info = PropertyMock(
+        return_value={
+            "max_threads_per_block": 256,
+            "registers_per_thread": 16,
+            "static_shared_memory_bytes": 32,
+            "local_memory_bytes_per_thread": 0,
+        }
+    )
+    type(native).info = info
+    native.max_active_blocks_per_multiprocessor.return_value = 0
+    kernel = DeviceKernel(native, KernelSpec(arguments=()))
+
+    info.assert_not_called()
+    assert kernel.info == KernelInfo(256, 16, 32, 0)
+    assert kernel.info is kernel.info
+    info.assert_called_once_with()
+
+    assert kernel.max_active_blocks_per_multiprocessor(threads_per_block=128) == 0
+    assert (
+        kernel.max_active_blocks_per_multiprocessor(
+            threads_per_block=128, dynamic_shared_memory_bytes=0
+        )
+        == 0
+    )
+    native.max_active_blocks_per_multiprocessor.assert_called_once_with(
+        threads_per_block=128,
+        dynamic_shared_memory_bytes=0,
+    )
+
+    native.max_active_blocks_per_multiprocessor.return_value = 2
+    assert (
+        kernel.max_active_blocks_per_multiprocessor(
+            threads_per_block=128, dynamic_shared_memory_bytes=1024
+        )
+        == 2
+    )
+    assert kernel.max_active_blocks_per_multiprocessor(threads_per_block=64) == 2
+
+    with pytest.raises(TypeError, match="threads_per_block must be an integer"):
+        kernel.max_active_blocks_per_multiprocessor(threads_per_block=128.0)
+    with pytest.raises(
+        TypeError, match="dynamic_shared_memory_bytes must be an integer"
+    ):
+        kernel.max_active_blocks_per_multiprocessor(
+            threads_per_block=128, dynamic_shared_memory_bytes=False
+        )
+    assert native.max_active_blocks_per_multiprocessor.call_count == 3
 
 
 def test_import_does_not_load_cuda(tmp_path: Path) -> None:

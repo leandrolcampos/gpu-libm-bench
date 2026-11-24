@@ -12,9 +12,9 @@
 
 namespace gpu_libm_bench::cuda {
 
-//
+//===----------------------------------------------------------------------===//
 // Context lifecycle
-//
+//===----------------------------------------------------------------------===//
 
 DeviceContext::DeviceContext(DeviceContext &&Other) noexcept
     : DeviceState(std::move(Other.DeviceState)),
@@ -83,9 +83,9 @@ Error DeviceContext::release() {
   return Failure;
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Device queries
-//
+//===----------------------------------------------------------------------===//
 
 Expected<int> getDeviceCount() {
   CUresult Result = cuInit(0);
@@ -178,6 +178,13 @@ Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
                        "cuDeviceTotalMem"))
     return Err;
 
+  int L2CacheSizeBytes = 0;
+  if (auto Err =
+          check(cuDeviceGetAttribute(&L2CacheSizeBytes,
+                                     CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, Device),
+                "cuDeviceGetAttribute(L2_CACHE_SIZE)"))
+    return Err;
+
   auto MaxGridDim = getLaunchDimLimit(Device,
                                       {CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X,
                                        CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y,
@@ -221,13 +228,14 @@ Expected<DeviceInfoTy> getDeviceInfo(int DeviceID) {
                       static_cast<std::uint32_t>(WarpSize),
                       static_cast<std::uint64_t>(ClockFrequencyKHz) * 1000,
                       TotalMemoryBytes,
+                      static_cast<std::size_t>(L2CacheSizeBytes),
                       LaunchLimits,
                       {"%globaltimer", 64, 1'000'000'000}};
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Resources and memory transfers
-//
+//===----------------------------------------------------------------------===//
 
 Expected<DeviceBuffer>
 DeviceContext::createBuffer(std::size_t ByteCount) const {
@@ -295,9 +303,9 @@ DeviceContext::loadModule(const std::string &Path) const {
   return DeviceModule::load(DeviceState, Path);
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Kernel execution
-//
+//===----------------------------------------------------------------------===//
 
 Error DeviceContext::launch(const DeviceKernel &Kernel,
                             const std::vector<KernelArgument> &KernelArguments,
@@ -348,9 +356,9 @@ DeviceContext::profile(const DeviceKernel &Kernel,
       [&] { return enqueueKernel(Kernel, KernelArguments, Config); }, Metrics);
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Support image configuration
-//
+//===----------------------------------------------------------------------===//
 
 static std::filesystem::path ImagesBuildRoot;
 
@@ -377,9 +385,9 @@ Error detail::setImagesBuildRoot(const std::string &Root) {
   return Error::success();
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Internal helpers
-//
+//===----------------------------------------------------------------------===//
 
 DeviceContext::DeviceContext(std::shared_ptr<detail::DeviceStateTy> DeviceState,
                              void *Stream, const std::string &Architecture)

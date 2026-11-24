@@ -8,6 +8,7 @@
 
 #include "Expected.hpp"
 
+#include <cstddef>
 #include <memory>
 
 #ifndef GPU_LIBM_BENCH_BACKEND
@@ -22,12 +23,24 @@ class KernelProfiler;
 class ModuleState;
 } // namespace detail
 
+struct KernelInfoTy {
+  int MaxThreadsPerBlock;
+  int RegistersPerThread;
+  int StaticSharedMemoryBytes;
+  int LocalMemoryBytesPerThread;
+};
+
 class DeviceKernel {
 public:
   DeviceKernel(const DeviceKernel &) = delete;
   DeviceKernel &operator=(const DeviceKernel &) = delete;
   DeviceKernel(DeviceKernel &&) noexcept = default;
   DeviceKernel &operator=(DeviceKernel &&) = delete;
+
+  Expected<KernelInfoTy> getInfo() const;
+  Expected<int>
+  maxActiveBlocksPerMultiprocessor(int ThreadsPerBlock,
+                                   std::size_t DynamicSharedMemoryBytes) const;
 
 private:
   friend class DeviceContext;

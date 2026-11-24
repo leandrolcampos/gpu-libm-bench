@@ -12,6 +12,11 @@ namespace gpu_libm_bench::gpu {
 
 // Launch dimensions.
 
+inline uint64_t gridSize() {
+  return static_cast<uint64_t>(__gpu_num_blocks_x()) * __gpu_num_blocks_y() *
+         __gpu_num_blocks_z();
+}
+
 inline uint64_t blockSize() {
   return static_cast<uint64_t>(__gpu_num_threads_x()) * __gpu_num_threads_y() *
          __gpu_num_threads_z();

@@ -4,6 +4,7 @@
 """Benchmark experiment orchestration and results."""
 
 from ._latency import LatencyResults
+from ._throughput import ThroughputResults
 from .experiment import Experiment, ExperimentResult
 
-__all__ = ["Experiment", "ExperimentResult", "LatencyResults"]
+__all__ = ["Experiment", "ExperimentResult", "LatencyResults", "ThroughputResults"]

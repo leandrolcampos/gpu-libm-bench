@@ -26,6 +26,7 @@ def test_query_visible_devices() -> None:
         assert device_info.warp_size == 32
         assert device_info.default_clock_frequency_hz > 0
         assert device_info.total_memory_bytes > 0
+        assert device_info.l2_cache_size_bytes >= 0
 
         launch_limits = device_info.launch_limits
         for dimensions in (launch_limits.max_grid_dim, launch_limits.max_block_dim):

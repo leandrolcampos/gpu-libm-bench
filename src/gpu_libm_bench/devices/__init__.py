@@ -6,7 +6,7 @@
 from .context import DeviceContext, DeviceInfo, LaunchLimits, TimerInfo
 from .launch import LaunchConfig
 from .memory import DeviceBuffer
-from .module import DeviceImage, DeviceKernel, DeviceModule
+from .module import DeviceImage, DeviceKernel, DeviceModule, KernelInfo
 from .profiling import KernelMetric, KernelProfile
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "LaunchConfig",
     "DeviceBuffer",
     "DeviceImage",
+    "KernelInfo",
     "DeviceKernel",
     "DeviceModule",
     "KernelMetric",

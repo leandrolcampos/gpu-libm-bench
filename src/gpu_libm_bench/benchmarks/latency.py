@@ -23,13 +23,15 @@ from gpu_libm_bench.devices import (
 )
 from gpu_libm_bench.types import Scalar
 
+from ._throttle import recovery_delay_s
+
 _PASS_COUNT = 2
-_LATENCY_ARGUMENT_NAMES = (
-    "pass_count",
-    "chain_length",
-    "mask",
-    "elapsed_ticks",
-    "output",
+_LATENCY_ARGUMENTS = (
+    ("pass_count", False, "uint32"),
+    ("chain_length", False, "uint32"),
+    ("mask", True, None),
+    ("elapsed_ticks", True, "uint64"),
+    ("output", True, None),
 )
 
 
@@ -77,28 +79,43 @@ class LatencyBenchmark:
     ) -> None:
         arguments = iter(kernel.spec.arguments)
         latency_dtypes = {}
-        for expected_name in _LATENCY_ARGUMENT_NAMES:
+        for name, is_pointer, dtype in _LATENCY_ARGUMENTS:
             argument = next(arguments, None)
-            if argument is None or argument.name != expected_name:
+            if (
+                argument is None
+                or argument.name != name
+                or argument.is_pointer != is_pointer
+            ):
                 raise ValueError("kernel does not match the latency protocol")
-            latency_dtypes[expected_name] = np.dtype(argument.dtype)
-
-        if latency_dtypes["elapsed_ticks"] != np.dtype(np.uint64):
-            raise ValueError("elapsed_ticks must have dtype uint64")
+            actual_dtype = np.dtype(argument.dtype)
+            if dtype is not None and actual_dtype != np.dtype(dtype):
+                raise ValueError(f"{name} must have dtype {dtype}")
+            latency_dtypes[name] = actual_dtype
 
         input_arguments = tuple(arguments)
         if not input_arguments:
             raise ValueError("latency kernel must declare at least one input argument")
+        if not all(argument.is_pointer for argument in input_arguments):
+            raise ValueError("latency kernel input arguments must be pointers")
+        first_input_dtype = np.dtype(input_arguments[0].dtype)
+        if first_input_dtype.kind != "f" or first_input_dtype.itemsize not in (2, 4, 8):
+            raise ValueError(
+                "latency kernel first input must have a supported float dtype"
+            )
+        storage_dtype = np.dtype(f"uint{8 * first_input_dtype.itemsize}")
+        for name in ("mask", "output"):
+            if latency_dtypes[name] != storage_dtype:
+                raise ValueError(f"{name} must have dtype {storage_dtype}")
 
         if timeout_s is not None and (not isfinite(timeout_s) or timeout_s <= 0):
             raise ValueError("timeout_s must be finite and positive")
 
-        chain_length = _as_integer(chain_length, "chain_length")
+        chain_length = _normalize_integer(chain_length, "chain_length")
         max_chain_length = np.iinfo(latency_dtypes["chain_length"]).max
         if not 1 <= chain_length <= max_chain_length:
             raise ValueError(f"chain_length must be between 1 and {max_chain_length}")
 
-        warmup_runs = _as_integer(warmup_runs, "warmup_runs")
+        warmup_runs = _normalize_integer(warmup_runs, "warmup_runs")
         if warmup_runs < 0:
             raise ValueError("warmup_runs must be nonnegative")
 
@@ -170,8 +187,7 @@ class LatencyBenchmark:
                     break
 
                 consecutive_discards += 1
-                if consecutive_discards >= 4:
-                    delay_s += min(1.5 * delay_s, 0.5)
+                delay_s = recovery_delay_s(delay_s, consecutive_discards)
 
                 if delay_s > 0:
                     sleep(min(delay_s, remaining_s))
@@ -307,7 +323,7 @@ def analyze(measurement: LatencyMeasurement) -> LatencyResult:
     )
 
 
-def _as_integer(value: int, name: str) -> int:
+def _normalize_integer(value: int, name: str) -> int:
     if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer")
 

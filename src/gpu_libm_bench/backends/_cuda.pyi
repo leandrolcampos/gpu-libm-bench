@@ -29,6 +29,7 @@ class DeviceInfo(TypedDict):
     warp_size: int
     default_clock_frequency_hz: int
     total_memory_bytes: int
+    l2_cache_size_bytes: int
     launch_limits: LaunchLimits
     timer_info: TimerInfo
 
@@ -44,7 +45,18 @@ class DeviceBuffer:
     @property
     def nbytes(self) -> int: ...
 
-class DeviceKernel: ...
+class KernelInfo(TypedDict):
+    max_threads_per_block: int
+    registers_per_thread: int
+    static_shared_memory_bytes: int
+    local_memory_bytes_per_thread: int
+
+class DeviceKernel:
+    @property
+    def info(self) -> KernelInfo: ...
+    def max_active_blocks_per_multiprocessor(
+        self, *, threads_per_block: int, dynamic_shared_memory_bytes: int = 0
+    ) -> int: ...
 
 class DeviceModule:
     def get_kernel(self, symbol: str) -> DeviceKernel: ...

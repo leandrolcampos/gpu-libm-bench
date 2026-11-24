@@ -55,7 +55,11 @@ class InputGenerator(ABC):
 
     @abstractmethod
     def batches(
-        self, batch_size: int | None = None, *, drop_remainder: bool = False
+        self,
+        batch_size: int | None = None,
+        *,
+        batch_count: int | None = None,
+        drop_remainder: bool = False,
     ) -> Iterator[InputBatch]: ...
 
 
@@ -64,21 +68,15 @@ class RandomGenerator(InputGenerator):
         self,
         distributions: Mapping[str, Distribution[Scalar]],
         *,
-        sample_size: int,
+        sample_size: int | None,
         domain: str,
         rng: np.random.Generator,
     ) -> None:
         if not distributions:
             raise ValueError("at least one input distribution is required")
 
-        if isinstance(sample_size, (bool, np.bool_)):
-            raise TypeError("sample_size must be an integer")
-        try:
-            sample_size = index(sample_size)
-        except TypeError:
-            raise TypeError("sample_size must be an integer") from None
-        if sample_size <= 0:
-            raise ValueError("sample_size must be positive")
+        if sample_size is not None:
+            sample_size = _normalize_positive_integer(sample_size, "sample_size")
 
         if not isinstance(rng, np.random.Generator):
             raise TypeError("rng must be a NumPy Generator")
@@ -108,22 +106,28 @@ class RandomGenerator(InputGenerator):
         )
 
     def batches(
-        self, batch_size: int | None = None, *, drop_remainder: bool = False
+        self,
+        batch_size: int | None = None,
+        *,
+        batch_count: int | None = None,
+        drop_remainder: bool = False,
     ) -> Iterator[InputBatch]:
-        if batch_size is None:
-            batch_size = 1
-        if isinstance(batch_size, (bool, np.bool_)):
-            raise TypeError("batch_size must be an integer")
-        try:
-            batch_size = index(batch_size)
-        except TypeError:
-            raise TypeError("batch_size must be an integer") from None
-        if batch_size <= 0:
-            raise ValueError("batch_size must be positive")
+        batch_size = (
+            1
+            if batch_size is None
+            else _normalize_positive_integer(batch_size, "batch_size")
+        )
+        sample_size = self._sample_size
+        if batch_count is not None:
+            sample_size = batch_size * _normalize_positive_integer(
+                batch_count, "batch_count"
+            )
+        if sample_size is None:
+            raise ValueError("batch_count is required when sample_size is unspecified")
 
         rngs = deepcopy(self._rngs)
-        for start in range(0, self._sample_size, batch_size):
-            size = min(batch_size, self._sample_size - start)
+        for start in range(0, sample_size, batch_size):
+            size = min(batch_size, sample_size - start)
             if drop_remainder and size < batch_size:
                 return
 
@@ -161,3 +165,15 @@ def _distributions_from_config(
             raise ValueError(f"argument {argument.name!r}: {error}") from error
 
     return distributions
+
+
+def _normalize_positive_integer(value: int, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer")
+    try:
+        value = index(value)
+    except TypeError:
+        raise TypeError(f"{name} must be an integer") from None
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
