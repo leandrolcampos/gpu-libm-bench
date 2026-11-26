@@ -82,7 +82,8 @@ def _configuration_report(experiment: ExperimentResult) -> Group:
     match metric:
         case LatencyConfig(name="latency"):
             metric_details = _latency.build_details(
-                experiment.results_for(LatencyResults)
+                experiment.results_for(LatencyResults),
+                experiment.config.function.signature.return_type,
             )
         case ThroughputConfig(name="throughput"):
             metric_details = _throughput.build_details(

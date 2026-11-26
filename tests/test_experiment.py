@@ -545,12 +545,12 @@ def test_run_measures_each_library_with_the_same_domain_inputs(
         "llvm-libm",
     ]
 
-    first_control, first_benchmark, second_control, second_benchmark = benchmarks
-    for library, control in zip(
-        result.results, (first_control, second_control), strict=True
-    ):
-        control.estimate_chain_cost.assert_called_once_with()
-        assert library.chain_cost is control.estimate_chain_cost.return_value
+    control, first_benchmark, second_benchmark = benchmarks
+    control.estimate_chain_cost.assert_called_once_with()
+    assert all(
+        library.chain_cost is control.estimate_chain_cost.return_value
+        for library in result.results
+    )
 
     first = [call.args[0] for call in first_benchmark.measure.call_args_list]
     second = [call.args[0] for call in second_benchmark.measure.call_args_list]

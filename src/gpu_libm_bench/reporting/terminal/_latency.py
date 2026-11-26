@@ -41,7 +41,7 @@ def _format_row(library: str, result: LatencyResult) -> tuple[str, ...]:
     )
 
 
-def build_details(results: Sequence[LatencyResults]) -> Group:
+def build_details(results: Sequence[LatencyResults], return_type: str) -> Group:
     methods: dict[tuple[str, str], list[str]] = {}
     for domain in results[0]:
         for library in results:
@@ -54,12 +54,23 @@ def build_details(results: Sequence[LatencyResults]) -> Group:
     for (domain, method), library_names in methods.items():
         groups.setdefault((method, tuple(library_names)), []).append(domain)
 
-    sections = []
+    sections: list[Group | Text] = []
     for (method, libraries), domains in groups.items():
         section = Group(Text(f"Domains: {', '.join(domains)}"), Text(method))
         if len(libraries) != len(results):
             section = Group(Text(f"Libraries: {', '.join(libraries)}"), section)
         sections.append(section)
+
+    estimate = results[0].chain_cost
+    if estimate is not None:
+        lengths = ", ".join(map(str, estimate.lengths))
+        details = f"{return_type}, lengths {lengths}"
+        if estimate.cycles_per_call is None:
+            cost = f"inconclusive: {estimate.reason}"
+        else:
+            cost = f"{format_number(estimate.cycles_per_call)} cycles/call"
+            details += ", correction pending validation"
+        sections.append(Text(f"Estimated dependency chain cost: {cost} ({details})"))
 
     return Group(*sections)
 
@@ -67,7 +78,7 @@ def build_details(results: Sequence[LatencyResults]) -> Group:
 def _methodology(result: LatencyResult) -> Text:
     measurement = result.measurement
     return Text(
-        "Method: dependent-call chain (overhead included)\n"
+        "Method: dependent-call chain\n"
         "Estimator: mean of per-input latencies\n"
         f"Chain length: {measurement.chain_length}\n"
         f"Passes: {measurement.pass_count}\n"

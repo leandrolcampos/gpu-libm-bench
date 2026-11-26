@@ -12,7 +12,11 @@ import pytest
 from rich.console import Console
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.benchmarks.latency import LatencyMeasurement, LatencyResult
+from gpu_libm_bench.benchmarks.latency import (
+    ChainCostEstimate,
+    LatencyMeasurement,
+    LatencyResult,
+)
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.configs import (
@@ -271,6 +275,34 @@ def test_domain_tables_preserve_widths_and_values(experiment: ExperimentResult) 
     assert "7.6543e+05" in row and "1.5e+07" in row
 
 
+@pytest.mark.parametrize(
+    ("estimate", "expected"),
+    [
+        (
+            ChainCostEstimate((8192, 32768, 131072), cycles_per_call=6.0),
+            "6 cycles/call",
+        ),
+        (
+            ChainCostEstimate((8192, 32768, 131072), reason="clock unavailable"),
+            "inconclusive: clock unavailable",
+        ),
+    ],
+)
+def test_chain_cost_is_reported_once_in_details(experiment, estimate, expected):
+    experiment = replace(
+        experiment,
+        results=tuple(
+            replace(library, chain_cost=estimate) for library in experiment.results
+        ),
+    )
+    label = "Estimated dependency chain cost"
+    assert label not in _render(experiment)
+    output = _render(experiment, show_details=True, width=140)
+    assert output.count(label) == 1
+    assert ("correction pending validation" in output) == (estimate.reason is None)
+    assert f"{label}: {expected} (float, lengths 8192, 32768, 131072" in output
+
+
 def test_report_includes_provenance_when_requested(
     experiment: ExperimentResult,
 ) -> None:
@@ -287,7 +319,7 @@ def test_report_includes_provenance_when_requested(
     assert provenance.count("Environment: Python=3.12; NumPy=2.0") == 1
 
     method_lines = (
-        "Method: dependent-call chain (overhead included)",
+        "Method: dependent-call chain",
         "Estimator: mean of per-input latencies",
         "Chain length: 512",
         "Passes: 2",

@@ -113,13 +113,15 @@ def run(
         initial_delay_s=throttle.initial_delay_s,
     )
 
+    chain_cost = None
     results = []
     for image_build_info in image_build_infos:
         image = image_build_info.image
         module = context.load_module(image)
-        control_request = KernelRequest(image.library, identity.name, kind)
-        control = module.get_kernel(control_request.symbol, spec=identity_spec)
-        chain_cost = benchmark_for(control).estimate_chain_cost()
+        if chain_cost is None:
+            control_request = KernelRequest(image.library, identity.name, kind)
+            control = module.get_kernel(control_request.symbol, spec=identity_spec)
+            chain_cost = benchmark_for(control).estimate_chain_cost()
 
         request = KernelRequest(image.library, function.name, kind)
         kernel = module.get_kernel(request.symbol, spec=spec)
