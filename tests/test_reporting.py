@@ -108,14 +108,14 @@ def experiment() -> ExperimentResult:
     results = []
     for name in domains:
         measurement = LatencyMeasurement(
-            inputs.InputBatch(
+            inputs=inputs.InputBatch(
                 name, {"x": np.array([1234567, 7654321], dtype=np.float32)}
             ),
-            np.full(2, 987654321, dtype=np.uint64),
-            device_info,
-            2,
-            512,
-            10,
+            elapsed_ticks=np.full(2, 987654321, dtype=np.uint64),
+            device_info=device_info,
+            pass_count=2,
+            chain_length=512,
+            warmup_runs=10,
         )
 
         latencies = (
@@ -125,9 +125,9 @@ def experiment() -> ExperimentResult:
         )
         results.append(
             LatencyResult(
-                measurement,
-                latencies,
-                float(np.mean(latencies)),
+                measurement=measurement,
+                latencies=latencies,
+                mean=float(np.mean(latencies)),
                 stdev=float(np.std(latencies, ddof=1)),
                 min=float(np.min(latencies)),
                 max=float(np.max(latencies)),
@@ -295,11 +295,10 @@ def test_chain_cost_is_reported_once_in_details(experiment, estimate, expected):
             replace(library, chain_cost=estimate) for library in experiment.results
         ),
     )
-    label = "Estimated dependency chain cost"
+    label = "Estimated chain cost"
     assert label not in _render(experiment)
     output = _render(experiment, show_details=True, width=140)
     assert output.count(label) == 1
-    assert ("correction pending validation" in output) == (estimate.reason is None)
     assert f"{label}: {expected} (float, lengths 8192, 32768, 131072" in output
 
 

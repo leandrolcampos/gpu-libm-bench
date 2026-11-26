@@ -97,6 +97,7 @@ def run(
     chain_length: int,
     warmup_runs: int,
     throttle: ThrottleConfig,
+    should_discount_chain_cost: bool,
 ) -> tuple[LatencyResults, ...]:
     kind = KernelKind.LATENCY
     spec = KernelSpec.from_config(function, kind=kind)
@@ -129,7 +130,15 @@ def run(
 
         try:
             measurements = tuple(
-                analyze(benchmark.measure(batch))
+                analyze(
+                    benchmark.measure(
+                        batch,
+                        record_clocks=should_discount_chain_cost
+                        and chain_cost.cycles_per_call is not None,
+                    ),
+                    chain_cost=chain_cost,
+                    should_discount_chain_cost=should_discount_chain_cost,
+                )
                 for generator in input_generators
                 for batch in generator.batches(batch_size=sample_size)
             )

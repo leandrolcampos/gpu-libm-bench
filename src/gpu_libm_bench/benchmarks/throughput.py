@@ -75,7 +75,7 @@ class ThroughputMeasurement:
     launch: ThroughputPlannedLaunch
     sample_size: int
     warmup_runs: int
-    min_clock_hz: float
+    min_clock_frequency_hz: float
     timed_out: bool
 
     @property
@@ -232,7 +232,7 @@ class ThroughputBenchmark:
             launch=launch,
             sample_size=self._sample_size,
             warmup_runs=self._warmup_runs,
-            min_clock_hz=min_clock_hz,
+            min_clock_frequency_hz=min_clock_hz,
             timed_out=timed_out,
         )
 

@@ -88,15 +88,15 @@ def experiment_result(config: ExperimentConfig) -> ExperimentResult:
         TimerInfo("timer", 64, 10**9),
     )
     measurement = latency.LatencyMeasurement(
-        inputs.InputBatch(
+        inputs=inputs.InputBatch(
             "central", {"x": np.ones(config.metric.sample.size, dtype=np.float32)}
         ),
-        np.full(
+        elapsed_ticks=np.full(
             config.metric.sample.size,
             config.metric.chain_length,
             dtype=np.uint64,
         ),
-        device_info,
+        device_info=device_info,
         pass_count=2,
         chain_length=config.metric.chain_length,
         warmup_runs=config.metric.warmup_runs,
@@ -162,13 +162,15 @@ def execution(
         initial_delay_s,
     ):
         value = Mock()
-        value.measure.side_effect = lambda batch: latency.LatencyMeasurement(
-            batch,
-            np.full(batch.size, chain_length, dtype=np.uint64),
-            context.device_info,
-            pass_count=2,
-            chain_length=chain_length,
-            warmup_runs=warmup_runs,
+        value.measure.side_effect = lambda batch, *, record_clocks: (
+            latency.LatencyMeasurement(
+                inputs=batch,
+                elapsed_ticks=np.full(batch.size, chain_length, dtype=np.uint64),
+                device_info=context.device_info,
+                pass_count=2,
+                chain_length=chain_length,
+                warmup_runs=warmup_runs,
+            )
         )
         benchmarks.append(value)
         return value
@@ -706,7 +708,7 @@ def test_throughput_selects_a_complete_search_winner_and_confirms_its_rate(
                 launch=launch,
                 sample_size=sample_size,
                 warmup_runs=warmup_runs,
-                min_clock_hz=0,
+                min_clock_frequency_hz=0,
                 timed_out=timed_out,
             )
 

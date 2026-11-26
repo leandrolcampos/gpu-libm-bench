@@ -12,6 +12,7 @@ sample:
   size: 8192
   timeout_s: 60.0
 
+should_discount_chain_cost: true
 chain_length: 8192
 warmup_runs: 10
 

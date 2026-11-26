@@ -201,6 +201,7 @@ class Experiment:
                         chain_length=metric.chain_length,
                         warmup_runs=metric.warmup_runs,
                         throttle=metric.throttle,
+                        should_discount_chain_cost=metric.should_discount_chain_cost,
                     )
                 case ThroughputConfig():
                     results = _throughput.run(

@@ -69,18 +69,27 @@ def build_details(results: Sequence[LatencyResults], return_type: str) -> Group:
             cost = f"inconclusive: {estimate.reason}"
         else:
             cost = f"{format_number(estimate.cycles_per_call)} cycles/call"
-            details += ", correction pending validation"
-        sections.append(Text(f"Estimated dependency chain cost: {cost} ({details})"))
+        sections.append(Text(f"Estimated chain cost: {cost} ({details})"))
 
     return Group(*sections)
 
 
 def _methodology(result: LatencyResult) -> Text:
     measurement = result.measurement
+    method = "dependent-call chain"
+    if result.mean_chain_cost_discount is not None:
+        method += " (estimated chain cost subtracted)"
+    elif result.discount_skip_reason:
+        method += f" ({result.discount_skip_reason})"
     return Text(
-        "Method: dependent-call chain\n"
+        f"Method: {method}\n"
         "Estimator: mean of per-input latencies\n"
         f"Chain length: {measurement.chain_length}\n"
         f"Passes: {measurement.pass_count}\n"
         f"Warmup runs: {measurement.warmup_runs}"
+        + (
+            f"\nMean discount: {format_number(result.mean_chain_cost_discount)} ns/call"
+            if result.mean_chain_cost_discount is not None
+            else ""
+        )
     )

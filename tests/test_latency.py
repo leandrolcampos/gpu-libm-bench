@@ -151,12 +151,12 @@ def test_measurement_preserves_input_association_and_excludes_warmup(
         assert observed_exponents == [-1, 2, 3, -1][:warmup_runs] + [-1, 2, 3]
 
     assert (
-        measurement.chain_length,
         measurement.pass_count,
+        measurement.chain_length,
         measurement.warmup_runs,
     ) == (
-        7,
         2,
+        7,
         warmup_runs,
     )
 
@@ -441,7 +441,18 @@ def test_chain_cost_caps_throttle_recovery_at_deadline(
     context.launch_and_profile.assert_called_once()
 
 
-def test_analysis_summarizes_per_input_latencies() -> None:
+@pytest.mark.parametrize(
+    ("enabled", "cost", "clocks", "discount", "reason"),
+    [
+        (True, 6, [1e9, 2e9, 3e9], [6, 3, 2], None),
+        (False, 6, None, None, "discount disabled"),
+        (True, None, None, None, "calibration inconclusive"),
+        (True, 6, [1e9, np.nan, 3e9], None, "incomplete launch clocks"),
+    ],
+)
+def test_analysis_summarizes_per_input_latencies(
+    enabled, cost, clocks, discount, reason
+) -> None:
     measurement = latency.LatencyMeasurement(
         inputs=inputs.InputBatch("central", {"x": np.ones(3, dtype=np.float32)}),
         elapsed_ticks=np.array([4, 20, 40], dtype=np.uint64),
@@ -460,24 +471,32 @@ def test_analysis_summarizes_per_input_latencies() -> None:
             ),
             TimerInfo("test timer", 64, 500_000_000),
         ),
-        chain_length=4,
         pass_count=2,
+        chain_length=4,
         warmup_runs=3,
+        clock_frequencies_hz=None if clocks is None else np.array(clocks),
     )
-    result = latency.analyze(measurement)
-
-    np.testing.assert_array_equal(result.latencies, [2, 10, 20])
-    assert result.mean == pytest.approx(32 / 3)
-    assert result.stdev == pytest.approx((244 / 3) ** 0.5)
-    assert result.min == 2
-    assert result.max == 20
+    estimate = latency.ChainCostEstimate((4, 8, 16), cost)
+    result = latency.analyze(
+        measurement, chain_cost=estimate, should_discount_chain_cost=enabled
+    )
+    raw = np.array([2, 10, 20])
+    expected = raw if discount is None else raw - discount
+    np.testing.assert_allclose(result.latencies, expected)
+    assert result.mean == pytest.approx(expected.mean())
+    assert result.stdev == pytest.approx(expected.std(ddof=1))
+    assert (result.min, result.max) == (expected.min(), expected.max())
+    assert result.mean + (result.mean_chain_cost_discount or 0) == pytest.approx(
+        raw.mean()
+    )
+    assert result.discount_skip_reason == reason
 
 
 def test_single_observation_has_no_sample_standard_deviation() -> None:
     measurement = latency.LatencyMeasurement(
-        inputs.InputBatch("central", {"x": np.ones(1, dtype=np.float32)}),
-        np.array([4], dtype=np.uint64),
-        DeviceInfo(
+        inputs=inputs.InputBatch("central", {"x": np.ones(1, dtype=np.float32)}),
+        elapsed_ticks=np.array([4], dtype=np.uint64),
+        device_info=DeviceInfo(
             "cuda",
             0,
             "test GPU",
