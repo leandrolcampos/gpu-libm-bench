@@ -88,15 +88,15 @@ def experiment_result(config: ExperimentConfig) -> ExperimentResult:
         TimerInfo("timer", 64, 10**9),
     )
     measurement = latency.LatencyMeasurement(
-        inputs.InputBatch(
+        inputs=inputs.InputBatch(
             "central", {"x": np.ones(config.metric.sample.size, dtype=np.float32)}
         ),
-        np.full(
+        elapsed_ticks=np.full(
             config.metric.sample.size,
             config.metric.chain_length,
             dtype=np.uint64,
         ),
-        device_info,
+        device_info=device_info,
         pass_count=2,
         chain_length=config.metric.chain_length,
         warmup_runs=config.metric.warmup_runs,
@@ -162,13 +162,15 @@ def execution(
         initial_delay_s,
     ):
         value = Mock()
-        value.measure.side_effect = lambda batch: latency.LatencyMeasurement(
-            batch,
-            np.full(batch.size, chain_length, dtype=np.uint64),
-            context.device_info,
-            pass_count=2,
-            chain_length=chain_length,
-            warmup_runs=warmup_runs,
+        value.measure.side_effect = lambda batch, *, record_clocks: (
+            latency.LatencyMeasurement(
+                inputs=batch,
+                elapsed_ticks=np.full(batch.size, chain_length, dtype=np.uint64),
+                device_info=context.device_info,
+                pass_count=2,
+                chain_length=chain_length,
+                warmup_runs=warmup_runs,
+            )
         )
         benchmarks.append(value)
         return value
@@ -545,8 +547,15 @@ def test_run_measures_each_library_with_the_same_domain_inputs(
         "llvm-libm",
     ]
 
-    first = [call.args[0] for call in benchmarks[0].measure.call_args_list]
-    second = [call.args[0] for call in benchmarks[1].measure.call_args_list]
+    control, first_benchmark, second_benchmark = benchmarks
+    control.estimate_chain_cost.assert_called_once_with()
+    assert all(
+        library.chain_cost is control.estimate_chain_cost.return_value
+        for library in result.results
+    )
+
+    first = [call.args[0] for call in first_benchmark.measure.call_args_list]
+    second = [call.args[0] for call in second_benchmark.measure.call_args_list]
     assert [batch.domain for batch in first] == ["central", "wide"]
     assert [batch.domain for batch in second] == ["central", "wide"]
 
@@ -560,6 +569,17 @@ def test_run_measures_each_library_with_the_same_domain_inputs(
 
     experiment_module.build_backend.assert_not_called()
     context.__exit__.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("return_type", "name"), [("_Float16", "idf16"), ("float", "idf"), ("double", "id")]
+)
+def test_latency_control_matches_return_type(return_type, name):
+    identity = _latency._get_identity_config(return_type)
+    assert identity.name == name
+    assert identity.signature.return_type == return_type
+    (argument,) = identity.signature.arguments
+    assert (argument.type, argument.role) == (return_type, "input")
 
 
 @pytest.mark.parametrize(
@@ -688,7 +708,7 @@ def test_throughput_selects_a_complete_search_winner_and_confirms_its_rate(
                 launch=launch,
                 sample_size=sample_size,
                 warmup_runs=warmup_runs,
-                min_clock_hz=0,
+                min_clock_frequency_hz=0,
                 timed_out=timed_out,
             )
 

@@ -34,6 +34,11 @@ _LATENCY_ARGUMENTS = (
     ("output", True, None),
 )
 
+_CHAIN_COST_LENGTHS = (8192, 32768, 131072)
+_CHAIN_COST_SAMPLES_PER_LENGTH = 5
+_CHAIN_COST_TIMEOUT_S = 2.0
+_CHAIN_COST_MAX_RELATIVE_SLOPE_DIFFERENCE = 0.05
+
 
 @dataclass(frozen=True, slots=True)
 class LatencyMeasurement:
@@ -43,6 +48,7 @@ class LatencyMeasurement:
     pass_count: int
     chain_length: int
     warmup_runs: int
+    clock_frequencies_hz: NDArray[np.float64] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +59,16 @@ class LatencyResult:
     stdev: float | None
     min: float
     max: float
+    mean_chain_cost_discount: float | None = None
+    discount_skip_reason: str | None = None
     unit: ClassVar[str] = "ns/call"
+
+
+@dataclass(frozen=True, slots=True)
+class ChainCostEstimate:
+    lengths: tuple[int, ...]
+    cycles_per_call: float | None = None
+    reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -136,34 +151,97 @@ class LatencyBenchmark:
         self._min_clock_ratio = min_clock_ratio
         self._initial_delay_s = initial_delay_s
 
-    def measure(self, batch: inputs.InputBatch) -> LatencyMeasurement:
+    def measure(
+        self, batch: inputs.InputBatch, *, record_clocks: bool = False
+    ) -> LatencyMeasurement:
         snapshot = self._snapshot_batch(batch)
+        clocks_hz = (
+            np.empty(snapshot.size)
+            if record_clocks or self._min_clock_ratio > 0
+            else None
+        )
+        elapsed_ticks = self._collect_ticks(
+            snapshot, self._chain_length, clocks_hz=clocks_hz
+        )
+        return LatencyMeasurement(
+            inputs=snapshot,
+            elapsed_ticks=elapsed_ticks,
+            device_info=self._context.device_info,
+            pass_count=int(self._pass_count),
+            chain_length=int(self._chain_length),
+            warmup_runs=self._warmup_runs,
+            clock_frequencies_hz=clocks_hz,
+        )
+
+    def estimate_chain_cost(self) -> ChainCostEstimate:
+        lengths = _CHAIN_COST_LENGTHS
+        deadline = monotonic() + _CHAIN_COST_TIMEOUT_S
+        (argument,) = self._input_arguments
+        batch = inputs.InputBatch(
+            "identity",
+            {
+                argument.name: np.zeros(
+                    _CHAIN_COST_SAMPLES_PER_LENGTH, dtype=argument.dtype
+                )
+            },
+        )
+        timer_hz = self._context.device_info.timer_info.frequency_hz
+        clocks_hz = np.empty(batch.size, dtype=np.float64)
+        cycles = np.empty((len(lengths), batch.size), dtype=np.float64)
+        resolution_cycles = 0.0
+
+        for row, length in enumerate(lengths):
+            try:
+                ticks = self._collect_ticks(
+                    batch,
+                    length,
+                    deadline=deadline,
+                    clocks_hz=clocks_hz,
+                    require_clock=True,
+                )
+            except _SampleTimeout as error:
+                return ChainCostEstimate(lengths, reason=str(error))
+
+            cycles_per_tick = clocks_hz / timer_hz
+            cycles[row] = ticks * cycles_per_tick
+            resolution_cycles = max(resolution_cycles, float(cycles_per_tick.max()))
+
+        return _fit_chain_cost(lengths, cycles, resolution_cycles)
+
+    def _collect_ticks(
+        self,
+        batch: inputs.InputBatch,
+        length: int,
+        *,
+        deadline: float = inf,
+        clocks_hz: NDArray[np.float64] | None = None,
+        require_clock: bool = False,
+    ) -> NDArray[np.uint64]:
         input_arrays = tuple(
-            snapshot.arguments[input_argument.name]
+            batch.arguments[input_argument.name]
             for input_argument in self._input_arguments
         )
 
-        device_info = self._context.device_info
-        min_clock_hz = 0.0
-        if self._min_clock_ratio > 0:
-            if device_info.default_clock_frequency_hz <= 0:
-                raise ValueError(
-                    "throttle detection requires a positive default clock frequency"
-                )
-            min_clock_hz = (
-                self._min_clock_ratio * device_info.default_clock_frequency_hz
-            )
+        min_clock_hz = self._minimum_clock_hz()
+        profile_clock = clocks_hz is not None or min_clock_hz > 0
 
         elapsed_ticks = np.empty(
-            snapshot.size,
+            batch.size,
             dtype=self._latency_dtypes["elapsed_ticks"],
         )
         buffers = self._create_buffers()
 
-        self._warmup(input_arrays, buffers, self._warmup_runs)
+        for run in range(self._warmup_runs):
+            if deadline != inf:
+                _remaining_sample_s(deadline, batch, 0, "warmup timed out")
+            self._copy_inputs_to_device(input_arrays, buffers, run % batch.size)
+            self._run_chain(buffers, length=length)
+            if deadline != inf:
+                self._context.copy_to_host(
+                    buffers.host_elapsed_ticks, buffers.elapsed_ticks
+                )
 
-        deadline = inf
-        if self._timeout_s is not None:
+        if deadline == inf and self._timeout_s is not None:
             if self._warmup_runs:
                 self._context.copy_to_host(
                     buffers.host_elapsed_ticks, buffers.elapsed_ticks
@@ -171,35 +249,46 @@ class LatencyBenchmark:
             deadline = monotonic() + self._timeout_s
 
         delay_s = self._initial_delay_s
-        consecutive_discards = 0
-
-        for input_index in range(snapshot.size):
+        for input_index in range(batch.size):
             self._copy_inputs_to_device(input_arrays, buffers, input_index)
 
+            consecutive_discards = 0
+            reason = "insufficient observations"
             while True:
-                _remaining_sample_s(deadline, snapshot, input_index)
-                ticks = self._measure_chain(buffers, min_clock_hz)
-                remaining_s = _remaining_sample_s(deadline, snapshot, input_index)
-
-                if ticks is not None:
-                    elapsed_ticks[input_index] = ticks
-                    consecutive_discards = 0
+                _remaining_sample_s(deadline, batch, input_index, reason)
+                clock_hz = self._run_chain(
+                    buffers, length=length, profile_clock=profile_clock
+                )
+                if (require_clock or min_clock_hz > 0) and (
+                    clock_hz is None or not isfinite(clock_hz) or clock_hz <= 0
+                ):
+                    reason = "clock unavailable"
+                elif (
+                    min_clock_hz > 0
+                    and clock_hz is not None
+                    and clock_hz < min_clock_hz
+                ):
+                    reason = "clock below threshold"
+                else:
+                    self._context.copy_to_host(
+                        buffers.host_elapsed_ticks, buffers.elapsed_ticks
+                    )
+                    _remaining_sample_s(
+                        deadline, batch, input_index, "insufficient observations"
+                    )
+                    elapsed_ticks[input_index] = buffers.host_elapsed_ticks[0]
+                    if clocks_hz is not None:
+                        clocks_hz[input_index] = clock_hz
                     break
 
+                remaining_s = _remaining_sample_s(deadline, batch, input_index, reason)
                 consecutive_discards += 1
                 delay_s = recovery_delay_s(delay_s, consecutive_discards)
 
                 if delay_s > 0:
                     sleep(min(delay_s, remaining_s))
 
-        return LatencyMeasurement(
-            inputs=snapshot,
-            elapsed_ticks=elapsed_ticks,
-            device_info=device_info,
-            pass_count=int(self._pass_count),
-            chain_length=int(self._chain_length),
-            warmup_runs=self._warmup_runs,
-        )
+        return elapsed_ticks
 
     def _snapshot_batch(self, batch: inputs.InputBatch) -> inputs.InputBatch:
         if set(batch.arguments) != {
@@ -230,6 +319,16 @@ class LatencyBenchmark:
                 for input_argument in self._input_arguments
             },
         )
+
+    def _minimum_clock_hz(self) -> float:
+        if self._min_clock_ratio == 0:
+            return 0.0
+        default = self._context.device_info.default_clock_frequency_hz
+        if default <= 0:
+            raise ValueError(
+                "throttle detection requires a positive default clock frequency"
+            )
+        return self._min_clock_ratio * default
 
     def _create_buffers(self) -> _LatencyBuffers:
         latency_dtypes = self._latency_dtypes
@@ -263,11 +362,15 @@ class LatencyBenchmark:
             )
 
     def _run_chain(
-        self, buffers: _LatencyBuffers, *, profile_clock: bool = False
+        self,
+        buffers: _LatencyBuffers,
+        *,
+        length: int,
+        profile_clock: bool = False,
     ) -> float | None:
         arguments = (
             self._pass_count,
-            self._chain_length,
+            np.uint32(length),
             buffers.mask,
             buffers.elapsed_ticks,
             buffers.output,
@@ -285,33 +388,51 @@ class LatencyBenchmark:
         self._context.launch(self._kernel, *arguments, config=LaunchConfig())
         return None
 
-    def _warmup(
-        self,
-        input_arrays: tuple[NDArray[Scalar], ...],
-        buffers: _LatencyBuffers,
-        runs: int,
-    ) -> None:
-        for run in range(runs):
-            input_index = run % input_arrays[0].size
-            self._copy_inputs_to_device(input_arrays, buffers, input_index)
-            self._run_chain(buffers)
 
-    def _measure_chain(
-        self, buffers: _LatencyBuffers, min_clock_hz: float
-    ) -> np.uint64 | None:
-        clock_hz = self._run_chain(buffers, profile_clock=min_clock_hz > 0)
-        if min_clock_hz > 0 and (
-            clock_hz is None or not isfinite(clock_hz) or clock_hz < min_clock_hz
-        ):
-            return None
+def _fit_chain_cost(
+    lengths: tuple[int, ...], cycles: NDArray[np.float64], resolution_cycles: float
+) -> ChainCostEstimate:
+    medians = np.median(cycles, axis=1)
+    deviations = np.median(np.abs(cycles - medians[:, None]), axis=1)
+    growth = np.diff(medians)
+    if np.any(growth <= resolution_cycles + deviations[:-1] + deviations[1:]):
+        return ChainCostEstimate(lengths, reason="growth indistinguishable from noise")
 
-        self._context.copy_to_host(buffers.host_elapsed_ticks, buffers.elapsed_ticks)
-        return buffers.host_elapsed_ticks[0]
+    slopes = growth / np.diff(lengths)
+    if np.ptp(slopes) > _CHAIN_COST_MAX_RELATIVE_SLOPE_DIFFERENCE * np.mean(slopes):
+        return ChainCostEstimate(lengths, reason="inconsistent interval slopes")
+
+    cycles_per_call, _ = np.polyfit(lengths, medians, deg=1)
+    return ChainCostEstimate(lengths, cycles_per_call=float(cycles_per_call))
 
 
-def analyze(measurement: LatencyMeasurement) -> LatencyResult:
+def analyze(
+    measurement: LatencyMeasurement,
+    *,
+    chain_cost: ChainCostEstimate | None = None,
+    should_discount_chain_cost: bool = True,
+) -> LatencyResult:
     times = measurement.device_info.timer_info.to_ns(measurement.elapsed_ticks)
     latencies = times / measurement.chain_length
+
+    mean_chain_cost_discount = None
+    discount_skip_reason = None
+    if not should_discount_chain_cost:
+        discount_skip_reason = "discount disabled"
+    elif chain_cost is not None:
+        clocks = measurement.clock_frequencies_hz
+        if chain_cost.cycles_per_call is None:
+            discount_skip_reason = "calibration inconclusive"
+        elif (
+            clocks is None
+            or clocks.shape != latencies.shape
+            or not np.all(np.isfinite(clocks) & (clocks > 0))
+        ):
+            discount_skip_reason = "incomplete launch clocks"
+        else:
+            discounts_ns = chain_cost.cycles_per_call * 1e9 / clocks
+            latencies -= discounts_ns
+            mean_chain_cost_discount = float(np.mean(discounts_ns))
 
     return LatencyResult(
         measurement=measurement,
@@ -320,6 +441,8 @@ def analyze(measurement: LatencyMeasurement) -> LatencyResult:
         stdev=float(np.std(latencies, ddof=1)) if latencies.size > 1 else None,
         min=float(np.min(latencies)),
         max=float(np.max(latencies)),
+        mean_chain_cost_discount=mean_chain_cost_discount,
+        discount_skip_reason=discount_skip_reason,
     )
 
 
@@ -333,14 +456,18 @@ def _normalize_integer(value: int, name: str) -> int:
         raise TypeError(f"{name} must be an integer") from error
 
 
+class _SampleTimeout(TimeoutError):
+    pass
+
+
 def _remaining_sample_s(
-    deadline: float, batch: inputs.InputBatch, input_index: int
+    deadline: float, batch: inputs.InputBatch, input_index: int, reason: str
 ) -> float:
     remaining_s = deadline - monotonic()
     if remaining_s <= 0:
-        raise TimeoutError(
+        raise _SampleTimeout(
             f"latency sample for domain {batch.domain!r} is incomplete after timeout: "
             f"{input_index}/{batch.size} observations accepted, "
-            f"input index {input_index} pending"
+            f"input index {input_index} pending ({reason})"
         )
     return remaining_s

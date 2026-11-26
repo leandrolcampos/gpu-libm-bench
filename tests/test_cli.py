@@ -70,6 +70,7 @@ def test_config_can_be_inspected_without_running_experiment(tmp_path: Path) -> N
     assert config.metric.sample.timeout_s == 60.0
     assert config.metric.throttle.min_clock_ratio == 0.75
     assert config.metric.throttle.initial_delay_s == 0.05
+    assert config.metric.should_discount_chain_cost is True
     assert list(config.metric) == [
         "name",
         "unit",
@@ -77,6 +78,7 @@ def test_config_can_be_inspected_without_running_experiment(tmp_path: Path) -> N
         "chain_length",
         "warmup_runs",
         "throttle",
+        "should_discount_chain_cost",
     ]
     assert config.llvm.root == "/nonexistent/llvm"
 

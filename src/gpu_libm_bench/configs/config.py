@@ -76,6 +76,7 @@ class LatencyConfig(MetricConfig):
     chain_length: int
     warmup_runs: int
     throttle: ThrottleConfig
+    should_discount_chain_cost: bool = True
 
 
 @dataclass

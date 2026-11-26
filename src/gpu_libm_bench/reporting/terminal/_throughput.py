@@ -163,8 +163,8 @@ def _domain_details(
         f"{reason}: {count}" for reason, count in discards.items()
     )
     clock = (
-        f"{measurement.min_clock_hz:,.0f} Hz"
-        if measurement.min_clock_hz > 0
+        f"{measurement.min_clock_frequency_hz:,.0f} Hz"
+        if measurement.min_clock_frequency_hz > 0
         else "disabled"
     )
     details.append(

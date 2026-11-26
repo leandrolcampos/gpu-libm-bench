@@ -29,14 +29,14 @@ private:
 
 template <typename T> T xorBits(T Value, uint32_t Mask) {
   if constexpr (__is_same(T, int)) {
-    const uint32_t Bits = __builtin_bit_cast(uint32_t, Value);
-    return __builtin_bit_cast(T, Bits ^ Mask);
+    const uint32_t ValueUInt = __builtin_bit_cast(uint32_t, Value);
+    return __builtin_bit_cast(T, ValueUInt ^ Mask);
   } else {
     using FPBits = fputil::FPBits<T>;
     using StorageType = typename FPBits::StorageType;
 
-    const auto Bits = FPBits(Value).asUInt();
-    return FPBits(StorageType(Bits ^ static_cast<StorageType>(Mask)))
+    const auto ValueUInt = FPBits(Value).asUInt();
+    return FPBits(StorageType(ValueUInt ^ static_cast<StorageType>(Mask)))
         .getValue();
   }
 }

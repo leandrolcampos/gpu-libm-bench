@@ -9,38 +9,79 @@
 #include "FPUtil.hpp"
 #include "GPU.hpp"
 
+#include <stdint.h>
+
 namespace gpu_libm_bench {
 
 namespace detail {
 
-template <typename StorageType>
-inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
-  uint64_t Timestamp = gpu::readSteadyCounter();
-  StorageType Dependency = static_cast<StorageType>(Timestamp) & DependencyMask;
-  State ^= Dependency;
-  return Timestamp;
+template <typename FirstType, typename... OtherTypes>
+constexpr FirstType &&getFirstArgument(FirstType &&First,
+                                       OtherTypes &&...) noexcept {
+  return static_cast<FirstType &&>(First);
 }
 
 template <typename StorageType>
+inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
+  const uint64_t Timestamp = gpu::readSteadyCounter();
+  const StorageType Dependency =
+      static_cast<StorageType>(Timestamp) & DependencyMask;
+  State ^= Dependency;
+
+  return Timestamp;
+}
+
+// Keep each step dependent on the previous result even for the identity.
+// A zero mask selects every bit from the original input.
+inline uint32_t selectInputWord(uint32_t Input, uint32_t State, uint32_t Mask) {
+  uint32_t Selected;
+
+#if defined(__AMDGCN__)
+  asm volatile("v_bfi_b32 %0, %1, %2, %3"
+               : "=v"(Selected)
+               : "s"(Mask), "v"(State), "v"(Input));
+#elif defined(__NVPTX__)
+  asm volatile("lop3.b32 %0, %1, %2, %3, 0xca;"
+               : "=r"(Selected)
+               : "r"(Mask), "r"(State), "r"(Input));
+#else
+#error "unsupported GPU target"
+#endif
+
+  return Selected;
+}
+
+template <typename StorageType>
+inline StorageType selectDependentInput(StorageType Input, StorageType State,
+                                        StorageType Mask) {
+  const uint32_t Low =
+      selectInputWord(uint32_t(Input), uint32_t(State), uint32_t(Mask));
+
+  if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
+    const uint32_t High =
+        selectInputWord(Input >> 32U, State >> 32U, Mask >> 32U);
+    return (uint64_t(High) << 32U) | Low;
+  }
+
+  return static_cast<StorageType>(Low);
+}
+
+// Consume the final result before reading the end timestamp.
+template <typename StorageType>
 inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
-  // Consume the final chain result before reading the end timestamp.
-#if defined(__NVPTX__)
-  State ^= DependencyMask;
-  asm volatile("" : : "llr"(State) : "memory");
-#elif defined(__AMDGCN__)
-  if constexpr (sizeof(StorageType) == 8) {
+#if defined(__AMDGCN__)
+  if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     uint32_t Consumed;
     asm volatile("v_or_b32 %0, %1, %2"
                  : "=v"(Consumed)
-                 : "v"(static_cast<uint32_t>(State)),
-                   "v"(static_cast<uint32_t>(State >> 32))
+                 : "v"(uint32_t(State)), "v"(uint32_t(State >> 32U))
                  : "memory");
   } else {
-    asm volatile("v_or_b32 %0, 0, %0"
-                 :
-                 : "v"(static_cast<uint32_t>(State))
-                 : "memory");
+    asm volatile("v_or_b32 %0, 0, %0" : : "v"(uint32_t(State)) : "memory");
   }
+#elif defined(__NVPTX__)
+  State ^= DependencyMask;
+  asm volatile("" : : "llr"(State) : "memory");
 #else
 #error "unsupported GPU target"
 #endif
@@ -48,21 +89,27 @@ inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
   return gpu::readSteadyCounter();
 }
 
-template <auto Function, typename StorageType, typename FloatType,
-          typename... OtherInputTypes>
-void latencyChain(uint32_t PassCount, uint32_t ChainLength,
+template <auto Function, typename StorageType, typename... InputTypes>
+void measureChain(uint32_t PassCount, uint32_t ChainLength,
                   StorageType DependencyMask, uint64_t *ElapsedTicks,
-                  StorageType *Output, FloatType FirstInput,
-                  OtherInputTypes... OtherInputs) {
-  static_assert(
-      __is_same(FloatType, decltype(Function(FirstInput, OtherInputs...))),
-      "return type must match the first input type");
-  static_assert(
-      __is_same(StorageType, typename fputil::FPBits<FloatType>::StorageType),
-      "mask and output storage types must match the first input type");
+                  StorageType *Output, InputTypes... Inputs) {
+  auto &FirstInput = getFirstArgument(Inputs...);
+  using ReturnType = decltype(Function(Inputs...));
 
-  const auto XBits = fputil::FPBits(FirstInput).asUInt();
-  auto State = XBits;
+  static_assert(__is_same(decltype(FirstInput), ReturnType &),
+                "return type must match the first input type");
+  static_assert(__is_same(ReturnType, _Float16) ||
+                    __is_same(ReturnType, float) ||
+                    __is_same(ReturnType, double),
+                "first input type must be _Float16, float, or double");
+
+  using FPBits = fputil::FPBits<ReturnType>;
+  static_assert(__is_same(StorageType, typename FPBits::StorageType),
+                "mask and output storage type must match the first input type");
+
+  const auto FirstInputUInt = FPBits(FirstInput).asUInt();
+  auto State = FirstInputUInt;
+
   uint64_t Start = 0;
   uint64_t Stop = 0;
 
@@ -72,10 +119,10 @@ void latencyChain(uint32_t PassCount, uint32_t ChainLength,
 
 #pragma clang loop unroll_count(4)
     for (uint32_t Step = 0; Step < ChainLength; ++Step) {
-      StorageType DependentInput = XBits ^ StorageType(State & DependencyMask);
-      auto Result =
-          Function(fputil::FPBits(DependentInput).getValue(), OtherInputs...);
-      State = fputil::FPBits(Result).asUInt();
+      const auto DependentInput =
+          selectDependentInput(FirstInputUInt, State, DependencyMask);
+      FirstInput = FPBits(DependentInput).getValue();
+      State = FPBits(Function(Inputs...)).asUInt();
     }
 
     Stop = endTiming(State, DependencyMask);
@@ -89,18 +136,15 @@ void latencyChain(uint32_t PassCount, uint32_t ChainLength,
 
 // The mixed ABI is intentional: ZeroMask is used on every chain step, so keep
 // it indirect to encourage a single load before the timed loop.
-template <auto Function, typename StorageType, typename FloatType,
-          typename... OtherInputTypes>
+template <auto Function, typename StorageType, typename... InputTypes>
 void measureLatency(uint32_t PassCount, uint32_t ChainLength,
                     const StorageType *ZeroMask, uint64_t *ElapsedTicks,
-                    StorageType *Output, const FloatType *FirstInput,
-                    const OtherInputTypes *...OtherInputs) {
+                    StorageType *Output, const InputTypes *...Inputs) {
   if (gpu::globalThreadId() != 0)
     return;
 
-  detail::latencyChain<Function>(PassCount, ChainLength, ZeroMask[0],
-                                 ElapsedTicks, Output, FirstInput[0],
-                                 OtherInputs[0]...);
+  detail::measureChain<Function>(PassCount, ChainLength, ZeroMask[0],
+                                 ElapsedTicks, Output, Inputs[0]...);
 }
 
 } // namespace gpu_libm_bench

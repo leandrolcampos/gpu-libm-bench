@@ -12,7 +12,11 @@ import pytest
 from rich.console import Console
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.benchmarks.latency import LatencyMeasurement, LatencyResult
+from gpu_libm_bench.benchmarks.latency import (
+    ChainCostEstimate,
+    LatencyMeasurement,
+    LatencyResult,
+)
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
 from gpu_libm_bench.compiler.targets import CompilationTarget
 from gpu_libm_bench.configs import (
@@ -104,14 +108,14 @@ def experiment() -> ExperimentResult:
     results = []
     for name in domains:
         measurement = LatencyMeasurement(
-            inputs.InputBatch(
+            inputs=inputs.InputBatch(
                 name, {"x": np.array([1234567, 7654321], dtype=np.float32)}
             ),
-            np.full(2, 987654321, dtype=np.uint64),
-            device_info,
-            2,
-            512,
-            10,
+            elapsed_ticks=np.full(2, 987654321, dtype=np.uint64),
+            device_info=device_info,
+            pass_count=2,
+            chain_length=512,
+            warmup_runs=10,
         )
 
         latencies = (
@@ -121,9 +125,9 @@ def experiment() -> ExperimentResult:
         )
         results.append(
             LatencyResult(
-                measurement,
-                latencies,
-                float(np.mean(latencies)),
+                measurement=measurement,
+                latencies=latencies,
+                mean=float(np.mean(latencies)),
                 stdev=float(np.std(latencies, ddof=1)),
                 min=float(np.min(latencies)),
                 max=float(np.max(latencies)),
@@ -271,6 +275,53 @@ def test_domain_tables_preserve_widths_and_values(experiment: ExperimentResult) 
     assert "7.6543e+05" in row and "1.5e+07" in row
 
 
+@pytest.mark.parametrize(
+    ("estimate", "expected"),
+    [
+        (
+            ChainCostEstimate((8192, 32768, 131072), cycles_per_call=6.0),
+            "6 cycles/call",
+        ),
+        (
+            ChainCostEstimate((8192, 32768, 131072), reason="clock unavailable"),
+            "inconclusive: clock unavailable",
+        ),
+    ],
+)
+def test_chain_cost_is_reported_once_in_details(experiment, estimate, expected):
+    experiment = replace(
+        experiment,
+        results=tuple(
+            replace(library, chain_cost=estimate) for library in experiment.results
+        ),
+    )
+    label = "Estimated chain cost"
+    assert label not in _render(experiment)
+    output = _render(experiment, show_details=True, width=140)
+    assert output.count(label) == 1
+    assert f"{label}: {expected} (float, lengths 8192, 32768, 131072" in output
+
+
+def test_different_discounts_share_one_methodology(experiment):
+    libraries = tuple(
+        replace(
+            library,
+            results=tuple(
+                replace(result, mean_chain_cost_discount=cost)
+                for result in library.results
+            ),
+        )
+        for library, cost in zip(experiment.results, (2.0935, 2.0934), strict=True)
+    )
+    output = _render(replace(experiment, results=libraries), show_details=True)
+    assert (
+        output.count("Method: dependent-call chain (estimated chain cost subtracted)")
+        == 1
+    )
+    assert "2.0935 ns/call" not in output
+    assert "2.0934 ns/call" not in output
+
+
 def test_report_includes_provenance_when_requested(
     experiment: ExperimentResult,
 ) -> None:
@@ -287,7 +338,7 @@ def test_report_includes_provenance_when_requested(
     assert provenance.count("Environment: Python=3.12; NumPy=2.0") == 1
 
     method_lines = (
-        "Method: dependent-call chain (overhead included)",
+        "Method: dependent-call chain",
         "Estimator: mean of per-input latencies",
         "Chain length: 512",
         "Passes: 2",

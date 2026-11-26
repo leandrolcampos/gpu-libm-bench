@@ -1,0 +1,5 @@
+# Allows package-prefixed C function names in libm kernels.
+
+InheritParentConfig: true
+CheckOptions:
+  readability-identifier-naming.FunctionIgnoredRegexp: '^gpu_libm_bench_[a-z][a-z0-9]*$'

@@ -151,12 +151,12 @@ def test_measurement_preserves_input_association_and_excludes_warmup(
         assert observed_exponents == [-1, 2, 3, -1][:warmup_runs] + [-1, 2, 3]
 
     assert (
-        measurement.chain_length,
         measurement.pass_count,
+        measurement.chain_length,
         measurement.warmup_runs,
     ) == (
-        7,
         2,
+        7,
         warmup_runs,
     )
 
@@ -363,7 +363,96 @@ def test_latency_throttling(
         np.testing.assert_array_equal(measurement.elapsed_ticks, [5, 6])
 
 
-def test_analysis_summarizes_per_input_latencies() -> None:
+def test_chain_cost_recovers_slope_with_varying_clocks(latency_kernel):
+    context = Mock(spec=DeviceContext)
+    context.device_info.timer_info.frequency_hz = 1e9
+    count = 0
+
+    def profile(control, passes, length, mask, ticks, output, x, *, config, metrics):
+        nonlocal count
+        assert control is latency_kernel and passes == 2
+        assert metrics == {KernelMetric.CLOCK_FREQUENCY}
+        clock_ratio = (1, 2, 4)[count % 3]
+        ticks.value = (128 + 6 * int(length)) // clock_ratio
+        count += 1
+        return KernelProfile(clock_frequency_hz=clock_ratio * 1e9)
+
+    context.create_buffer.side_effect = lambda size, *, dtype: Mock(value=0)
+    context.launch_and_profile.side_effect = profile
+    context.copy_to_host.side_effect = lambda host, buf: host.fill(buf.value)
+    benchmark = latency.LatencyBenchmark(
+        context, latency_kernel, chain_length=1, warmup_runs=2
+    )
+    estimate = benchmark.estimate_chain_cost()
+    assert estimate.cycles_per_call == pytest.approx(6)
+    assert estimate.reason is None
+    assert count == 15
+    assert context.launch.call_count == 6
+    value = context.copy_to_device.call_args.args[1]
+    assert value.dtype == np.float32 and value.tolist() == [0]
+
+
+@pytest.mark.parametrize(
+    ("samples", "reason"),
+    [
+        ([[10] * 5, [11] * 5, [12] * 5], "noise"),
+        ([[100, 150, 200, 250, 300], [120, 170, 220, 270, 320], [400] * 5], "noise"),
+        ([[100] * 5, [200] * 5, [600] * 5], "inconsistent"),
+    ],
+)
+def test_chain_cost_rejects_noisy_or_inconsistent_growth(samples, reason):
+    estimate = latency._fit_chain_cost(
+        (4, 8, 12), np.array(samples), resolution_cycles=1
+    )
+    assert estimate.cycles_per_call is None
+    assert reason in estimate.reason
+
+
+@pytest.mark.parametrize(
+    ("clock", "reason"), [(None, "unavailable"), (100, "threshold")]
+)
+def test_chain_cost_caps_throttle_recovery_at_deadline(
+    latency_kernel, monkeypatch, clock, reason
+):
+    context = Mock(spec=DeviceContext)
+    context.device_info.default_clock_frequency_hz = 1000
+    context.launch_and_profile.return_value = KernelProfile(clock_frequency_hz=clock)
+    now = 0.0
+
+    def advance(seconds):
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr(latency, "monotonic", lambda: now)
+    monkeypatch.setattr(latency, "sleep", advance)
+    benchmark = latency.LatencyBenchmark(
+        context,
+        latency_kernel,
+        chain_length=4,
+        warmup_runs=0,
+        min_clock_ratio=0.75,
+        initial_delay_s=100.0,
+        timeout_s=200.0,
+    )
+    estimate = benchmark.estimate_chain_cost()
+    assert estimate.cycles_per_call is None
+    assert reason in estimate.reason
+    assert now == latency._CHAIN_COST_TIMEOUT_S
+    context.launch_and_profile.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("enabled", "cost", "clocks", "discount", "reason"),
+    [
+        (True, 6, [1e9, 2e9, 3e9], [6, 3, 2], None),
+        (False, 6, None, None, "discount disabled"),
+        (True, None, None, None, "calibration inconclusive"),
+        (True, 6, [1e9, np.nan, 3e9], None, "incomplete launch clocks"),
+    ],
+)
+def test_analysis_summarizes_per_input_latencies(
+    enabled, cost, clocks, discount, reason
+) -> None:
     measurement = latency.LatencyMeasurement(
         inputs=inputs.InputBatch("central", {"x": np.ones(3, dtype=np.float32)}),
         elapsed_ticks=np.array([4, 20, 40], dtype=np.uint64),
@@ -382,24 +471,32 @@ def test_analysis_summarizes_per_input_latencies() -> None:
             ),
             TimerInfo("test timer", 64, 500_000_000),
         ),
-        chain_length=4,
         pass_count=2,
+        chain_length=4,
         warmup_runs=3,
+        clock_frequencies_hz=None if clocks is None else np.array(clocks),
     )
-    result = latency.analyze(measurement)
-
-    np.testing.assert_array_equal(result.latencies, [2, 10, 20])
-    assert result.mean == pytest.approx(32 / 3)
-    assert result.stdev == pytest.approx((244 / 3) ** 0.5)
-    assert result.min == 2
-    assert result.max == 20
+    estimate = latency.ChainCostEstimate((4, 8, 16), cost)
+    result = latency.analyze(
+        measurement, chain_cost=estimate, should_discount_chain_cost=enabled
+    )
+    raw = np.array([2, 10, 20])
+    expected = raw if discount is None else raw - discount
+    np.testing.assert_allclose(result.latencies, expected)
+    assert result.mean == pytest.approx(expected.mean())
+    assert result.stdev == pytest.approx(expected.std(ddof=1))
+    assert (result.min, result.max) == (expected.min(), expected.max())
+    assert result.mean + (result.mean_chain_cost_discount or 0) == pytest.approx(
+        raw.mean()
+    )
+    assert result.discount_skip_reason == reason
 
 
 def test_single_observation_has_no_sample_standard_deviation() -> None:
     measurement = latency.LatencyMeasurement(
-        inputs.InputBatch("central", {"x": np.ones(1, dtype=np.float32)}),
-        np.array([4], dtype=np.uint64),
-        DeviceInfo(
+        inputs=inputs.InputBatch("central", {"x": np.ones(1, dtype=np.float32)}),
+        elapsed_ticks=np.array([4], dtype=np.uint64),
+        device_info=DeviceInfo(
             "cuda",
             0,
             "test GPU",
