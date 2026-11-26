@@ -302,6 +302,26 @@ def test_chain_cost_is_reported_once_in_details(experiment, estimate, expected):
     assert f"{label}: {expected} (float, lengths 8192, 32768, 131072" in output
 
 
+def test_different_discounts_share_one_methodology(experiment):
+    libraries = tuple(
+        replace(
+            library,
+            results=tuple(
+                replace(result, mean_chain_cost_discount=cost)
+                for result in library.results
+            ),
+        )
+        for library, cost in zip(experiment.results, (2.0935, 2.0934), strict=True)
+    )
+    output = _render(replace(experiment, results=libraries), show_details=True)
+    assert (
+        output.count("Method: dependent-call chain (estimated chain cost subtracted)")
+        == 1
+    )
+    assert "2.0935 ns/call" not in output
+    assert "2.0934 ns/call" not in output
+
+
 def test_report_includes_provenance_when_requested(
     experiment: ExperimentResult,
 ) -> None:

@@ -87,9 +87,4 @@ def _methodology(result: LatencyResult) -> Text:
         f"Chain length: {measurement.chain_length}\n"
         f"Passes: {measurement.pass_count}\n"
         f"Warmup runs: {measurement.warmup_runs}"
-        + (
-            f"\nMean discount: {format_number(result.mean_chain_cost_discount)} ns/call"
-            if result.mean_chain_cost_discount is not None
-            else ""
-        )
     )
