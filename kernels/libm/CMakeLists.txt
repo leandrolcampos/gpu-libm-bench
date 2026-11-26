@@ -24,4 +24,10 @@ foreach(function_name IN LISTS GPU_LIBM_BENCH_FUNCTIONS)
     "${source_${function_name}}")
 endforeach()
 
+# Internal controls are available in every math library image.
+target_sources(libm-image PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/Idf16.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Idf.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Id.cpp")
+
 gpu_libm_bench_configure_library(libm-image)

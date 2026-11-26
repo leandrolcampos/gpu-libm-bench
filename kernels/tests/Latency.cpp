@@ -3,6 +3,7 @@
 //
 // Dependent-call latency validation kernels.
 
+#include "FPUtil.hpp"
 #include "Latency.hpp"
 
 static uint64_t *Trace;
@@ -20,8 +21,10 @@ template <typename FloatType, typename... OtherInputTypes>
 static FloatType observeInputs(FloatType FirstInput,
                                OtherInputTypes... OtherInputs) {
   uint64_t Index = CallCount++ * (1 + sizeof...(OtherInputs));
+
   observeInput(Index++, FirstInput);
   (observeInput(Index++, OtherInputs), ...);
+
   return FirstInput;
 }
 
@@ -36,9 +39,11 @@ static void probeInputs(uint32_t PassCount, uint32_t ChainLength,
 
   Trace = ObservedInputs;
   CallCount = 0;
+
   gpu_libm_bench::measureLatency<observeInputs<FloatType, OtherInputTypes...>>(
       PassCount, ChainLength, ZeroMask, ElapsedTicks, Output, FirstInput,
       OtherInputs...);
+
   ObservedCount[0] = CallCount;
 }
 
