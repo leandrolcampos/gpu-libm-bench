@@ -545,8 +545,15 @@ def test_run_measures_each_library_with_the_same_domain_inputs(
         "llvm-libm",
     ]
 
-    first = [call.args[0] for call in benchmarks[0].measure.call_args_list]
-    second = [call.args[0] for call in benchmarks[1].measure.call_args_list]
+    first_control, first_benchmark, second_control, second_benchmark = benchmarks
+    for library, control in zip(
+        result.results, (first_control, second_control), strict=True
+    ):
+        control.estimate_chain_cost.assert_called_once_with()
+        assert library.chain_cost is control.estimate_chain_cost.return_value
+
+    first = [call.args[0] for call in first_benchmark.measure.call_args_list]
+    second = [call.args[0] for call in second_benchmark.measure.call_args_list]
     assert [batch.domain for batch in first] == ["central", "wide"]
     assert [batch.domain for batch in second] == ["central", "wide"]
 
@@ -560,6 +567,17 @@ def test_run_measures_each_library_with_the_same_domain_inputs(
 
     experiment_module.build_backend.assert_not_called()
     context.__exit__.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("return_type", "name"), [("_Float16", "idf16"), ("float", "idf"), ("double", "id")]
+)
+def test_latency_control_matches_return_type(return_type, name):
+    identity = _latency._get_identity_config(return_type)
+    assert identity.name == name
+    assert identity.signature.return_type == return_type
+    (argument,) = identity.signature.arguments
+    assert (argument.type, argument.role) == (return_type, "input")
 
 
 @pytest.mark.parametrize(

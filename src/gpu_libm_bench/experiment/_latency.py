@@ -5,11 +5,22 @@
 
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 
 from gpu_libm_bench import inputs
-from gpu_libm_bench.benchmarks.latency import LatencyBenchmark, LatencyResult, analyze
+from gpu_libm_bench.benchmarks.latency import (
+    ChainCostEstimate,
+    LatencyBenchmark,
+    LatencyResult,
+    analyze,
+)
 from gpu_libm_bench.compiler.images import DeviceImageBuildInfo
-from gpu_libm_bench.configs import FunctionConfig, ThrottleConfig
+from gpu_libm_bench.configs import (
+    ArgumentConfig,
+    FunctionConfig,
+    SignatureConfig,
+    ThrottleConfig,
+)
 from gpu_libm_bench.devices import DeviceContext, DeviceInfo
 from gpu_libm_bench.kernels import KernelKind, KernelRequest, KernelSpec
 
@@ -18,6 +29,7 @@ from gpu_libm_bench.kernels import KernelKind, KernelRequest, KernelSpec
 class LatencyResults(Mapping[str, LatencyResult]):
     image_build_info: DeviceImageBuildInfo
     results: tuple[LatencyResult, ...]
+    chain_cost: ChainCostEstimate | None = None
 
     def __post_init__(self) -> None:
         domains = [result.measurement.inputs.domain for result in self.results]
@@ -86,22 +98,32 @@ def run(
     warmup_runs: int,
     throttle: ThrottleConfig,
 ) -> tuple[LatencyResults, ...]:
-    spec = KernelSpec.from_config(function, kind=KernelKind.LATENCY)
+    kind = KernelKind.LATENCY
+    spec = KernelSpec.from_config(function, kind=kind)
+    identity = _get_identity_config(function.signature.return_type)
+    identity_spec = KernelSpec.from_config(identity, kind=kind)
+
+    benchmark_for = partial(
+        LatencyBenchmark,
+        context,
+        timeout_s=timeout_s,
+        chain_length=chain_length,
+        warmup_runs=warmup_runs,
+        min_clock_ratio=throttle.min_clock_ratio,
+        initial_delay_s=throttle.initial_delay_s,
+    )
+
     results = []
     for image_build_info in image_build_infos:
         image = image_build_info.image
         module = context.load_module(image)
-        request = KernelRequest(image.library, function.name, KernelKind.LATENCY)
+        control_request = KernelRequest(image.library, identity.name, kind)
+        control = module.get_kernel(control_request.symbol, spec=identity_spec)
+        chain_cost = benchmark_for(control).estimate_chain_cost()
+
+        request = KernelRequest(image.library, function.name, kind)
         kernel = module.get_kernel(request.symbol, spec=spec)
-        benchmark = LatencyBenchmark(
-            context,
-            kernel,
-            timeout_s=timeout_s,
-            chain_length=chain_length,
-            warmup_runs=warmup_runs,
-            min_clock_ratio=throttle.min_clock_ratio,
-            initial_delay_s=throttle.initial_delay_s,
-        )
+        benchmark = benchmark_for(kernel)
 
         try:
             measurements = tuple(
@@ -112,6 +134,15 @@ def run(
         except TimeoutError as error:
             raise TimeoutError(f"{function.name} ({image.library}): {error}") from error
 
-        results.append(LatencyResults(image_build_info, measurements))
+        results.append(LatencyResults(image_build_info, measurements, chain_cost))
 
     return tuple(results)
+
+
+def _get_identity_config(return_type: str) -> FunctionConfig:
+    return_type = return_type.strip()
+    name = {"_Float16": "idf16", "float": "idf", "double": "id"}[return_type]
+    signature = SignatureConfig(
+        return_type, [ArgumentConfig("x", return_type, "input")]
+    )
+    return FunctionConfig(name=name, signature=signature, domains={})
