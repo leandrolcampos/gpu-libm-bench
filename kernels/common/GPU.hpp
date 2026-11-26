@@ -46,10 +46,50 @@ inline uint64_t globalThreadId() {
 // Hardware identifier of the current multiprocessor.
 
 inline uint32_t multiprocessorId() {
-#if defined(__NVPTX__)
+#if defined(__AMDGCN__)
+
+#if defined(__GFX6__) || defined(__GFX7__) || defined(__GFX8__) ||             \
+    defined(__GFX9__)
+  // Bits 8 through 15 identify the CU, shader array and shader engine.
+  uint32_t HardwareId;
+  asm volatile("s_getreg_b32 %0, hwreg(HW_REG_HW_ID, 8, 8)" : "=s"(HardwareId));
+
+#if defined(__gfx942__) || defined(__gfx950__) || defined(__gfx9_4_generic__)
+  uint32_t XccId;
+  asm volatile("s_getreg_b32 %0, hwreg(HW_REG_XCC_ID, 0, 4)" : "=s"(XccId));
+  HardwareId |= XccId << 8U;
+#endif // (__gfx942__ || __gfx950__ || __gfx9_4_generic__)
+
+  return HardwareId;
+
+#elif defined(__GFX10__) || defined(__GFX11__) || defined(__GFX12__) ||        \
+    defined(__GFX13__)
+  uint32_t HardwareId;
+  asm volatile("s_getreg_b32 %0, hwreg(HW_REG_HW_ID1)" : "=s"(HardwareId));
+
+#if defined(__GFX12__) || defined(__GFX13__)
+  constexpr unsigned GetShaderEngineId = 0x87;
+  const uint32_t Engine =
+      __builtin_amdgcn_s_sendmsg_rtn(GetShaderEngineId) & 0xfU;
+#else
+  const uint32_t Engine = (HardwareId >> 18U) & 7U;
+#endif // (__GFX12__ || __GFX13__)
+
+  const uint32_t Array = (HardwareId >> 16U) & 1U;
+  const uint32_t WorkgroupProcessor = (HardwareId >> 10U) & 0xfU;
+  const uint32_t Id = (Engine << 5U) | (Array << 4U) | WorkgroupProcessor;
+
+  if constexpr (__AMDGCN_CUMODE__)
+    return (Id << 1U) | ((HardwareId >> 8U) & 1U);
+  return Id;
+#else
+#error "unsupported AMD GPU architecture"
+#endif // AMD architecture selection
+
+#elif defined(__NVPTX__)
   return __nvvm_read_ptx_sreg_smid();
 #else
-#error "multiprocessorId is not implemented for this GPU target"
+#error "unsupported GPU target"
 #endif
 }
 
