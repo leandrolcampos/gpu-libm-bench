@@ -33,7 +33,7 @@ inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
 
 // Keep each step dependent on the previous result even for the identity.
 // A zero mask selects every bit from the original input.
-inline uint32_t selectInputBits(uint32_t Input, uint32_t State, uint32_t Mask) {
+inline uint32_t selectInputWord(uint32_t Input, uint32_t State, uint32_t Mask) {
   uint32_t Selected;
 
 #if defined(__AMDGCN__)
@@ -52,14 +52,14 @@ inline uint32_t selectInputBits(uint32_t Input, uint32_t State, uint32_t Mask) {
 }
 
 template <typename StorageType>
-inline StorageType restoreInputBits(StorageType Input, StorageType State,
-                                    StorageType Mask) {
+inline StorageType selectDependentInput(StorageType Input, StorageType State,
+                                        StorageType Mask) {
   const uint32_t Low =
-      selectInputBits(uint32_t(Input), uint32_t(State), uint32_t(Mask));
+      selectInputWord(uint32_t(Input), uint32_t(State), uint32_t(Mask));
 
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     const uint32_t High =
-        selectInputBits(Input >> 32U, State >> 32U, Mask >> 32U);
+        selectInputWord(Input >> 32U, State >> 32U, Mask >> 32U);
     return (uint64_t(High) << 32U) | Low;
   }
 
@@ -119,9 +119,9 @@ void measureChain(uint32_t PassCount, uint32_t ChainLength,
 
 #pragma clang loop unroll_count(4)
     for (uint32_t Step = 0; Step < ChainLength; ++Step) {
-      const auto DependentInputUInt =
-          restoreInputBits(FirstInputUInt, State, DependencyMask);
-      FirstInput = FPBits(DependentInputUInt).getValue();
+      const auto DependentInput =
+          selectDependentInput(FirstInputUInt, State, DependencyMask);
+      FirstInput = FPBits(DependentInput).getValue();
       State = FPBits(Function(Inputs...)).asUInt();
     }
 
