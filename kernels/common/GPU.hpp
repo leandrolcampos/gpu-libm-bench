@@ -1,7 +1,22 @@
+//===----------------------------------------------------------------------===//
 // Copyright 2026 Leandro Lacerda Campos
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//===----------------------------------------------------------------------===//
 //
 // Device execution primitives for GPU kernels.
+//
+//===----------------------------------------------------------------------===//
 
 #ifndef GPU_LIBM_BENCH_KERNELS_COMMON_GPU_HPP
 #define GPU_LIBM_BENCH_KERNELS_COMMON_GPU_HPP
@@ -10,7 +25,9 @@
 
 namespace gpu_libm_bench::gpu {
 
-// Launch dimensions.
+//===----------------------------------------------------------------------===//
+// Launch dimensions
+//===----------------------------------------------------------------------===//
 
 inline uint64_t gridSize() {
   return static_cast<uint64_t>(__gpu_num_blocks_x()) * __gpu_num_blocks_y() *
@@ -22,8 +39,11 @@ inline uint64_t blockSize() {
          __gpu_num_threads_z();
 }
 
-// Linear block and thread indices, with x varying fastest.
+//===----------------------------------------------------------------------===//
+// Linear block and thread indices
+//===----------------------------------------------------------------------===//
 
+// The x coordinate varies fastest.
 inline uint64_t blockId() {
   return __gpu_block_id_x() +
          static_cast<uint64_t>(__gpu_num_blocks_x()) *
@@ -43,7 +63,9 @@ inline uint64_t globalThreadId() {
   return blockId() * blockSize() + threadId();
 }
 
-// Hardware identifier of the current multiprocessor.
+//===----------------------------------------------------------------------===//
+// Hardware identifier of the current multiprocessor
+//===----------------------------------------------------------------------===//
 
 inline uint32_t multiprocessorId() {
 #if defined(__AMDGCN__)
@@ -93,13 +115,17 @@ inline uint32_t multiprocessorId() {
 #endif
 }
 
-// Clock counters.
+//===----------------------------------------------------------------------===//
+// Clock counters
+//===----------------------------------------------------------------------===//
 
 inline uint64_t readCycleCounter() { return __builtin_readcyclecounter(); }
 
 inline uint64_t readSteadyCounter() { return __builtin_readsteadycounter(); }
 
-// Memory fences.
+//===----------------------------------------------------------------------===//
+// Memory fences
+//===----------------------------------------------------------------------===//
 
 inline void systemMemoryFence() {
   __scoped_atomic_thread_fence(__ATOMIC_SEQ_CST, __MEMORY_SCOPE_SYSTEM);

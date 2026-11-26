@@ -1,7 +1,22 @@
+//===----------------------------------------------------------------------===//
 // Copyright 2026 Leandro Lacerda Campos
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//===----------------------------------------------------------------------===//
 //
 // Implements CUDA kernel profiling.
+//
+//===----------------------------------------------------------------------===//
 
 #include "KernelProfiler.hpp"
 #include "Utils.hpp"
@@ -13,9 +28,9 @@
 
 namespace gpu_libm_bench::cuda::detail {
 
-//
+//===----------------------------------------------------------------------===//
 // Profiling resources
-//
+//===----------------------------------------------------------------------===//
 
 struct KernelProfiler::StreamControl {
   std::uint32_t Release = 0;
@@ -90,9 +105,9 @@ struct KernelProfiler::DurationResources {
   CUevent StopEvent = nullptr;
 };
 
-//
+//===----------------------------------------------------------------------===//
 // Profiler lifecycle
-//
+//===----------------------------------------------------------------------===//
 
 Expected<std::unique_ptr<KernelProfiler>>
 KernelProfiler::create(CUcontext Context, CUstream Stream,
@@ -136,9 +151,9 @@ KernelProfiler::~KernelProfiler() noexcept {
                              "cuMemFreeHost(stream control)"));
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Metric validation and collection
-//
+//===----------------------------------------------------------------------===//
 
 Error KernelProfiler::validateMetrics(const std::set<KernelMetric> &Metrics) {
   if (Metrics.empty())
@@ -255,9 +270,9 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
   return Profile;
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Resource preparation
-//
+//===----------------------------------------------------------------------===//
 
 KernelProfiler::KernelProfiler(CUcontext Context, CUstream Stream,
                                const DeviceModule &SupportModule)
@@ -320,9 +335,9 @@ Error KernelProfiler::prepareDuration() {
   return Error::success();
 }
 
-//
+//===----------------------------------------------------------------------===//
 // Stream operations
-//
+//===----------------------------------------------------------------------===//
 
 Error KernelProfiler::readClockCounters(CUdeviceptr Destination) {
   CUdeviceptr SteadyCounter = Destination + offsetof(ClockCounters, Steady);
