@@ -36,17 +36,6 @@ constexpr FirstType &&getFirstArgument(FirstType &&First,
   return static_cast<FirstType &&>(First);
 }
 
-// Ensure the start timestamp is ready before the chain starts.
-template <typename StorageType>
-inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
-  const uint64_t Timestamp = gpu::readSteadyCounter();
-  const StorageType Dependency =
-      static_cast<StorageType>(Timestamp) & DependencyMask;
-  State ^= Dependency;
-
-  return Timestamp;
-}
-
 // Keep each step dependent on the previous result even for the identity.
 // A zero mask selects every bit from the original input.
 inline uint32_t makeDependentWord(uint32_t Input, uint32_t State,
@@ -81,6 +70,17 @@ inline StorageType makeDependent(StorageType Input, StorageType State,
   }
 
   return static_cast<StorageType>(Low);
+}
+
+// Ensure the start timestamp is ready before the chain starts.
+template <typename StorageType>
+inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
+  const uint64_t Timestamp = gpu::readSteadyCounter();
+  const StorageType Dependency =
+      static_cast<StorageType>(Timestamp) & DependencyMask;
+  State ^= Dependency;
+
+  return Timestamp;
 }
 
 // Ensure the end timestamp is read after the chain finishes.
