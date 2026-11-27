@@ -180,10 +180,10 @@ def test_configure_kernels_refreshes_bindings_when_inputs_change(
     assert original == (
         "// Generated from library bindings and function signatures. Do not edit.\n\n"
         "#if defined(LIBM_BIND_EXPF)\n"
-        "#define LIBM_NAME expf\n"
-        "#define LIBM_SYMBOL my_expf\n"
-        "#define LIBM_RETURN_TYPE float\n"
-        "#define LIBM_ARG_TYPE float\n"
+        "#define LIBM_FUNCTION_NAME expf\n"
+        "#define LIBM_FUNCTION_SYMBOL my_expf\n"
+        "#define LIBM_FUNCTION_RETURN_TYPE float\n"
+        "#define LIBM_FUNCTION_ARG_TYPE float\n"
         "#endif\n"
     )
 

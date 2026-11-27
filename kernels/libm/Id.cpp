@@ -20,9 +20,9 @@
 
 extern "C" inline double gpu_libm_bench_id(double X) { return X; }
 
-#define LIBM_NAME id
-#define LIBM_SYMBOL gpu_libm_bench_id
-#define LIBM_ARG_TYPE double
-#define LIBM_RETURN_TYPE double
+#define LIBM_FUNCTION_NAME id
+#define LIBM_FUNCTION_SYMBOL gpu_libm_bench_id
+#define LIBM_FUNCTION_ARG_TYPE double
+#define LIBM_FUNCTION_RETURN_TYPE double
 
 #include "UnaryKernels.inc" // IWYU pragma: keep

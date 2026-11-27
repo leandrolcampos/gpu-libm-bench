@@ -51,40 +51,44 @@ def update_library_bindings(library: ResolvedLibrary, build_directory: Path) -> 
 
 def _render_library_bindings(library: ResolvedLibrary) -> str:
     lines = ["// Generated from library bindings and function signatures. Do not edit."]
-    selectors: set[str] = set()
+    binding_selectors: set[str] = set()
 
-    for name, symbol in library.bindings:
-        if not _IDENTIFIER.fullmatch(name) or not _IDENTIFIER.fullmatch(symbol):
+    for function_name, function_symbol in library.bindings:
+        if not _IDENTIFIER.fullmatch(function_name) or not _IDENTIFIER.fullmatch(
+            function_symbol
+        ):
             raise ValueError(
-                f"library {library.name!r}: function name {name!r} and symbol "
-                f"{symbol!r} must be C identifiers"
+                f"library {library.name!r}: function name {function_name!r} and symbol "
+                f"{function_symbol!r} must be C identifiers"
             )
 
-        selector = f"LIBM_BIND_{name.upper()}"
-        if selector in selectors:
-            raise ValueError(f"library {library.name!r}: duplicate selector {selector}")
-        selectors.add(selector)
+        binding_selector = f"LIBM_BIND_{function_name.upper()}"
+        if binding_selector in binding_selectors:
+            raise ValueError(
+                f"library {library.name!r}: duplicate selector {binding_selector}"
+            )
+        binding_selectors.add(binding_selector)
 
-        signature = load_function_signature_config(name)
+        signature = load_function_signature_config(function_name)
         return_type = signature.return_type.strip()
         arguments = [argument.type.strip() for argument in signature.arguments]
         if any(not _TYPE.fullmatch(value) for value in (return_type, *arguments)):
-            raise ValueError(f"function {name!r}: invalid C type in signature")
+            raise ValueError(f"function {function_name!r}: invalid C type in signature")
 
         lines.extend(
             (
                 "",
-                f"#if defined({selector})",
-                f"#define LIBM_NAME {name}",
-                f"#define LIBM_SYMBOL {symbol}",
-                f"#define LIBM_RETURN_TYPE {return_type}",
+                f"#if defined({binding_selector})",
+                f"#define LIBM_FUNCTION_NAME {function_name}",
+                f"#define LIBM_FUNCTION_SYMBOL {function_symbol}",
+                f"#define LIBM_FUNCTION_RETURN_TYPE {return_type}",
             )
         )
         if len(arguments) == 1:
-            lines.append(f"#define LIBM_ARG_TYPE {arguments[0]}")
+            lines.append(f"#define LIBM_FUNCTION_ARG_TYPE {arguments[0]}")
         else:
             lines.extend(
-                f"#define LIBM_ARG{index}_TYPE {argument}"
+                f"#define LIBM_FUNCTION_ARG{index}_TYPE {argument}"
                 for index, argument in enumerate(arguments, start=1)
             )
         lines.append("#endif")
