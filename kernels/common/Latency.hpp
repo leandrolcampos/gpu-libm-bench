@@ -75,10 +75,9 @@ inline StorageType makeDependent(StorageType Input, StorageType State,
 
 // Ensure the start timestamp is ready before the chain starts.
 template <typename StorageType>
-inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
+inline uint64_t beginTiming(StorageType &State, StorageType ZeroMask) {
   const uint64_t Timestamp = gpu::readSteadyCounter();
-  const StorageType Dependency =
-      static_cast<StorageType>(Timestamp) & DependencyMask;
+  const StorageType Dependency = static_cast<StorageType>(Timestamp) & ZeroMask;
   State ^= Dependency;
 
   return Timestamp;
@@ -87,7 +86,7 @@ inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
 // Ensure the end timestamp is read after the chain finishes.
 template <typename StorageType>
 inline uint64_t endTiming(StorageType &State,
-                          [[maybe_unused]] StorageType DependencyMask) {
+                          [[maybe_unused]] StorageType ZeroMask) {
 #if defined(__AMDGCN__)
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     uint32_t Consumed;
@@ -104,7 +103,7 @@ inline uint64_t endTiming(StorageType &State,
   }
 #elif defined(__NVPTX__)
   // Use a runtime zero mask because ptxas can eliminate the AMD-style OR.
-  State ^= DependencyMask;
+  State ^= ZeroMask;
 
   // NOLINTNEXTLINE(bugprone-branch-clone)
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
@@ -123,7 +122,7 @@ inline uint64_t endTiming(StorageType &State,
 
 template <auto Function, typename StorageType, typename... InputTypes>
 void measureChain(uint32_t PassCount, uint32_t ChainLength,
-                  StorageType DependencyMask, uint64_t *ElapsedTicks,
+                  StorageType ZeroMask, uint64_t *ElapsedTicks,
                   StorageType *Output, InputTypes... Inputs) {
   auto &FirstInput = getFirstArgument(Inputs...);
   using ReturnType = decltype(Function(Inputs...));
@@ -147,17 +146,17 @@ void measureChain(uint32_t PassCount, uint32_t ChainLength,
 
 #pragma clang loop unroll(disable)
   for (uint32_t Pass = 0; Pass < PassCount; ++Pass) {
-    Start = beginTiming(State, DependencyMask);
+    Start = beginTiming(State, ZeroMask);
 
 #pragma clang loop unroll_count(4)
     for (uint32_t Step = 0; Step < ChainLength; ++Step) {
       const auto DependentInput =
-          makeDependent(FirstInputUInt, State, DependencyMask);
+          makeDependent(FirstInputUInt, State, ZeroMask);
       FirstInput = FPBits(DependentInput).value();
       State = FPBits(Function(Inputs...)).storage();
     }
 
-    Stop = endTiming(State, DependencyMask);
+    Stop = endTiming(State, ZeroMask);
   }
 
   ElapsedTicks[0] = Stop - Start;
