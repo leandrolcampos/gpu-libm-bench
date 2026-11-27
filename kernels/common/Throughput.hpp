@@ -24,6 +24,8 @@
 #include "FPUtil.hpp"
 #include "GPU.hpp"
 
+#include <stdint.h>
+
 namespace gpu_libm_bench {
 
 namespace detail {

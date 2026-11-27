@@ -20,6 +20,8 @@
 
 #include "FPUtil.hpp"
 
+#include <stdint.h>
+
 template <typename FloatType, typename UIntType, unsigned Count>
 constexpr bool checkFPBits(const UIntType (&Patterns)[Count]) {
   using FPBits = gpu_libm_bench::fputil::FPBits<FloatType>;

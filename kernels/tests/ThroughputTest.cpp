@@ -21,6 +21,10 @@
 #include "Throughput.hpp"
 #include "FPUtil.hpp"
 
+#include <gpuintrin.h>
+
+#include <stdint.h>
+
 // One thread per probe may access this state. Probes in the same module must
 // run serially because they share it.
 static uint64_t *Trace;

@@ -64,6 +64,8 @@ ninja = ">=1.12,<2"
 gpu-libm-bench = { path = ".", editable = true, extras = ["native"] }
 
 [tool.pixi.feature.native.tasks]
+backends-include-cleaner = { cmd = "sh tools/check_includes.sh build/backends/common backends/common/tests && sh tools/check_includes.sh build/backends/cuda backends/common/python backends/cuda", depends-on = ["common-configure", "cuda-configure"] }
+
 common-build = { cmd = "cmake --build build/backends/common", depends-on = ["common-configure"] }
 common-configure = "cmake -S backends/common/tests -B build/backends/common -G Ninja -DCMAKE_BUILD_TYPE=Release"
 common-test = { cmd = "ctest --test-dir build/backends/common --output-on-failure", depends-on = ["common-build"] }
@@ -77,6 +79,7 @@ cuda-tidy = { cmd = "run-clang-tidy -quiet -p build/backends/cuda", depends-on =
 images-test = { cmd = "pytest -m images", depends-on = ["kernels-build"] }
 kernels-build = "python -m gpu_libm_bench.compiler kernels --build-tests"
 kernels-configure = "python -m gpu_libm_bench.compiler kernels --configure-only --build-tests"
+kernels-include-cleaner = { cmd = "sh tools/check_includes.sh build/kernels kernels", depends-on = ["kernels-configure"] }
 kernels-tidy = "python -m gpu_libm_bench.compiler kernels --tidy --build-tests"
 
 list-devices = "python tools/list_devices.py"

@@ -23,9 +23,14 @@
 
 #ifdef LIBM_FUNCTION_NAME
 #include "Evaluation.hpp"
+#include "FPUtil.hpp"
 #include "Latency.hpp"
 #include "Macros.hpp"
 #include "Throughput.hpp"
+
+#include <gpuintrin.h>
+
+#include <stdint.h>
 
 namespace gpu_libm_bench::libm::LIBM_FUNCTION_NAME {
 

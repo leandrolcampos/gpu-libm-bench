@@ -20,6 +20,10 @@
 
 #include "GPU.hpp"
 
+#include <gpuintrin.h>
+
+#include <stdint.h>
+
 extern "C" __gpu_kernel void timerReadings(uint64_t *Readings, uint32_t Count) {
   if (gpu_libm_bench::gpu::globalThreadId() != 0)
     return;

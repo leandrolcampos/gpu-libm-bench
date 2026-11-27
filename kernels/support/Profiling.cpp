@@ -20,6 +20,10 @@
 
 #include "GPU.hpp"
 
+#include <gpuintrin.h>
+
+#include <stdint.h>
+
 using namespace gpu_libm_bench;
 
 extern "C" __gpu_kernel void blockStream(const volatile uint32_t *Released,
