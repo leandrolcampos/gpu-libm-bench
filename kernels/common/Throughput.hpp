@@ -57,8 +57,9 @@ template <typename T> T makeDependent(T Value, uint32_t Mask) {
     using StorageType = typename FPBits::StorageType;
 
     const auto ValueUInt = FPBits(Value).asUInt();
-    return FPBits(StorageType(ValueUInt ^ static_cast<StorageType>(Mask)))
-        .getValue();
+    const auto DependentUInt =
+        static_cast<StorageType>(ValueUInt ^ static_cast<StorageType>(Mask));
+    return FPBits(DependentUInt).getValue();
   } else {
     static_assert(!__is_same(T, T), "unsupported throughput input type");
   }

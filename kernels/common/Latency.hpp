@@ -60,13 +60,14 @@ inline uint32_t makeDependentWord(uint32_t Input, uint32_t State,
 template <typename StorageType>
 inline StorageType makeDependent(StorageType Input, StorageType State,
                                  StorageType Mask) {
-  const uint32_t Low =
-      makeDependentWord(uint32_t(Input), uint32_t(State), uint32_t(Mask));
+  const uint32_t Low = makeDependentWord(static_cast<uint32_t>(Input),
+                                         static_cast<uint32_t>(State),
+                                         static_cast<uint32_t>(Mask));
 
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     const uint32_t High =
         makeDependentWord(Input >> 32U, State >> 32U, Mask >> 32U);
-    return (uint64_t(High) << 32U) | Low;
+    return (static_cast<uint64_t>(High) << 32U) | Low;
   }
 
   return static_cast<StorageType>(Low);
@@ -92,10 +93,14 @@ inline uint64_t endTiming(StorageType &State,
     uint32_t Consumed;
     asm volatile("v_or_b32 %0, %1, %2"
                  : "=v"(Consumed)
-                 : "v"(uint32_t(State)), "v"(uint32_t(State >> 32U))
+                 : "v"(static_cast<uint32_t>(State)),
+                   "v"(static_cast<uint32_t>(State >> 32U))
                  : "memory");
   } else {
-    asm volatile("v_or_b32 %0, 0, %0" : : "v"(uint32_t(State)) : "memory");
+    asm volatile("v_or_b32 %0, 0, %0"
+                 :
+                 : "v"(static_cast<uint32_t>(State))
+                 : "memory");
   }
 #elif defined(__NVPTX__)
   // Use a runtime zero mask because ptxas can eliminate the AMD-style OR.
