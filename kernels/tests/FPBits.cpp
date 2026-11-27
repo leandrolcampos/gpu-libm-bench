@@ -14,7 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 //
-// Compile-time checks for floating-point representations.
+// Compile-time checks for FPBits representations and constructors.
 //
 //===----------------------------------------------------------------------===//
 

@@ -20,7 +20,7 @@ elseif(GPU_LIBM_BENCH_LIBRARY)
   add_subdirectory(libm)
 endif()
 
-option(BUILD_TESTING "Build device validation kernels" OFF)
+option(BUILD_TESTING "Build kernel tests" OFF)
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()

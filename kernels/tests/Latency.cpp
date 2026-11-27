@@ -14,31 +14,32 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 //
-// Dependent-call latency validation kernels.
+// Latency validation kernels for dependent calls.
 //
 //===----------------------------------------------------------------------===//
 
-#include "FPUtil.hpp"
 #include "Latency.hpp"
+#include "FPUtil.hpp"
 
+// One thread per probe may access this state. Probes in the same module must
+// run serially because they share it.
 static uint64_t *Trace;
 static uint32_t CallCount;
 
-template <typename InputType>
-static void observeInput(uint64_t Index, InputType Input) {
-  if constexpr (__is_same(InputType, int))
-    Trace[Index] = static_cast<uint32_t>(Input);
+template <typename InputType> static uint64_t asUInt(InputType Input) {
+  if constexpr (__is_integral(InputType))
+    return static_cast<__make_unsigned(InputType)>(Input);
   else
-    Trace[Index] = gpu_libm_bench::fputil::FPBits(Input).asUInt();
+    return gpu_libm_bench::fputil::FPBits(Input).asUInt();
 }
 
 template <typename FloatType, typename... OtherInputTypes>
 static FloatType observeInputs(FloatType FirstInput,
                                OtherInputTypes... OtherInputs) {
-  uint64_t Index = CallCount++ * (1 + sizeof...(OtherInputs));
-
-  observeInput(Index++, FirstInput);
-  (observeInput(Index++, OtherInputs), ...);
+  const uint64_t Call = CallCount++;
+  uint64_t *Entry = Trace + Call * (1 + sizeof...(OtherInputs));
+  *Entry++ = asUInt(FirstInput);
+  ((*Entry++ = asUInt(OtherInputs)), ...);
 
   return FirstInput;
 }

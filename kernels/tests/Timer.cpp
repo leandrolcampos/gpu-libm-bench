@@ -14,7 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 //
-// Device timer validation kernels.
+// Timer validation kernel for consecutive steady counter reads.
 //
 //===----------------------------------------------------------------------===//
 
