@@ -97,11 +97,11 @@ def _evaluation_spec(signature: "SignatureConfig") -> KernelSpec:
     output_dtype, arguments = _process_signature(signature)
 
     return KernelSpec(
-        arguments
-        + (
-            KernelArgument("output", output_dtype, True),
+        (
             KernelArgument("count", "uint64", False),
+            KernelArgument("output", output_dtype, True),
         )
+        + arguments
     )
 
 
@@ -132,12 +132,10 @@ def _throughput_spec(signature: "SignatureConfig") -> KernelSpec:
         (
             KernelArgument("pass_count", "uint32", False),
             KernelArgument("mask", "uint32", False),
+            KernelArgument("count", "uint64", False),
+            KernelArgument("checksums", _FLOAT_STORAGE_DTYPES[output_dtype], True),
         )
         + arguments
-        + (
-            KernelArgument("checksums", _FLOAT_STORAGE_DTYPES[output_dtype], True),
-            KernelArgument("count", "uint64", False),
-        )
     )
 
 

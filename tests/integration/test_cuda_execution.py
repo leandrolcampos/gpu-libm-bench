@@ -119,9 +119,9 @@ def test_kernel_and_buffer_can_be_reused_after_context_release(
         output = context.create_buffer(destination.size, dtype=destination.dtype)
         context.launch(
             kernel,
-            buffer,
-            output,
             np.uint64(source.size),
+            output,
+            buffer,
             config=LaunchConfig(block_dim=(32, 1, 1)),
         )
         context.copy_to_host(destination, output)
@@ -150,9 +150,9 @@ def test_device_operations_restore_the_external_cuda_context(
             context.copy_to_device(buffer, source)
             context.launch_and_profile(
                 kernel,
-                buffer,
-                buffer,
                 np.uint64(1),
+                buffer,
+                buffer,
                 config=LaunchConfig(),
                 metrics=set(KernelMetric),
             )
@@ -248,9 +248,9 @@ def test_launch_rejects_incompatible_arguments(
     with pytest.raises(ValueError, match="argument count"):
         context.launch(kernel, buffer, config=config)
     with pytest.raises(ValueError, match="wrong dtype"):
-        context.launch(kernel, buffer, buffer, np.int32(8), config=config)
+        context.launch(kernel, np.int32(8), buffer, buffer, config=config)
     with pytest.raises(TypeError, match="expects a device buffer"):
-        context.launch(kernel, np.float32(0), buffer, np.uint64(8), config=config)
+        context.launch(kernel, np.uint64(8), buffer, np.float32(0), config=config)
 
 
 def test_launch_observes_the_latest_host_copy(
@@ -267,7 +267,7 @@ def test_launch_observes_the_latest_host_copy(
     for value in (-1, 1) * 16:
         source.fill(value)
         context.copy_to_device(x, source)
-        context.launch(kernel, x, y, np.uint64(source.size), config=config)
+        context.launch(kernel, np.uint64(source.size), y, x, config=config)
         context.copy_to_host(destination, y)
 
         np.testing.assert_allclose(destination, np.exp(np.float32(value)), rtol=4e-7)
@@ -294,7 +294,7 @@ def test_expf_evaluation_writes_only_the_requested_output_range(
     context.copy_to_device(y, destination)
 
     kernel = load_kernel(context, image, spec)
-    context.launch(kernel, x, y, np.uint64(count), config=config)
+    context.launch(kernel, np.uint64(count), y, x, config=config)
     context.copy_to_host(destination, y)
 
     np.testing.assert_allclose(destination[:count], np.exp(source), rtol=4e-7)
@@ -319,9 +319,9 @@ def test_expf_throughput_checksums_include_all_passes_and_tail_inputs(
     evaluation = load_kernel(context, image, spec)
     context.launch(
         evaluation,
-        x,
-        y,
         np.uint64(source.size),
+        y,
+        x,
         config=LaunchConfig(grid_dim=(source.size, 1, 1)),
     )
     context.copy_to_host(values, y)
@@ -342,9 +342,9 @@ def test_expf_throughput_checksums_include_all_passes_and_tail_inputs(
                 kernel,
                 np.uint32(pass_count),
                 np.uint32(0),
-                x,
-                output,
                 np.uint64(count),
+                output,
+                x,
                 config=config,
             )
             context.copy_to_host(checksums, output)
@@ -377,9 +377,9 @@ def test_profile_returns_only_requested_metrics_and_executes_kernel_once(
         context.copy_to_device(buffer, source)
         profile = context.launch_and_profile(
             kernel,
-            buffer,
-            buffer,
             np.uint64(source.size),
+            buffer,
+            buffer,
             config=config,
             metrics=requested_metrics,
         )
@@ -404,14 +404,14 @@ def test_native_launch_and_profile_reject_invalid_arguments(
 ) -> None:
     kernel = load_kernel(context, image, spec)._native
     buffer = context._native.create_buffer(4)
-    kernel_arguments = (buffer, buffer, np.uint64(1))
+    kernel_arguments = (np.uint64(1), buffer, buffer)
     operation = getattr(context._native, method)
     options = {}
     if method == "profile":
         options["metrics"] = {get_backend_module("cuda").KernelMetric.DURATION}
 
     with pytest.raises(TypeError, match="NumPy scalars"):
-        operation(kernel, (buffer, buffer, 1), (1, 1, 1), (1, 1, 1), 0, **options)
+        operation(kernel, (1, buffer, buffer), (1, 1, 1), (1, 1, 1), 0, **options)
 
     object_scalar = np.zeros((), dtype=[("value", object)])[()]
     with pytest.raises(TypeError, match="Python objects"):
@@ -441,7 +441,7 @@ def test_native_execution_accepts_keyword_arguments(
     kernel = module.get_kernel(symbol=symbol)
     launch_arguments = {
         "kernel": kernel,
-        "kernel_arguments": (x, y, np.uint64(source.size)),
+        "kernel_arguments": (np.uint64(source.size), y, x),
         "grid_dim": (1, 1, 1),
         "block_dim": (32, 1, 1),
         "shared_memory_bytes": 0,
