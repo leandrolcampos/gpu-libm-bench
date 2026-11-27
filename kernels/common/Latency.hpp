@@ -85,7 +85,8 @@ inline StorageType makeDependent(StorageType Input, StorageType State,
 
 // Ensure the end timestamp is read after the chain finishes.
 template <typename StorageType>
-inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
+inline uint64_t endTiming(StorageType &State,
+                          [[maybe_unused]] StorageType DependencyMask) {
 #if defined(__AMDGCN__)
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     uint32_t Consumed;
