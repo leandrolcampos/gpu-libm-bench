@@ -36,6 +36,7 @@ constexpr FirstType &&getFirstArgument(FirstType &&First,
   return static_cast<FirstType &&>(First);
 }
 
+// Ensure the start timestamp is ready before the chain starts.
 template <typename StorageType>
 inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
   const uint64_t Timestamp = gpu::readSteadyCounter();
@@ -48,7 +49,8 @@ inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
 
 // Keep each step dependent on the previous result even for the identity.
 // A zero mask selects every bit from the original input.
-inline uint32_t selectInputWord(uint32_t Input, uint32_t State, uint32_t Mask) {
+inline uint32_t makeDependentWord(uint32_t Input, uint32_t State,
+                                  uint32_t Mask) {
   uint32_t Selected;
 
 #if defined(__AMDGCN__)
@@ -67,21 +69,21 @@ inline uint32_t selectInputWord(uint32_t Input, uint32_t State, uint32_t Mask) {
 }
 
 template <typename StorageType>
-inline StorageType selectDependentInput(StorageType Input, StorageType State,
-                                        StorageType Mask) {
+inline StorageType makeDependent(StorageType Input, StorageType State,
+                                 StorageType Mask) {
   const uint32_t Low =
-      selectInputWord(uint32_t(Input), uint32_t(State), uint32_t(Mask));
+      makeDependentWord(uint32_t(Input), uint32_t(State), uint32_t(Mask));
 
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     const uint32_t High =
-        selectInputWord(Input >> 32U, State >> 32U, Mask >> 32U);
+        makeDependentWord(Input >> 32U, State >> 32U, Mask >> 32U);
     return (uint64_t(High) << 32U) | Low;
   }
 
   return static_cast<StorageType>(Low);
 }
 
-// Consume the final result before reading the end timestamp.
+// Ensure the end timestamp is read after the chain finishes.
 template <typename StorageType>
 inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
 #if defined(__AMDGCN__)
@@ -95,8 +97,17 @@ inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
     asm volatile("v_or_b32 %0, 0, %0" : : "v"(uint32_t(State)) : "memory");
   }
 #elif defined(__NVPTX__)
+  // Use a runtime zero mask because ptxas can eliminate the AMD-style OR.
   State ^= DependencyMask;
-  asm volatile("" : : "llr"(State) : "memory");
+
+  // NOLINTNEXTLINE(bugprone-branch-clone)
+  if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
+    asm volatile("" : : "l"(State) : "memory");
+  } else if constexpr (sizeof(StorageType) == sizeof(uint32_t)) {
+    asm volatile("" : : "r"(State) : "memory");
+  } else {
+    asm volatile("" : : "h"(State) : "memory");
+  }
 #else
 #error "unsupported GPU target"
 #endif
@@ -135,7 +146,7 @@ void measureChain(uint32_t PassCount, uint32_t ChainLength,
 #pragma clang loop unroll_count(4)
     for (uint32_t Step = 0; Step < ChainLength; ++Step) {
       const auto DependentInput =
-          selectDependentInput(FirstInputUInt, State, DependencyMask);
+          makeDependent(FirstInputUInt, State, DependencyMask);
       FirstInput = FPBits(DependentInput).getValue();
       State = FPBits(Function(Inputs...)).asUInt();
     }
