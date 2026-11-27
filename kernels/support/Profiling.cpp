@@ -22,7 +22,7 @@
 
 using namespace gpu_libm_bench;
 
-extern "C" __gpu_kernel void blockStream(const volatile uint32_t *Release,
+extern "C" __gpu_kernel void blockStream(const volatile uint32_t *Released,
                                          volatile uint32_t *TimedOut,
                                          uint64_t TimeoutTicks) {
   if (gpu::globalThreadId() != 0)
@@ -31,27 +31,29 @@ extern "C" __gpu_kernel void blockStream(const volatile uint32_t *Release,
   *TimedOut = 0;
   uint64_t Start = gpu::readSteadyCounter();
 
-  while (!*Release) {
+  while (!*Released) {
     if (gpu::readSteadyCounter() - Start >= TimeoutTicks) {
       *TimedOut = 1;
       break;
     }
   }
 
-  gpu::systemMemoryFence();
+  gpu::atomicThreadFence<gpu::MemoryOrder::SeqCst, gpu::MemoryScope::System>();
 }
 
-extern "C" __gpu_kernel void readClockCounters(uint64_t *SteadyCounter,
-                                               uint64_t *CycleCounter,
-                                               uint32_t *Written) {
+extern "C" __gpu_kernel void recordClockCounters(uint64_t *SteadyCounter,
+                                                 uint64_t *CycleCounter,
+                                                 uint32_t *Recorded) {
   if (gpu::threadId() != 0 || gpu::multiprocessorId() != 0)
+    return;
+
+  if (gpu::atomicExchange<gpu::MemoryOrder::Relaxed, gpu::MemoryScope::Device>(
+          Recorded, 1U) != 0)
     return;
 
   uint64_t SteadyReading = gpu::readSteadyCounter();
   uint64_t CycleReading = gpu::readCycleCounter();
 
-  // TODO: Prevent concurrent writes from blocks running on multiprocessor 0.
   *SteadyCounter = SteadyReading;
   *CycleCounter = CycleReading;
-  *Written = 1;
 }

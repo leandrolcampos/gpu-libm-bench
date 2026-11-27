@@ -23,6 +23,8 @@
 
 #include <gpuintrin.h>
 
+#include <stdint.h>
+
 namespace gpu_libm_bench::gpu {
 
 //===----------------------------------------------------------------------===//
@@ -135,16 +137,40 @@ inline uint32_t multiprocessorId() {
 // Clock counters
 //===----------------------------------------------------------------------===//
 
-inline uint64_t readCycleCounter() { return __builtin_readcyclecounter(); }
-
 inline uint64_t readSteadyCounter() { return __builtin_readsteadycounter(); }
 
+inline uint64_t readCycleCounter() { return __builtin_readcyclecounter(); }
+
 //===----------------------------------------------------------------------===//
-// Memory fences
+// Atomics and memory fences
 //===----------------------------------------------------------------------===//
 
-inline void systemMemoryFence() {
-  __scoped_atomic_thread_fence(__ATOMIC_SEQ_CST, __MEMORY_SCOPE_SYSTEM);
+enum class MemoryOrder : uint8_t {
+  Relaxed = __ATOMIC_RELAXED,
+  Acquire = __ATOMIC_ACQUIRE,
+  Release = __ATOMIC_RELEASE,
+  AcqRel = __ATOMIC_ACQ_REL,
+  SeqCst = __ATOMIC_SEQ_CST
+};
+
+enum class MemoryScope : uint8_t {
+  Block = __MEMORY_SCOPE_WRKGRP,
+  Device = __MEMORY_SCOPE_DEVICE,
+  System = __MEMORY_SCOPE_SYSTEM,
+};
+
+template <MemoryOrder Order = MemoryOrder::SeqCst,
+          MemoryScope Scope = MemoryScope::System, typename T>
+inline T atomicExchange(T *Object, T Desired) {
+  return __scoped_atomic_exchange_n(Object, Desired, static_cast<int>(Order),
+                                    static_cast<int>(Scope));
+}
+
+template <MemoryOrder Order = MemoryOrder::SeqCst,
+          MemoryScope Scope = MemoryScope::System>
+inline void atomicThreadFence() {
+  __scoped_atomic_thread_fence(static_cast<int>(Order),
+                               static_cast<int>(Scope));
 }
 
 } // namespace gpu_libm_bench::gpu

@@ -153,7 +153,7 @@ def test_support_library_builds_image_without_bitcode(tmp_path: Path) -> None:
 
     ptx = Path(plan["ptx"]).read_text()
     assert f".target {target.architecture}" in ptx
-    for symbol in ("blockStream", "readClockCounters"):
+    for symbol in ("blockStream", "recordClockCounters"):
         assert f".entry {symbol}(" in ptx
 
     timestamp = image.image_path.stat().st_mtime_ns
