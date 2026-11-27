@@ -28,6 +28,7 @@ namespace gpu_libm_bench {
 
 namespace detail {
 
+// Load each group's inputs once so all passes can reuse them.
 template <typename T, unsigned Size> class InputGroup {
 public:
   InputGroup(const T *Data, uint64_t Stride) {
@@ -42,30 +43,40 @@ private:
   T Values[Size];
 };
 
-template <typename T> T xorBits(T Value, uint32_t Mask) {
-  if constexpr (__is_same(T, int)) {
-    const uint32_t ValueUInt = __builtin_bit_cast(uint32_t, Value);
-    return __builtin_bit_cast(T, ValueUInt ^ Mask);
-  } else {
+template <typename T> T makeDependent(T Value, uint32_t Mask) {
+  if constexpr (__is_same(T, int) || __is_same(T, unsigned int) ||
+                __is_same(T, long)) {
+    using StorageType = __make_unsigned(T);
+    const auto ValueUInt = __builtin_bit_cast(StorageType, Value);
+    return __builtin_bit_cast(T, ValueUInt ^ static_cast<StorageType>(Mask));
+  } else if constexpr (__is_same(T, _Float16) || __is_same(T, float) ||
+                       __is_same(T, double)) {
     using FPBits = fputil::FPBits<T>;
     using StorageType = typename FPBits::StorageType;
 
     const auto ValueUInt = FPBits(Value).asUInt();
     return FPBits(StorageType(ValueUInt ^ static_cast<StorageType>(Mask)))
         .getValue();
+  } else {
+    static_assert(!__is_same(T, T), "unsupported throughput input type");
   }
 }
 
 template <auto Function, unsigned Size, typename StorageType,
           typename... InputTypes>
-void accumulateGroupChecksums(uint32_t PassCount, uint32_t ZeroMask,
-                              StorageType (&Checksums)[Size],
-                              const InputGroup<InputTypes, Size> &...Inputs) {
+void evaluateGroup(uint32_t PassCount, uint32_t ZeroMask,
+                   StorageType (&Checksums)[Size],
+                   const InputGroup<InputTypes, Size> &...Inputs) {
   using FPBits = fputil::FPBits<decltype(Function(Inputs[0]...))>;
   static_assert(__is_same(StorageType, typename FPBits::StorageType),
-                "checksum storage type must match the return type");
+                "checksum storage type must match the storage type of the "
+                "function result");
 
+  // Keep one sum per input so the unrolled calls have independent accumulation
+  // chains. And use addition across passes because XOR would cancel identical
+  // results in pairs.
   StorageType Sums[Size] = {};
+
 #pragma clang loop unroll(disable)
   for (uint32_t Pass = 0; Pass < PassCount; ++Pass) {
     // The runtime zero mask preserves the input and keeps the evaluations
@@ -75,7 +86,7 @@ void accumulateGroupChecksums(uint32_t PassCount, uint32_t ZeroMask,
 #pragma clang loop unroll(full)
     for (unsigned Index = 0; Index < Size; ++Index)
       Sums[Index] +=
-          FPBits(Function(xorBits(Inputs[Index], PassMask)...)).asUInt();
+          FPBits(Function(makeDependent(Inputs[Index], PassMask)...)).asUInt();
   }
 
 #pragma clang loop unroll(full)
@@ -94,25 +105,29 @@ void measureThroughput(uint32_t PassCount, uint32_t ZeroMask, uint64_t Count,
 
   const uint64_t ThreadId = gpu::globalThreadId();
   const uint64_t Stride = gpu::gridSize() * gpu::blockSize();
+
+  // Give each unrolled call its own accumulator to avoid a shared dependency
+  // chain.
   StorageType Accumulators[UnrollFactor] = {};
   uint64_t Index = ThreadId;
 
 #pragma clang loop unroll(disable)
   for (; Index < Count && Count - Index > (UnrollFactor - 1) * Stride;
        Index += UnrollFactor * Stride)
-    detail::accumulateGroupChecksums<Function>(
+    detail::evaluateGroup<Function>(
         PassCount, ZeroMask, Accumulators,
         detail::InputGroup<InputTypes, UnrollFactor>(Inputs + Index,
                                                      Stride)...);
 
   StorageType Checksum[1] = {};
 #pragma clang loop unroll(full)
-  for (unsigned Slot = 0; Slot < UnrollFactor; ++Slot)
-    Checksum[0] ^= Accumulators[Slot];
+  for (unsigned AccumulatorIndex = 0; AccumulatorIndex < UnrollFactor;
+       ++AccumulatorIndex)
+    Checksum[0] ^= Accumulators[AccumulatorIndex];
 
 #pragma clang loop unroll(disable)
   for (; Index < Count; Index += Stride)
-    detail::accumulateGroupChecksums<Function>(
+    detail::evaluateGroup<Function>(
         PassCount, ZeroMask, Checksum,
         detail::InputGroup<InputTypes, 1>(Inputs + Index, Stride)...);
 
