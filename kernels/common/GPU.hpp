@@ -43,7 +43,6 @@ inline uint64_t blockSize() {
 // Linear block and thread indices
 //===----------------------------------------------------------------------===//
 
-// The x coordinate varies fastest.
 inline uint64_t blockId() {
   return __gpu_block_id_x() +
          static_cast<uint64_t>(__gpu_num_blocks_x()) *
