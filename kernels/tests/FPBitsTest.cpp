@@ -34,7 +34,7 @@ constexpr bool checkFPBits(const UIntType (&Patterns)[Count]) {
   static_assert(!__is_constructible(FPBits, long double));
 
   for (UIntType Pattern : Patterns)
-    if (FPBits(FPBits(Pattern).getValue()).asUInt() != Pattern)
+    if (FPBits(FPBits(Pattern).value()).storage() != Pattern)
       return false;
 
   return true;

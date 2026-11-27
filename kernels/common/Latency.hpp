@@ -139,7 +139,7 @@ void measureChain(uint32_t PassCount, uint32_t ChainLength,
   static_assert(__is_same(StorageType, typename FPBits::StorageType),
                 "mask and output storage type must match the first input type");
 
-  const auto FirstInputUInt = FPBits(FirstInput).asUInt();
+  const auto FirstInputUInt = FPBits(FirstInput).storage();
   auto State = FirstInputUInt;
 
   uint64_t Start = 0;
@@ -153,8 +153,8 @@ void measureChain(uint32_t PassCount, uint32_t ChainLength,
     for (uint32_t Step = 0; Step < ChainLength; ++Step) {
       const auto DependentInput =
           makeDependent(FirstInputUInt, State, DependencyMask);
-      FirstInput = FPBits(DependentInput).getValue();
-      State = FPBits(Function(Inputs...)).asUInt();
+      FirstInput = FPBits(DependentInput).value();
+      State = FPBits(Function(Inputs...)).storage();
     }
 
     Stop = endTiming(State, DependencyMask);

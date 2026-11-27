@@ -56,10 +56,10 @@ template <typename T> T makeDependent(T Value, uint32_t Mask) {
     using FPBits = fputil::FPBits<T>;
     using StorageType = typename FPBits::StorageType;
 
-    const auto ValueUInt = FPBits(Value).asUInt();
+    const auto ValueUInt = FPBits(Value).storage();
     const auto DependentUInt =
         static_cast<StorageType>(ValueUInt ^ static_cast<StorageType>(Mask));
-    return FPBits(DependentUInt).getValue();
+    return FPBits(DependentUInt).value();
   } else {
     static_assert(!__is_same(T, T), "unsupported throughput input type");
   }
@@ -89,7 +89,7 @@ void evaluateGroup(uint32_t PassCount, uint32_t ZeroMask,
 #pragma clang loop unroll(full)
     for (unsigned Index = 0; Index < Size; ++Index)
       Sums[Index] +=
-          FPBits(Function(makeDependent(Inputs[Index], PassMask)...)).asUInt();
+          FPBits(Function(makeDependent(Inputs[Index], PassMask)...)).storage();
   }
 
 #pragma clang loop unroll(full)
