@@ -31,7 +31,7 @@ namespace gpu_libm_bench::libm::LIBM_FUNCTION_NAME {
 
 using ArgType = LIBM_FUNCTION_ARG_TYPE;
 using ReturnType = LIBM_FUNCTION_RETURN_TYPE;
-using StorageType = gpu_libm_bench::fputil::FPBits<ArgType>::StorageType;
+using StorageType = gpu_libm_bench::fputil::FPBits<ReturnType>::StorageType;
 
 extern "C" ReturnType LIBM_FUNCTION_SYMBOL(ArgType);
 
