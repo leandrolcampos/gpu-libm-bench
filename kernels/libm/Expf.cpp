@@ -21,7 +21,7 @@
 #define LIBM_BIND_EXPF
 #include "LibraryBindings.def"
 
-#ifndef LIBM_NAME
+#ifndef LIBM_FUNCTION_NAME
 #error "Missing expf binding in LibraryBindings.def"
 #endif
 

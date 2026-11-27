@@ -20,9 +20,9 @@
 
 extern "C" inline float gpu_libm_bench_idf(float X) { return X; }
 
-#define LIBM_NAME idf
-#define LIBM_SYMBOL gpu_libm_bench_idf
-#define LIBM_ARG_TYPE float
-#define LIBM_RETURN_TYPE float
+#define LIBM_FUNCTION_NAME idf
+#define LIBM_FUNCTION_SYMBOL gpu_libm_bench_idf
+#define LIBM_FUNCTION_ARG_TYPE float
+#define LIBM_FUNCTION_RETURN_TYPE float
 
 #include "UnaryKernels.inc" // IWYU pragma: keep
