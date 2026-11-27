@@ -59,7 +59,7 @@ private:
   Error prepareClockFrequency();
   Error prepareDuration();
 
-  Error readClockCounters(CUdeviceptr Destination);
+  Error recordClockCounters(CUdeviceptr Destination);
   Error unblock();
 
   CUcontext Context;

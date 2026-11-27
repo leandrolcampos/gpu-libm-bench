@@ -23,6 +23,8 @@
 
 #include <gpuintrin.h>
 
+#include <stdint.h>
+
 namespace gpu_libm_bench::gpu {
 
 //===----------------------------------------------------------------------===//
@@ -66,12 +68,15 @@ inline uint64_t globalThreadId() {
 // Hardware identifier of the current multiprocessor
 //===----------------------------------------------------------------------===//
 
+// Returned IDs is not guaranteed to be contiguous.
 inline uint32_t multiprocessorId() {
 #if defined(__AMDGCN__)
 
+  // AMD ISA register layouts and ROCm HIP's __smid() are references for the
+  // fields used here.
+
 #if defined(__GFX6__) || defined(__GFX7__) || defined(__GFX8__) ||             \
     defined(__GFX9__)
-  // Bits 8 through 15 identify the CU, shader array and shader engine.
   uint32_t HardwareId;
   asm volatile("s_getreg_b32 %0, hwreg(HW_REG_HW_ID, 8, 8)" : "=s"(HardwareId));
 
@@ -83,26 +88,40 @@ inline uint32_t multiprocessorId() {
 
   return HardwareId;
 
-#elif defined(__GFX10__) || defined(__GFX11__) || defined(__GFX12__) ||        \
-    defined(__GFX13__)
+#elif defined(__GFX10__) || defined(__GFX11__) || defined(__GFX12__)
   uint32_t HardwareId;
   asm volatile("s_getreg_b32 %0, hwreg(HW_REG_HW_ID1)" : "=s"(HardwareId));
 
-#if defined(__GFX12__) || defined(__GFX13__)
-  constexpr unsigned GetShaderEngineId = 0x87;
-  const uint32_t Engine =
-      __builtin_amdgcn_s_sendmsg_rtn(GetShaderEngineId) & 0xfU;
+#if defined(__GFX12__)
+  constexpr unsigned GetShaderEngineHardwareId = 0x87;
+  const uint32_t EngineHardwareId =
+      __builtin_amdgcn_s_sendmsg_rtn(GetShaderEngineHardwareId);
+  const uint32_t Engine = EngineHardwareId & 0xfU;
+
+#if defined(__gfx1250__) || defined(__gfx1250_strict__) ||                     \
+    defined(__gfx1251__) || defined(__gfx12_5_generic__)
+  const uint32_t Die = (EngineHardwareId >> 16U) & 0xfU;
+#else
+  const uint32_t Die = (EngineHardwareId >> 8U) & 0xfU;
+#endif // CDNA 5
+
+#elif defined(__GFX10__)
+  const uint32_t Engine = (HardwareId >> 18U) & 3U;
+  constexpr uint32_t Die = 0;
 #else
   const uint32_t Engine = (HardwareId >> 18U) & 7U;
-#endif // (__GFX12__ || __GFX13__)
+  constexpr uint32_t Die = 0;
+#endif // __GFX12__
 
   const uint32_t Array = (HardwareId >> 16U) & 1U;
   const uint32_t WorkgroupProcessor = (HardwareId >> 10U) & 0xfU;
-  const uint32_t Id = (Engine << 5U) | (Array << 4U) | WorkgroupProcessor;
+  const uint32_t Id =
+      (Die << 9U) | (Engine << 5U) | (Array << 4U) | WorkgroupProcessor;
 
   if constexpr (__AMDGCN_CUMODE__)
     return (Id << 1U) | ((HardwareId >> 8U) & 1U);
   return Id;
+
 #else
 #error "unsupported AMD GPU architecture"
 #endif // AMD architecture selection
@@ -111,23 +130,47 @@ inline uint32_t multiprocessorId() {
   return __nvvm_read_ptx_sreg_smid();
 #else
 #error "unsupported GPU target"
-#endif
+#endif // __AMDGCN__
 }
 
 //===----------------------------------------------------------------------===//
 // Clock counters
 //===----------------------------------------------------------------------===//
 
-inline uint64_t readCycleCounter() { return __builtin_readcyclecounter(); }
-
 inline uint64_t readSteadyCounter() { return __builtin_readsteadycounter(); }
 
+inline uint64_t readCycleCounter() { return __builtin_readcyclecounter(); }
+
 //===----------------------------------------------------------------------===//
-// Memory fences
+// Atomics and memory fences
 //===----------------------------------------------------------------------===//
 
-inline void systemMemoryFence() {
-  __scoped_atomic_thread_fence(__ATOMIC_SEQ_CST, __MEMORY_SCOPE_SYSTEM);
+enum class MemoryOrder : uint8_t {
+  Relaxed = __ATOMIC_RELAXED,
+  Acquire = __ATOMIC_ACQUIRE,
+  Release = __ATOMIC_RELEASE,
+  AcqRel = __ATOMIC_ACQ_REL,
+  SeqCst = __ATOMIC_SEQ_CST
+};
+
+enum class MemoryScope : uint8_t {
+  Block = __MEMORY_SCOPE_WRKGRP,
+  Device = __MEMORY_SCOPE_DEVICE,
+  System = __MEMORY_SCOPE_SYSTEM,
+};
+
+template <MemoryOrder Order = MemoryOrder::SeqCst,
+          MemoryScope Scope = MemoryScope::System, typename T>
+inline T atomicExchange(T *Object, T Desired) {
+  return __scoped_atomic_exchange_n(Object, Desired, static_cast<int>(Order),
+                                    static_cast<int>(Scope));
+}
+
+template <MemoryOrder Order = MemoryOrder::SeqCst,
+          MemoryScope Scope = MemoryScope::System>
+inline void atomicThreadFence() {
+  __scoped_atomic_thread_fence(static_cast<int>(Order),
+                               static_cast<int>(Scope));
 }
 
 } // namespace gpu_libm_bench::gpu

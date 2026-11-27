@@ -43,10 +43,10 @@ def test_evaluation_spec_uses_signature_for_input_and_output_pointers() -> None:
     spec = KernelSpec.from_config(function, kind=KernelKind.EVALUATION)
 
     assert spec.arguments == (
+        KernelArgument("count", "uint64", False),
+        KernelArgument("output", "float64", True),
         KernelArgument("x", "float64", True),
         KernelArgument("exponent", "int32", True),
-        KernelArgument("output", "float64", True),
-        KernelArgument("count", "uint64", False),
     )
 
 
@@ -118,10 +118,10 @@ def test_throughput_spec_uses_return_type_for_checksum_storage() -> None:
     assert KernelSpec.from_config(function, kind=KernelKind.THROUGHPUT).arguments == (
         KernelArgument("pass_count", "uint32", False),
         KernelArgument("mask", "uint32", False),
+        KernelArgument("count", "uint64", False),
+        KernelArgument("checksums", "uint64", True),
         KernelArgument("x", "float32", True),
         KernelArgument("exponent", "int32", True),
-        KernelArgument("checksums", "uint64", True),
-        KernelArgument("count", "uint64", False),
     )
 
 

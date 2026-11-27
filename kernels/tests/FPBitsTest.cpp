@@ -14,11 +14,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 //
-// Compile-time checks for floating-point representations.
+// Compile-time checks for FPBits representations and constructors.
 //
 //===----------------------------------------------------------------------===//
 
 #include "FPUtil.hpp"
+
+#include <stdint.h>
 
 template <typename FloatType, typename UIntType, unsigned Count>
 constexpr bool checkFPBits(const UIntType (&Patterns)[Count]) {

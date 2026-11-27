@@ -122,9 +122,9 @@ def test_latency_benchmark_preserves_evaluation_results(
     )
     context.launch(
         evaluation_kernel,
-        reference_input,
-        reference_output,
         np.uint64(source.size),
+        reference_output,
+        reference_input,
         config=LaunchConfig(block_dim=(32, 1, 1)),
     )
     context.copy_to_host(expected, reference_output)

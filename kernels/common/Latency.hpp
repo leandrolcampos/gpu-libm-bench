@@ -36,17 +36,6 @@ constexpr FirstType &&getFirstArgument(FirstType &&First,
   return static_cast<FirstType &&>(First);
 }
 
-// Ensure the start timestamp is ready before the chain starts.
-template <typename StorageType>
-inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
-  const uint64_t Timestamp = gpu::readSteadyCounter();
-  const StorageType Dependency =
-      static_cast<StorageType>(Timestamp) & DependencyMask;
-  State ^= Dependency;
-
-  return Timestamp;
-}
-
 // Keep each step dependent on the previous result even for the identity.
 // A zero mask selects every bit from the original input.
 inline uint32_t makeDependentWord(uint32_t Input, uint32_t State,
@@ -71,30 +60,47 @@ inline uint32_t makeDependentWord(uint32_t Input, uint32_t State,
 template <typename StorageType>
 inline StorageType makeDependent(StorageType Input, StorageType State,
                                  StorageType Mask) {
-  const uint32_t Low =
-      makeDependentWord(uint32_t(Input), uint32_t(State), uint32_t(Mask));
+  const uint32_t Low = makeDependentWord(static_cast<uint32_t>(Input),
+                                         static_cast<uint32_t>(State),
+                                         static_cast<uint32_t>(Mask));
 
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     const uint32_t High =
         makeDependentWord(Input >> 32U, State >> 32U, Mask >> 32U);
-    return (uint64_t(High) << 32U) | Low;
+    return (static_cast<uint64_t>(High) << 32U) | Low;
   }
 
   return static_cast<StorageType>(Low);
 }
 
+// Ensure the start timestamp is ready before the chain starts.
+template <typename StorageType>
+inline uint64_t beginTiming(StorageType &State, StorageType DependencyMask) {
+  const uint64_t Timestamp = gpu::readSteadyCounter();
+  const StorageType Dependency =
+      static_cast<StorageType>(Timestamp) & DependencyMask;
+  State ^= Dependency;
+
+  return Timestamp;
+}
+
 // Ensure the end timestamp is read after the chain finishes.
 template <typename StorageType>
-inline uint64_t endTiming(StorageType &State, StorageType DependencyMask) {
+inline uint64_t endTiming(StorageType &State,
+                          [[maybe_unused]] StorageType DependencyMask) {
 #if defined(__AMDGCN__)
   if constexpr (sizeof(StorageType) == sizeof(uint64_t)) {
     uint32_t Consumed;
     asm volatile("v_or_b32 %0, %1, %2"
                  : "=v"(Consumed)
-                 : "v"(uint32_t(State)), "v"(uint32_t(State >> 32U))
+                 : "v"(static_cast<uint32_t>(State)),
+                   "v"(static_cast<uint32_t>(State >> 32U))
                  : "memory");
   } else {
-    asm volatile("v_or_b32 %0, 0, %0" : : "v"(uint32_t(State)) : "memory");
+    asm volatile("v_or_b32 %0, 0, %0"
+                 :
+                 : "v"(static_cast<uint32_t>(State))
+                 : "memory");
   }
 #elif defined(__NVPTX__)
   // Use a runtime zero mask because ptxas can eliminate the AMD-style OR.

@@ -33,14 +33,14 @@ namespace gpu_libm_bench::cuda::detail {
 //===----------------------------------------------------------------------===//
 
 struct KernelProfiler::StreamControl {
-  std::uint32_t Release = 0;
+  std::uint32_t Released = 0;
   std::uint32_t TimedOut = 0;
 };
 
 struct KernelProfiler::ClockCounters {
   std::uint64_t Steady = 0;
   std::uint64_t Cycles = 0;
-  std::uint32_t Written = 0;
+  std::uint32_t Recorded = 0;
 };
 
 struct KernelProfiler::ClockFrequencyResources {
@@ -69,7 +69,7 @@ struct KernelProfiler::ClockFrequencyResources {
   ClockFrequencyResources &operator=(const ClockFrequencyResources &) = delete;
 
   CUcontext Context;
-  CUfunction ReadClockCounters = nullptr;
+  CUfunction RecordClockCounters = nullptr;
   int SMCount = 0;
   ClockCounterReadings *HostReadings = nullptr;
   CUdeviceptr DeviceStartCounters = 0;
@@ -201,11 +201,12 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
     ~ProfilingGuard() { reportCleanupError(Profiler.unblock()); }
   } Guard{*this};
 
-  CUdeviceptr Release = DeviceStreamControl + offsetof(StreamControl, Release);
+  CUdeviceptr Released =
+      DeviceStreamControl + offsetof(StreamControl, Released);
   CUdeviceptr TimedOut =
       DeviceStreamControl + offsetof(StreamControl, TimedOut);
   std::uint64_t TimeoutTicks = 5'000'000'000;
-  void *Arguments[] = {&Release, &TimedOut, &TimeoutTicks};
+  void *Arguments[] = {&Released, &TimedOut, &TimeoutTicks};
 
   NeedsUnblock = true;
   if (auto Err = check(cuLaunchKernel(BlockStream, 1, 1, 1, 1, 1, 1, 0, Stream,
@@ -215,7 +216,8 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
 
   // Keep counter kernels outside the timing events.
   if (ClockFrequency) {
-    if (auto Err = readClockCounters(CachedClockFrequency->DeviceStartCounters))
+    if (auto Err =
+            recordClockCounters(CachedClockFrequency->DeviceStartCounters))
       return Err;
   }
   if (Duration) {
@@ -233,7 +235,8 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
       return Err;
   }
   if (ClockFrequency) {
-    if (auto Err = readClockCounters(CachedClockFrequency->DeviceStopCounters))
+    if (auto Err =
+            recordClockCounters(CachedClockFrequency->DeviceStopCounters))
       return Err;
   }
 
@@ -247,7 +250,7 @@ KernelProfiler::profile(const std::function<Error()> &EnqueueKernel,
   KernelProfile Profile;
   if (ClockFrequency) {
     const auto &[Start, Stop] = *CachedClockFrequency->HostReadings;
-    if (!Start.Written || !Stop.Written || Stop.Steady <= Start.Steady ||
+    if (!Start.Recorded || !Stop.Recorded || Stop.Steady <= Start.Steady ||
         Stop.Cycles <= Start.Cycles) {
       Profile.ClockFrequencyHz = std::numeric_limits<double>::quiet_NaN();
     } else {
@@ -283,10 +286,10 @@ Error KernelProfiler::prepareClockFrequency() {
     return Error::success();
 
   auto Resources = std::make_unique<ClockFrequencyResources>(Context);
-  auto Kernel = SupportModule.getKernel("readClockCounters");
+  auto Kernel = SupportModule.getKernel("recordClockCounters");
   if (!Kernel)
     return std::move(Kernel).error();
-  Resources->ReadClockCounters = static_cast<CUfunction>(Kernel->Function);
+  Resources->RecordClockCounters = static_cast<CUfunction>(Kernel->Function);
 
   CUdevice Device;
   if (auto Err = check(cuCtxGetDevice(&Device), "cuCtxGetDevice"))
@@ -339,25 +342,25 @@ Error KernelProfiler::prepareDuration() {
 // Stream operations
 //===----------------------------------------------------------------------===//
 
-Error KernelProfiler::readClockCounters(CUdeviceptr Destination) {
+Error KernelProfiler::recordClockCounters(CUdeviceptr Destination) {
   CUdeviceptr SteadyCounter = Destination + offsetof(ClockCounters, Steady);
   CUdeviceptr CycleCounter = Destination + offsetof(ClockCounters, Cycles);
-  CUdeviceptr Written = Destination + offsetof(ClockCounters, Written);
-  void *Arguments[] = {&SteadyCounter, &CycleCounter, &Written};
+  CUdeviceptr Recorded = Destination + offsetof(ClockCounters, Recorded);
+  void *Arguments[] = {&SteadyCounter, &CycleCounter, &Recorded};
 
   return check(
-      cuLaunchKernel(CachedClockFrequency->ReadClockCounters,
+      cuLaunchKernel(CachedClockFrequency->RecordClockCounters,
                      static_cast<unsigned int>(CachedClockFrequency->SMCount),
                      1, 1, 1, 1, 1, 0, Stream, Arguments, nullptr),
-      "cuLaunchKernel(readClockCounters)");
+      "cuLaunchKernel(recordClockCounters)");
 }
 
 Error KernelProfiler::unblock() {
   if (!NeedsUnblock)
     return Error::success();
 
-  volatile std::uint32_t &Release = HostStreamControl->Release;
-  Release = 1;
+  volatile std::uint32_t &Released = HostStreamControl->Released;
+  Released = 1;
   auto Failure = check(cuStreamSynchronize(Stream), "cuStreamSynchronize");
   NeedsUnblock = false;
   return Failure;

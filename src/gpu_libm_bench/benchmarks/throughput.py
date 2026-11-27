@@ -46,10 +46,8 @@ from ._throttle import recovery_delay_s
 _THROUGHPUT_PREFIX_ARGUMENTS = (
     ("pass_count", False, "uint32"),
     ("mask", False, "uint32"),
-)
-_THROUGHPUT_SUFFIX_ARGUMENTS = (
-    ("checksums", True, None),
     ("count", False, "uint64"),
+    ("checksums", True, None),
 )
 
 
@@ -136,8 +134,7 @@ class ThroughputBenchmark:
     ) -> None:
         arguments = kernel.spec.arguments
         prefix_length = len(_THROUGHPUT_PREFIX_ARGUMENTS)
-        suffix_length = len(_THROUGHPUT_SUFFIX_ARGUMENTS)
-        input_arguments = arguments[prefix_length:-suffix_length]
+        input_arguments = arguments[prefix_length:]
         if not input_arguments:
             raise ValueError(
                 "throughput kernel must declare at least one input argument"
@@ -147,8 +144,8 @@ class ThroughputBenchmark:
 
         throughput_dtypes = {}
         for argument, (name, is_pointer, dtype) in zip(
-            arguments[:prefix_length] + arguments[-suffix_length:],
-            _THROUGHPUT_PREFIX_ARGUMENTS + _THROUGHPUT_SUFFIX_ARGUMENTS,
+            arguments[:prefix_length],
+            _THROUGHPUT_PREFIX_ARGUMENTS,
             strict=True,
         ):
             if argument.name != name or argument.is_pointer != is_pointer:
@@ -210,9 +207,9 @@ class ThroughputBenchmark:
         arguments: tuple[DeviceBuffer[Any] | Scalar, ...] = (
             self._pass_count,
             throughput_dtypes["mask"].type(0),
-            *buffers.inputs,
-            buffers.checksums,
             throughput_dtypes["count"].type(launch.batch_size),
+            buffers.checksums,
+            *buffers.inputs,
         )
 
         batch_iterator = iter(batches)
@@ -588,11 +585,10 @@ class _LaunchBufferBudget:
         cls, spec: KernelSpec, device_info: DeviceInfo
     ) -> "_LaunchBufferBudget":
         prefix_length = len(_THROUGHPUT_PREFIX_ARGUMENTS)
-        suffix_length = len(_THROUGHPUT_SUFFIX_ARGUMENTS)
-        input_arguments = spec.arguments[prefix_length:-suffix_length]
+        input_arguments = spec.arguments[prefix_length:]
         if not input_arguments:
-            raise ValueError("expected input, checksum, and count arguments")
-        checksums, _ = spec.arguments[-suffix_length:]
+            raise ValueError("expected count, checksum, and input arguments")
+        checksums = spec.arguments[prefix_length - 1]
 
         limit_bytes = 128 << 20
         if device_info.l2_cache_size_bytes:

@@ -23,6 +23,8 @@
 
 #include "GPU.hpp"
 
+#include <stdint.h>
+
 namespace gpu_libm_bench {
 
 template <auto Function, typename OutputType, typename... InputTypes>

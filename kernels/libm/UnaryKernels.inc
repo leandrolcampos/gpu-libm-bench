@@ -23,22 +23,27 @@
 
 #ifdef LIBM_FUNCTION_NAME
 #include "Evaluation.hpp"
+#include "FPUtil.hpp"
 #include "Latency.hpp"
 #include "Macros.hpp"
 #include "Throughput.hpp"
+
+#include <gpuintrin.h>
+
+#include <stdint.h>
 
 namespace gpu_libm_bench::libm::LIBM_FUNCTION_NAME {
 
 using ArgType = LIBM_FUNCTION_ARG_TYPE;
 using ReturnType = LIBM_FUNCTION_RETURN_TYPE;
-using StorageType = gpu_libm_bench::fputil::FPBits<ArgType>::StorageType;
+using StorageType = gpu_libm_bench::fputil::FPBits<ReturnType>::StorageType;
 
 extern "C" ReturnType LIBM_FUNCTION_SYMBOL(ArgType);
 
 extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_FUNCTION_NAME,
-                                              Evaluation)(const ArgType *X,
+                                              Evaluation)(uint64_t Count,
                                                           ReturnType *Output,
-                                                          uint64_t Count) {
+                                                          const ArgType *X) {
   gpu_libm_bench::evaluate<LIBM_FUNCTION_SYMBOL>(Count, Output, X);
 }
 
@@ -50,29 +55,29 @@ extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_FUNCTION_NAME, Latency)(
 }
 
 extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_FUNCTION_NAME, Throughput1)(
-    uint32_t PassCount, uint32_t ZeroMask, const ArgType *X,
-    StorageType *Checksums, uint64_t Count) {
+    uint32_t PassCount, uint32_t ZeroMask, uint64_t Count,
+    StorageType *Checksums, const ArgType *X) {
   gpu_libm_bench::measureThroughput<LIBM_FUNCTION_SYMBOL, 1>(
       PassCount, ZeroMask, Count, Checksums, X);
 }
 
 extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_FUNCTION_NAME, Throughput2)(
-    uint32_t PassCount, uint32_t ZeroMask, const ArgType *X,
-    StorageType *Checksums, uint64_t Count) {
+    uint32_t PassCount, uint32_t ZeroMask, uint64_t Count,
+    StorageType *Checksums, const ArgType *X) {
   gpu_libm_bench::measureThroughput<LIBM_FUNCTION_SYMBOL, 2>(
       PassCount, ZeroMask, Count, Checksums, X);
 }
 
 extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_FUNCTION_NAME, Throughput4)(
-    uint32_t PassCount, uint32_t ZeroMask, const ArgType *X,
-    StorageType *Checksums, uint64_t Count) {
+    uint32_t PassCount, uint32_t ZeroMask, uint64_t Count,
+    StorageType *Checksums, const ArgType *X) {
   gpu_libm_bench::measureThroughput<LIBM_FUNCTION_SYMBOL, 4>(
       PassCount, ZeroMask, Count, Checksums, X);
 }
 
 extern "C" __gpu_kernel void LIBM_KERNEL_NAME(LIBM_FUNCTION_NAME, Throughput8)(
-    uint32_t PassCount, uint32_t ZeroMask, const ArgType *X,
-    StorageType *Checksums, uint64_t Count) {
+    uint32_t PassCount, uint32_t ZeroMask, uint64_t Count,
+    StorageType *Checksums, const ArgType *X) {
   gpu_libm_bench::measureThroughput<LIBM_FUNCTION_SYMBOL, 8>(
       PassCount, ZeroMask, Count, Checksums, X);
 }

@@ -57,24 +57,24 @@ def profiling_module(context: DeviceContext) -> DeviceModule:
     return context.load_module(image)
 
 
-@pytest.mark.parametrize(("release", "timed_out"), [(1, 0), (0, 1)])
+@pytest.mark.parametrize(("released", "timed_out"), [(1, 0), (0, 1)])
 def test_block_stream_release_and_timeout(
     context: DeviceContext,
     profiling_module: DeviceModule,
-    release: int,
+    released: int,
     timed_out: int,
 ) -> None:
-    release_buffer = context.create_buffer(1, dtype=np.uint32)
+    released_buffer = context.create_buffer(1, dtype=np.uint32)
     timeout_buffer = context.create_buffer(1, dtype=np.uint32)
     result = np.array([99], dtype=np.uint32)
-    context.copy_to_device(release_buffer, np.array([release], dtype=np.uint32))
+    context.copy_to_device(released_buffer, np.array([released], dtype=np.uint32))
     context.copy_to_device(timeout_buffer, result)
 
     kernel = profiling_module.get_kernel(
         "blockStream",
         spec=KernelSpec(
             (
-                KernelArgument("release", "uint32", True),
+                KernelArgument("released", "uint32", True),
                 KernelArgument("timed_out", "uint32", True),
                 KernelArgument("timeout_ticks", "uint64", False),
             )
@@ -83,7 +83,7 @@ def test_block_stream_release_and_timeout(
 
     context.launch(
         kernel,
-        release_buffer,
+        released_buffer,
         timeout_buffer,
         np.uint64(100_000),
         config=LaunchConfig(block_dim=(2, 2, 2)),
@@ -93,7 +93,7 @@ def test_block_stream_release_and_timeout(
     assert result[0] == timed_out
 
 
-def test_clock_counters_read_from_processor_id_zero(
+def test_clock_counters_recorded_on_processor_id_zero(
     context: DeviceContext, profiling_module: DeviceModule
 ) -> None:
     driver = ctypes.CDLL("libcuda.so.1")
@@ -104,19 +104,19 @@ def test_clock_counters_read_from_processor_id_zero(
 
     steady = np.zeros(1, dtype=np.uint64)
     cycles = np.zeros(1, dtype=np.uint64)
-    written = np.zeros(1, dtype=np.uint32)
-    arrays = (steady, cycles, written)
+    recorded = np.zeros(1, dtype=np.uint32)
+    arrays = (steady, cycles, recorded)
     buffers = tuple(context.create_buffer(1, dtype=array.dtype) for array in arrays)
     for buffer, array in zip(buffers, arrays, strict=True):
         context.copy_to_device(buffer, array)
 
     kernel = profiling_module.get_kernel(
-        "readClockCounters",
+        "recordClockCounters",
         spec=KernelSpec(
             (
                 KernelArgument("steady_counter", "uint64", True),
                 KernelArgument("cycle_counter", "uint64", True),
-                KernelArgument("written", "uint32", True),
+                KernelArgument("recorded", "uint32", True),
             )
         ),
     )
@@ -127,6 +127,6 @@ def test_clock_counters_read_from_processor_id_zero(
     for buffer, array in zip(buffers, arrays, strict=True):
         context.copy_to_host(array, buffer)
 
-    assert written[0] == 1
+    assert recorded[0] == 1
     assert steady[0] > 0
     assert cycles[0] > 0
