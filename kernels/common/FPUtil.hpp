@@ -54,11 +54,11 @@ public:
 
   template <typename ValueType> explicit FPBits(ValueType) = delete;
 
-  constexpr FloatType getValue() const {
+  constexpr FloatType value() const {
     return __builtin_bit_cast(FloatType, Bits);
   }
 
-  constexpr StorageType asUInt() const { return Bits; }
+  constexpr StorageType storage() const { return Bits; }
 
 private:
   StorageType Bits;

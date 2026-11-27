@@ -35,7 +35,7 @@ template <typename InputType> static uint64_t asUInt(InputType Input) {
   if constexpr (__is_integral(InputType))
     return static_cast<__make_unsigned(InputType)>(Input);
   else
-    return gpu_libm_bench::fputil::FPBits(Input).asUInt();
+    return gpu_libm_bench::fputil::FPBits(Input).storage();
 }
 
 template <typename... InputTypes>
