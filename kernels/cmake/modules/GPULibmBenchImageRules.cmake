@@ -34,7 +34,7 @@ function(gpu_libm_bench_configure_library library_target)
     set(option "-mllvm=-nvvm-reflect-add=${entry}")
     target_compile_options(${library_target} PRIVATE "${option}")
     # Forward reflection values to clang-nvlink-wrapper for LTO.
-    target_link_options(${library_target} PRIVATE "LINKER:${option}")
+    target_link_options(${library_target} PRIVATE "-Wl,${option}")
   endforeach()
 
   gpu_libm_bench_configure_device_image(${library_target} "${CMAKE_BINARY_DIR}")
