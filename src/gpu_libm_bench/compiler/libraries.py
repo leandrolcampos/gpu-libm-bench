@@ -196,16 +196,13 @@ def _resolve_nvvm_reflect(
     resolved = []
     for entry in library.nvvm_reflect:
         value = entry.value
-        if value is None and library.name == "libdevice":
-            if entry.symbol == "__CUDA_ARCH":
-                value = _read_cuda_arch(llvm, target)
-            elif entry.symbol in {"__CUDA_FTZ", "__CUDA_PREC_SQRT"}:
-                value = 0
         if value is None:
-            raise ValueError(
-                f"cannot resolve a default for nvvm_reflect symbol {entry.symbol!r} "
-                f"in library {library.name!r}; provide an explicit value"
-            )
+            if library.name != "libdevice" or entry.symbol != "__CUDA_ARCH":
+                raise ValueError(
+                    f"cannot derive nvvm_reflect symbol {entry.symbol!r} from the "
+                    f"target for library {library.name!r}; provide an explicit value"
+                )
+            value = _read_cuda_arch(llvm, target)
         resolved.append((entry.symbol, int(value)))
     return tuple(resolved)
 

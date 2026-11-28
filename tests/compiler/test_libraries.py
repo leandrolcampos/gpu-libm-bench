@@ -102,7 +102,7 @@ def test_library_resolves_bitcode_and_bindings(
 
     expected_reflect = ()
     if library == "libdevice":
-        arch, ftz, sqrt = library_config.nvvm_reflect
+        arch, _, sqrt = library_config.nvvm_reflect
         if override:
             arch.value = 900
             library_config.nvvm_reflect.remove(sqrt)
@@ -111,11 +111,10 @@ def test_library_resolves_bitcode_and_bindings(
                 ("__CUDA_FTZ", 0),
             )
         else:
-            ftz.value = sqrt.value = None
             expected_reflect = (
                 ("__CUDA_ARCH", 1200),
                 ("__CUDA_FTZ", 0),
-                ("__CUDA_PREC_SQRT", 0),
+                ("__CUDA_PREC_SQRT", 1),
             )
 
     def inspect(command: list[str | Path]) -> str:
@@ -232,6 +231,25 @@ def test_nvptx_rejects_out_of_range_reflect_value(
     library.nvvm_reflect[0].value = 2**32
 
     with pytest.raises(ValueError, match="unsigned 32-bit integer"):
+        libraries.resolve_library(
+            library_config=library, llvm=llvm, target=TARGET, backend_sdk=backend_sdk
+        )
+
+
+@pytest.mark.parametrize("symbol", ["__CUDA_FTZ", "__CUDA_PREC_SQRT"])
+def test_libdevice_requires_explicit_reflect_value(
+    llvm: LLVMToolchain,
+    backend_sdk: CUDAToolkit,
+    monkeypatch: pytest.MonkeyPatch,
+    symbol: str,
+) -> None:
+    library = load_library_config("libdevice")
+    entry = next(entry for entry in library.nvvm_reflect if entry.symbol == symbol)
+    entry.value = None
+    library.nvvm_reflect = [entry]
+    monkeypatch.setattr(libraries, "_validate_bitcode", lambda *args, **kwargs: None)
+
+    with pytest.raises(ValueError, match=f"{symbol}.*provide an explicit value"):
         libraries.resolve_library(
             library_config=library, llvm=llvm, target=TARGET, backend_sdk=backend_sdk
         )
