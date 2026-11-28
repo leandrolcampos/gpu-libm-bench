@@ -14,7 +14,7 @@
 # limitations under the License.
 # ===----------------------------------------------------------------------=== #
 
-"""Test bitcode discovery, compatibility, and resolved function bindings."""
+"""Test math library resolution for compilation targets."""
 
 from pathlib import Path
 
@@ -22,7 +22,7 @@ import pytest
 
 from gpu_libm_bench.compiler import libraries
 from gpu_libm_bench.compiler.targets import CompilationTarget
-from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain
+from gpu_libm_bench.compiler.toolchains import CUDAToolkit, LLVMToolchain, ROCmCoreSDK
 from gpu_libm_bench.configs import (
     LibraryConfig,
     LibraryFunctionConfig,
@@ -100,7 +100,30 @@ def test_library_resolves_bitcode_and_bindings(
         expected_path.touch()
         library_config.backends["cuda"].bitcode_path = str(expected_path)
 
+    expected_reflect = ()
+    if library == "libdevice":
+        arch, ftz, sqrt = library_config.nvvm_reflect
+        if override:
+            arch.value = 900
+            library_config.nvvm_reflect.remove(sqrt)
+            expected_reflect = (
+                ("__CUDA_ARCH", 900),
+                ("__CUDA_FTZ", 0),
+            )
+        else:
+            ftz.value = sqrt.value = None
+            expected_reflect = (
+                ("__CUDA_ARCH", 1200),
+                ("__CUDA_FTZ", 0),
+                ("__CUDA_PREC_SQRT", 0),
+            )
+
     def inspect(command: list[str | Path]) -> str:
+        if command[0] == llvm.clang:
+            assert library == "libdevice" and not override
+            assert f"--target={TARGET.target_triple}" in command
+            assert f"-march={TARGET.architecture}" in command
+            return "#define __CUDA_ARCH__ 1200"
         assert expected_path in command
         if command[0] == llvm.llvm_dis:
             return f'target triple = "{triple}"\n'
@@ -113,7 +136,7 @@ def test_library_resolves_bitcode_and_bindings(
     )
 
     assert result == libraries.ResolvedLibrary(
-        library, expected_path, (("expf", symbol),)
+        library, expected_path, (("expf", symbol),), expected_reflect
     )
 
 
@@ -200,3 +223,38 @@ def test_bitcode_must_export_all_configured_symbols(
             target=TARGET,
             backend_sdk=backend_sdk,
         )
+
+
+def test_nvptx_rejects_out_of_range_reflect_value(
+    llvm: LLVMToolchain, backend_sdk: CUDAToolkit
+) -> None:
+    library = load_library_config("libdevice")
+    library.nvvm_reflect[0].value = 2**32
+
+    with pytest.raises(ValueError, match="unsigned 32-bit integer"):
+        libraries.resolve_library(
+            library_config=library, llvm=llvm, target=TARGET, backend_sdk=backend_sdk
+        )
+
+
+def test_amdgcn_ignores_nvvm_reflect(
+    llvm: LLVMToolchain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = CompilationTarget("hip", "amdgcn-amd-amdhsa", "gfx942")
+    library = load_library_config("llvm-libm")
+    library.backends["hip"] = library.backends["cuda"]
+    library.nvvm_reflect = load_library_config("libdevice").nvvm_reflect
+    library.nvvm_reflect[1].value = -1
+
+    path = llvm.library_dirs[0] / target.target_triple / "libm.bc"
+    path.parent.mkdir(parents=True)
+    path.touch()
+    monkeypatch.setattr(libraries, "_validate_bitcode", lambda *args, **kwargs: None)
+
+    result = libraries.resolve_library(
+        library_config=library,
+        llvm=llvm,
+        target=target,
+        backend_sdk=ROCmCoreSDK(llvm.root, "7.0"),
+    )
+    assert result.nvvm_reflect == ()

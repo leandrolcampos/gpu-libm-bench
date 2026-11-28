@@ -26,6 +26,10 @@ from omegaconf import DictConfig, OmegaConf
 
 from . import yaml
 
+# ===----------------------------------------------------------------------=== #
+# Function signatures and input domains
+# ===----------------------------------------------------------------------=== #
+
 
 @dataclass
 class ArgumentConfig:
@@ -63,6 +67,11 @@ class FunctionConfig:
     name: str
     signature: SignatureConfig
     domains: dict[str, DomainConfig]
+
+
+# ===----------------------------------------------------------------------=== #
+# Measurement metrics
+# ===----------------------------------------------------------------------=== #
 
 
 @dataclass
@@ -120,6 +129,11 @@ class ThroughputConfig(MetricConfig):
     confirmation: ThroughputConfirmationConfig
 
 
+# ===----------------------------------------------------------------------=== #
+# Backends and libraries
+# ===----------------------------------------------------------------------=== #
+
+
 @dataclass
 class BackendConfig:
     name: str
@@ -145,14 +159,27 @@ class LibraryFunctionConfig:
 
 
 @dataclass
+class NVVMReflectConfig:
+    name: str
+    symbol: str
+    value: int | bool | None = None
+
+
+@dataclass
 class LibraryConfig:
     name: str
     backends: dict[str, LibraryBitcodeConfig]
     functions: dict[str, LibraryFunctionConfig] = field(default_factory=dict)
+    nvvm_reflect: list[NVVMReflectConfig] = field(default_factory=list)
 
     def symbol_for(self, function: str) -> str:
         symbol = self.functions[function].symbol
         return function if symbol is None else symbol
+
+
+# ===----------------------------------------------------------------------=== #
+# Build and experiment schemas
+# ===----------------------------------------------------------------------=== #
 
 
 @dataclass
@@ -177,6 +204,11 @@ class ExperimentConfig:
     libraries: dict[str, LibraryConfig]
     run: RunConfig
     llvm: LLVMConfig
+
+
+# ===----------------------------------------------------------------------=== #
+# Schema registration and configuration loading
+# ===----------------------------------------------------------------------=== #
 
 
 def register_config_schema() -> None:
@@ -237,6 +269,17 @@ def load_library_config(name: str) -> LibraryConfig:
     return library_config
 
 
+def _load_packaged_config(group: str, name: str) -> DictConfig:
+    resource = files(yaml).joinpath(group, f"{name}.yaml")
+    with resource.open(encoding="utf-8") as stream:
+        return cast("DictConfig", OmegaConf.load(stream))
+
+
+# ===----------------------------------------------------------------------=== #
+# Configuration validation
+# ===----------------------------------------------------------------------=== #
+
+
 def validate_build_config(config: DictConfig) -> BuildConfig:
     structured = OmegaConf.merge(OmegaConf.structured(BuildConfig), config)
     build = cast("BuildConfig", OmegaConf.to_object(structured))
@@ -290,12 +333,6 @@ def validate_experiment_config(config: DictConfig) -> ExperimentConfig:
                 raise ValueError(f"run.libraries contains an unknown library: {name!r}")
 
     return experiment
-
-
-def _load_packaged_config(group: str, name: str) -> DictConfig:
-    resource = files(yaml).joinpath(group, f"{name}.yaml")
-    with resource.open(encoding="utf-8") as stream:
-        return cast("DictConfig", OmegaConf.load(stream))
 
 
 def _validate_backend_config(backend: BackendConfig) -> None:

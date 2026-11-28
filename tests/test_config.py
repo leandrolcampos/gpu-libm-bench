@@ -14,7 +14,7 @@
 # limitations under the License.
 # ===----------------------------------------------------------------------=== #
 
-"""Tests for build and experiment configuration validation."""
+"""Test loading and validation of build and experiment configurations."""
 
 from dataclasses import dataclass
 
@@ -57,11 +57,6 @@ def experiment_config() -> DictConfig:
         )
 
 
-def test_build_configuration_allows_no_library(build_config: DictConfig) -> None:
-    build_config.library = None
-    assert validate_build_config(build_config).library is None
-
-
 def test_library_function_uses_its_name_as_the_default_symbol(
     build_config: DictConfig,
     experiment_config: DictConfig,
@@ -85,34 +80,6 @@ def test_library_function_resolves_an_alias(build_config: DictConfig) -> None:
 
     assert library is not None
     assert library.symbol_for("expf") == "__nv_expf"
-
-
-@pytest.mark.parametrize("symbol", ["", " "])
-def test_library_function_rejects_an_empty_symbol(
-    build_config: DictConfig, symbol: str
-) -> None:
-    build_config.library.functions.expf.symbol = symbol
-
-    with pytest.raises(ValueError, match="function 'expf'.*symbol must not be empty"):
-        validate_build_config(build_config)
-
-
-@pytest.mark.parametrize("field", ["backend.name", "library.name"])
-def test_build_rejects_empty_names(build_config: DictConfig, field: str) -> None:
-    OmegaConf.update(build_config, field, " ")
-    with pytest.raises(ValueError, match=f"{field} must not be empty"):
-        validate_build_config(build_config)
-
-
-def test_build_library_availability_is_not_checked_during_config_validation(
-    build_config: DictConfig,
-) -> None:
-    build_config.library.backends = {}
-
-    config = validate_build_config(build_config)
-
-    assert config.library is not None
-    assert config.library.backends == {}
 
 
 def test_other_metrics_use_their_own_schema() -> None:
@@ -143,6 +110,55 @@ def test_other_metrics_use_their_own_schema() -> None:
     metric = validate_experiment_config(config).metric
     assert isinstance(metric, CustomMetricConfig)
     assert metric.batch_size == 64
+
+
+def test_nvvm_reflect_accepts_hydra_overrides() -> None:
+    with initialize_config_module(config_module="gpu_libm_bench.configs.yaml"):
+        config = compose(
+            config_name="build_config",
+            overrides=[
+                "backend=cuda",
+                "library=libdevice",
+                "library.nvvm_reflect.2.value=false",
+            ],
+        )
+
+    library = validate_build_config(config).library
+    assert library is not None
+    assert library.nvvm_reflect[2].value is False
+
+
+def test_build_configuration_allows_no_library(build_config: DictConfig) -> None:
+    build_config.library = None
+    assert validate_build_config(build_config).library is None
+
+
+@pytest.mark.parametrize("symbol", ["", " "])
+def test_library_function_rejects_an_empty_symbol(
+    build_config: DictConfig, symbol: str
+) -> None:
+    build_config.library.functions.expf.symbol = symbol
+
+    with pytest.raises(ValueError, match="function 'expf'.*symbol must not be empty"):
+        validate_build_config(build_config)
+
+
+@pytest.mark.parametrize("field", ["backend.name", "library.name"])
+def test_build_rejects_empty_names(build_config: DictConfig, field: str) -> None:
+    OmegaConf.update(build_config, field, " ")
+    with pytest.raises(ValueError, match=f"{field} must not be empty"):
+        validate_build_config(build_config)
+
+
+def test_build_library_availability_is_not_checked_during_config_validation(
+    build_config: DictConfig,
+) -> None:
+    build_config.library.backends = {}
+
+    config = validate_build_config(build_config)
+
+    assert config.library is not None
+    assert config.library.backends == {}
 
 
 @pytest.mark.parametrize(

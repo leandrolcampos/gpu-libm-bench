@@ -14,18 +14,23 @@
 # limitations under the License.
 # ===----------------------------------------------------------------------=== #
 
-"""Resolve math libraries and validate the bitcode required by their bindings."""
+"""Resolve math libraries for a compilation target."""
 
 import re
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from gpu_libm_bench.backends import Backend
 from gpu_libm_bench.configs import LibraryConfig
 
 from ._commands import run_tool
 from .targets import CompilationTarget
 from .toolchains import BackendSDK, CUDAToolkit, LLVMToolchain
+
+# ===----------------------------------------------------------------------=== #
+# Library resolution
+# ===----------------------------------------------------------------------=== #
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +38,7 @@ class ResolvedLibrary:
     name: str
     bitcode_path: Path | None = None
     bindings: tuple[tuple[str, str], ...] = ()
+    nvvm_reflect: tuple[tuple[str, int], ...] = ()
 
 
 class LibraryUnavailableError(RuntimeError):
@@ -62,6 +68,9 @@ def resolve_library(
             f"backend {target.backend.value!r}"
         )
 
+    if target.backend == Backend.CUDA:
+        _validate_nvvm_reflect(library_config)
+
     bitcode_path = bitcode_config.bitcode_path
     path = find_bitcode() if bitcode_path is None else Path(bitcode_path)
     path = path.expanduser().resolve()
@@ -80,7 +89,18 @@ def resolve_library(
     _validate_bitcode(
         path, llvm=llvm, accepted_triples=accepted_triples, bindings=bindings
     )
-    return ResolvedLibrary(name, path, bindings)
+
+    nvvm_reflect = (
+        _resolve_nvvm_reflect(library_config, llvm, target)
+        if target.backend == Backend.CUDA
+        else ()
+    )
+    return ResolvedLibrary(name, path, bindings, nvvm_reflect)
+
+
+# ===----------------------------------------------------------------------=== #
+# Bitcode discovery and validation
+# ===----------------------------------------------------------------------=== #
 
 
 def _find_llvm_libm_bitcode(llvm: LLVMToolchain, target: CompilationTarget) -> Path:
@@ -145,3 +165,69 @@ def _validate_bitcode(
         raise LibraryUnavailableError(
             f"bitcode {path} does not define symbols for bindings: {', '.join(missing)}"
         )
+
+
+# ===----------------------------------------------------------------------=== #
+# NVVM reflection
+# ===----------------------------------------------------------------------=== #
+
+
+def _validate_nvvm_reflect(library_config: LibraryConfig) -> None:
+    symbols: set[str] = set()
+    for entry in library_config.nvvm_reflect:
+        if not entry.name.strip() or not entry.symbol.strip():
+            raise ValueError("nvvm_reflect name and symbol must not be empty")
+        if entry.symbol in symbols:
+            raise ValueError(f"duplicate nvvm_reflect symbol: {entry.symbol!r}")
+        symbols.add(entry.symbol)
+
+        value = entry.value
+        if value is not None and not (
+            isinstance(value, int) and 0 <= value <= 0xFFFFFFFF
+        ):
+            raise ValueError(
+                f"{entry.symbol} expects a boolean or an unsigned 32-bit integer"
+            )
+
+
+def _resolve_nvvm_reflect(
+    library: LibraryConfig, llvm: LLVMToolchain, target: CompilationTarget
+) -> tuple[tuple[str, int], ...]:
+    resolved = []
+    for entry in library.nvvm_reflect:
+        value = entry.value
+        if value is None and library.name == "libdevice":
+            if entry.symbol == "__CUDA_ARCH":
+                value = _read_cuda_arch(llvm, target)
+            elif entry.symbol in {"__CUDA_FTZ", "__CUDA_PREC_SQRT"}:
+                value = 0
+        if value is None:
+            raise ValueError(
+                f"cannot resolve a default for nvvm_reflect symbol {entry.symbol!r} "
+                f"in library {library.name!r}; provide an explicit value"
+            )
+        resolved.append((entry.symbol, int(value)))
+    return tuple(resolved)
+
+
+def _read_cuda_arch(llvm: LLVMToolchain, target: CompilationTarget) -> int:
+    macros = run_tool(
+        [
+            llvm.clang,
+            f"--target={target.target_triple}",
+            f"-march={target.architecture}",
+            "-nogpulib",
+            "-dM",
+            "-E",
+            "-x",
+            "c++",
+            "/dev/null",
+        ]
+    )
+
+    match = re.search(r"^#define __CUDA_ARCH__ ([0-9]+)$", macros, re.MULTILINE)
+    if match is None or int(match[1]) > 0xFFFFFFFF:
+        raise ValueError(
+            f"invalid or missing __CUDA_ARCH__ for {target.architecture!r}"
+        )
+    return int(match[1])

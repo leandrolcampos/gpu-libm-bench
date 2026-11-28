@@ -20,5 +20,16 @@ backends:
   cuda:
     bitcode_path: null
 
+nvvm_reflect:
+  - name: cuda-arch
+    symbol: __CUDA_ARCH
+    value: null
+  - name: cuda-ftz
+    symbol: __CUDA_FTZ
+    value: false
+  - name: cuda-prec-sqrt
+    symbol: __CUDA_PREC_SQRT
+    value: true
+
 functions:
   expf: {symbol: __nv_expf}

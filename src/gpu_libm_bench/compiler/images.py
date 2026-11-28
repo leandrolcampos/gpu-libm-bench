@@ -42,18 +42,9 @@ from .toolchains import (
     validate_backend_sdk_compatibility,
 )
 
-
-@dataclass(frozen=True, slots=True)
-class DeviceImageBuildInfo:
-    compiler: Path
-    compiler_version: str
-    sdk_name: str
-    sdk_version: str
-    sdk_root: Path
-    bitcode_path: Path | None
-    image: DeviceImage
-    compile_options: tuple[str, ...] = ()
-    link_options: tuple[str, ...] = ()
+# ===----------------------------------------------------------------------=== #
+# Kernel image builds
+# ===----------------------------------------------------------------------=== #
 
 
 def build_kernels(
@@ -144,6 +135,69 @@ def configure_kernels(
     return build
 
 
+def _image_cmake_arguments(
+    *,
+    resolved_library: ResolvedLibrary,
+    target: CompilationTarget,
+    llvm: LLVMToolchain,
+    backend_sdk: BackendSDK,
+) -> tuple[str, ...]:
+    validate_backend_sdk_compatibility(target.backend, backend_sdk)
+
+    values = {
+        "LLVM_ROOT": str(llvm.root),
+        "CLANG": str(llvm.clang),
+        "SDK_ROOT": str(backend_sdk.root),
+        "SDK_VERSION": backend_sdk.version,
+        "TARGET_TRIPLE": target.target_triple,
+        "ARCHITECTURE": target.architecture,
+        "LIBRARY": resolved_library.name,
+        "BITCODE_PATH": str(resolved_library.bitcode_path)
+        if resolved_library.bitcode_path is not None
+        else "",
+        "NVVM_REFLECT": ";".join(
+            f"{symbol}={value}"
+            for symbol, value in sorted(resolved_library.nvvm_reflect)
+        ),
+        "FUNCTIONS": ";".join(name for name, _ in resolved_library.bindings),
+    }
+    return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
+
+
+def _update_kernel_compilation_database(root: Path) -> None:
+    destination = root / "compile_commands.json"
+    try:
+        with (root / ".compile_commands.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            commands = []
+            for database in sorted(root.glob("*/*/*/compile_commands.json")):
+                entries = json.loads(database.read_text(encoding="utf-8"))
+                if not isinstance(entries, list):
+                    raise ValueError(f"expected a list of commands in {database}")
+                commands.extend(entries)
+
+            contents = json.dumps(commands, indent=2) + "\n"
+            if (
+                destination.is_file()
+                and destination.read_text(encoding="utf-8") == contents
+            ):
+                return
+
+            with TemporaryDirectory(dir=root) as directory:
+                temporary = Path(directory) / destination.name
+                temporary.write_text(contents, encoding="utf-8")
+                temporary.replace(destination)
+    except (OSError, ValueError) as error:
+        logging.getLogger(__name__).warning(
+            "Could not update %s: %s", destination, error
+        )
+
+
+# ===----------------------------------------------------------------------=== #
+# Image resolution
+# ===----------------------------------------------------------------------=== #
+
+
 def resolve_device_image(
     library: str,
     *,
@@ -192,6 +246,24 @@ def resolve_device_image(
         functions,
         manifest_path if manifest_exists else None,
     )
+
+
+# ===----------------------------------------------------------------------=== #
+# Image metadata
+# ===----------------------------------------------------------------------=== #
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceImageBuildInfo:
+    compiler: Path
+    compiler_version: str
+    sdk_name: str
+    sdk_version: str
+    sdk_root: Path
+    bitcode_path: Path | None
+    image: DeviceImage
+    compile_options: tuple[str, ...] = ()
+    link_options: tuple[str, ...] = ()
 
 
 def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
@@ -262,60 +334,6 @@ def read_device_image_build_info(image: DeviceImage) -> DeviceImageBuildInfo:
         ),
         link_options=_expand_options(metadata["link_flags"], metadata["link_options"]),
     )
-
-
-def _image_cmake_arguments(
-    *,
-    resolved_library: ResolvedLibrary,
-    target: CompilationTarget,
-    llvm: LLVMToolchain,
-    backend_sdk: BackendSDK,
-) -> tuple[str, ...]:
-    validate_backend_sdk_compatibility(target.backend, backend_sdk)
-
-    values = {
-        "LLVM_ROOT": str(llvm.root),
-        "CLANG": str(llvm.clang),
-        "SDK_ROOT": str(backend_sdk.root),
-        "SDK_VERSION": backend_sdk.version,
-        "TARGET_TRIPLE": target.target_triple,
-        "ARCHITECTURE": target.architecture,
-        "LIBRARY": resolved_library.name,
-        "BITCODE_PATH": str(resolved_library.bitcode_path)
-        if resolved_library.bitcode_path is not None
-        else "",
-        "FUNCTIONS": ";".join(name for name, _ in resolved_library.bindings),
-    }
-    return tuple(f"-DGPU_LIBM_BENCH_{name}={value}" for name, value in values.items())
-
-
-def _update_kernel_compilation_database(root: Path) -> None:
-    destination = root / "compile_commands.json"
-    try:
-        with (root / ".compile_commands.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            commands = []
-            for database in sorted(root.glob("*/*/*/compile_commands.json")):
-                entries = json.loads(database.read_text(encoding="utf-8"))
-                if not isinstance(entries, list):
-                    raise ValueError(f"expected a list of commands in {database}")
-                commands.extend(entries)
-
-            contents = json.dumps(commands, indent=2) + "\n"
-            if (
-                destination.is_file()
-                and destination.read_text(encoding="utf-8") == contents
-            ):
-                return
-
-            with TemporaryDirectory(dir=root) as directory:
-                temporary = Path(directory) / destination.name
-                temporary.write_text(contents, encoding="utf-8")
-                temporary.replace(destination)
-    except (OSError, ValueError) as error:
-        logging.getLogger(__name__).warning(
-            "Could not update %s: %s", destination, error
-        )
 
 
 def _read_image_metadata(

@@ -32,6 +32,16 @@ function(gpu_libm_bench_write_device_image_metadata image_target directory)
   endif()
   string(JSON metadata SET "${metadata}" bitcode_path "${encoded}")
 
+  set(reflection "{}")
+  foreach(entry IN LISTS GPU_LIBM_BENCH_NVVM_REFLECT)
+    if(NOT entry MATCHES "^([^=]+)=([0-9]+)$")
+      message(FATAL_ERROR "Invalid NVVM reflection entry: ${entry}")
+    endif()
+    string(JSON reflection SET "${reflection}"
+      "${CMAKE_MATCH_1}" ${CMAKE_MATCH_2})
+  endforeach()
+  string(JSON metadata SET "${metadata}" nvvm_reflect "${reflection}")
+
   get_target_property(ptx ${image_target} GPU_LIBM_BENCH_PTX)
   if(ptx)
     _gpu_libm_bench_json_string(encoded "${ptx}")
@@ -64,7 +74,8 @@ function(gpu_libm_bench_write_device_image_metadata image_target directory)
   get_target_property(output_name ${image_target} OUTPUT_NAME)
   set(manifest_path "${directory}/${output_name}.manifest.json")
   file(GENERATE OUTPUT "${build_plan}" CONTENT "${metadata}\n")
-  set_property(TARGET ${image_target} APPEND PROPERTY LINK_DEPENDS "${build_plan}")
+  set_property(TARGET ${image_target} APPEND PROPERTY
+    LINK_DEPENDS "${build_plan}")
 
   add_custom_command(TARGET ${image_target} POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different

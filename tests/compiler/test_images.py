@@ -198,55 +198,6 @@ def test_configure_kernels_refreshes_bindings_when_inputs_change(
     assert not configure(replace(library, bindings=())).exists()
 
 
-def test_configure_kernels_updates_editor_database(
-    llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(images.paths, "build_root", lambda: tmp_path / "build")
-    monkeypatch.setattr(
-        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
-    )
-    root = images.paths.images_build_root()
-    aggregate = root / "compile_commands.json"
-    source = str(tmp_path / "Profiling.cpp")
-
-    def write_database(directory: Path, architecture: str) -> dict[str, str]:
-        directory.mkdir(parents=True, exist_ok=True)
-        entry = {
-            "directory": str(directory),
-            "file": source,
-            "command": f"clang++ -march={architecture} -c {source}",
-        }
-        (directory / "compile_commands.json").write_text(json.dumps([entry]))
-        return entry
-
-    def configure(build: CMakeBuild) -> None:
-        write_database(build.build_directory, TARGET.architecture)
-
-    monkeypatch.setattr(CMakeBuild, "configure", configure)
-
-    def configure_support(directory: Path | None = None) -> CMakeBuild:
-        return configure_kernels(
-            resolved_library=ResolvedLibrary("support"),
-            target=TARGET,
-            llvm=llvm,
-            backend_sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
-            build_directory=directory,
-        )
-
-    build = configure_support()
-    original = json.loads((build.build_directory / aggregate.name).read_text())
-    assert json.loads(aggregate.read_text()) == original
-
-    other = write_database(root / "hip" / "gfx1100" / "support", "gfx1100")
-    configure_support(build.build_directory)
-    assert json.loads(aggregate.read_text()) == [*original, other]
-
-    timestamp = aggregate.stat().st_mtime_ns
-    configure_support(tmp_path / "isolated")
-    assert (tmp_path / "isolated" / aggregate.name).is_file()
-    assert aggregate.stat().st_mtime_ns == timestamp
-
-
 @pytest.mark.parametrize("library", ["llvm-libm", "support"])
 def test_kernel_configuration_preserves_tools_and_library(
     llvm: LLVMToolchain,
@@ -256,7 +207,8 @@ def test_kernel_configuration_preserves_tools_and_library(
 ) -> None:
     bitcode_path = tmp_path / "libm.bc" if library == "llvm-libm" else None
     bindings = (("expf", "my_expf"),) if library == "llvm-libm" else ()
-    resolved_library = ResolvedLibrary(library, bitcode_path, bindings)
+    nvvm_reflect = (("__CUDA_FTZ", 0),) if bindings else ()
+    resolved_library = ResolvedLibrary(library, bitcode_path, bindings, nvvm_reflect)
     backend_sdk = CUDAToolkit(
         Path("/custom cuda"), Path("/custom cuda/bin/ptxas"), "13.4"
     )
@@ -281,6 +233,8 @@ def test_kernel_configuration_preserves_tools_and_library(
     assert "-DGPU_LIBM_BENCH_ARCHITECTURE=sm_120" in arguments
     assert f"-DGPU_LIBM_BENCH_LIBRARY={library}" in arguments
     assert f"-DGPU_LIBM_BENCH_BITCODE_PATH={bitcode_path or ''}" in arguments
+    reflect = "__CUDA_FTZ=0" if bindings else ""
+    assert f"-DGPU_LIBM_BENCH_NVVM_REFLECT={reflect}" in arguments
     assert f"-DGPU_LIBM_BENCH_FUNCTIONS={'expf' if bindings else ''}" in arguments
 
 
@@ -328,6 +282,55 @@ def test_kernel_configuration_rejects_invalid_or_unimplemented_combinations(
             llvm=llvm,
             backend_sdk=cast(BackendSDK, backend_sdk),
         )
+
+
+def test_configure_kernels_updates_editor_database(
+    llvm: LLVMToolchain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(images.paths, "build_root", lambda: tmp_path / "build")
+    monkeypatch.setattr(
+        images, "run_tool", lambda command: "/llvm/clang-nvlink-wrapper"
+    )
+    root = images.paths.images_build_root()
+    aggregate = root / "compile_commands.json"
+    source = str(tmp_path / "Profiling.cpp")
+
+    def write_database(directory: Path, architecture: str) -> dict[str, str]:
+        directory.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "directory": str(directory),
+            "file": source,
+            "command": f"clang++ -march={architecture} -c {source}",
+        }
+        (directory / "compile_commands.json").write_text(json.dumps([entry]))
+        return entry
+
+    def configure(build: CMakeBuild) -> None:
+        write_database(build.build_directory, TARGET.architecture)
+
+    monkeypatch.setattr(CMakeBuild, "configure", configure)
+
+    def configure_support(directory: Path | None = None) -> CMakeBuild:
+        return configure_kernels(
+            resolved_library=ResolvedLibrary("support"),
+            target=TARGET,
+            llvm=llvm,
+            backend_sdk=CUDAToolkit(Path("/cuda"), Path("/cuda/bin/ptxas"), "13.4"),
+            build_directory=directory,
+        )
+
+    build = configure_support()
+    original = json.loads((build.build_directory / aggregate.name).read_text())
+    assert json.loads(aggregate.read_text()) == original
+
+    other = write_database(root / "hip" / "gfx1100" / "support", "gfx1100")
+    configure_support(build.build_directory)
+    assert json.loads(aggregate.read_text()) == [*original, other]
+
+    timestamp = aggregate.stat().st_mtime_ns
+    configure_support(tmp_path / "isolated")
+    assert (tmp_path / "isolated" / aggregate.name).is_file()
+    assert aggregate.stat().st_mtime_ns == timestamp
 
 
 @pytest.mark.parametrize(

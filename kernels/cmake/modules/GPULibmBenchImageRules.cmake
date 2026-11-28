@@ -4,7 +4,8 @@ include_guard(GLOBAL)
 include(GPULibmBenchImageMetadata)
 
 function(gpu_libm_bench_add_function library_target function_name source_file)
-  target_sources(${library_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${source_file}")
+  target_sources(${library_target} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/${source_file}")
   set_property(TARGET ${library_target} APPEND PROPERTY
     GPU_LIBM_BENCH_FUNCTIONS "${function_name}")
 endfunction()
@@ -23,6 +24,19 @@ function(gpu_libm_bench_configure_library library_target)
       "SHELL:-Xclang -mlink-builtin-bitcode -Xclang \"${bitcode_path}\"")
   endif()
 
+  if(GPU_LIBM_BENCH_NVVM_REFLECT AND
+      NOT GPU_LIBM_BENCH_TARGET_TRIPLE STREQUAL "nvptx64-nvidia-cuda")
+    message(FATAL_ERROR
+      "GPU_LIBM_BENCH_NVVM_REFLECT requires nvptx64-nvidia-cuda, "
+      "got '${GPU_LIBM_BENCH_TARGET_TRIPLE}'")
+  endif()
+  foreach(entry IN LISTS GPU_LIBM_BENCH_NVVM_REFLECT)
+    set(option "-mllvm=-nvvm-reflect-add=${entry}")
+    target_compile_options(${library_target} PRIVATE "${option}")
+    # Forward reflection values to clang-nvlink-wrapper for LTO.
+    target_link_options(${library_target} PRIVATE "LINKER:${option}")
+  endforeach()
+
   gpu_libm_bench_configure_device_image(${library_target} "${CMAKE_BINARY_DIR}")
 
   get_target_property(directory ${library_target} RUNTIME_OUTPUT_DIRECTORY)
@@ -36,7 +50,8 @@ function(gpu_libm_bench_configure_device_image image_target directory)
     endif()
   endforeach()
 
-  target_include_directories(${image_target} PRIVATE "${PROJECT_SOURCE_DIR}/common")
+  target_include_directories(${image_target} PRIVATE
+    "${PROJECT_SOURCE_DIR}/common")
   target_compile_options(${image_target} PRIVATE
     -nostdlibinc -nostdinc++ -fno-builtin -fno-exceptions -fno-rtti -O3)
   target_link_options(${image_target} PRIVATE -O3)

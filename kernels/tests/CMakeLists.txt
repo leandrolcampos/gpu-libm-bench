@@ -11,8 +11,10 @@ gpu_libm_bench_configure_device_image(timer-image "${CMAKE_CURRENT_BINARY_DIR}")
 
 add_executable(latency-image LatencyTest.cpp)
 set_target_properties(latency-image PROPERTIES OUTPUT_NAME latency)
-gpu_libm_bench_configure_device_image(latency-image "${CMAKE_CURRENT_BINARY_DIR}")
+gpu_libm_bench_configure_device_image(latency-image
+  "${CMAKE_CURRENT_BINARY_DIR}")
 
 add_executable(throughput-image ThroughputTest.cpp)
 set_target_properties(throughput-image PROPERTIES OUTPUT_NAME throughput)
-gpu_libm_bench_configure_device_image(throughput-image "${CMAKE_CURRENT_BINARY_DIR}")
+gpu_libm_bench_configure_device_image(throughput-image
+  "${CMAKE_CURRENT_BINARY_DIR}")
