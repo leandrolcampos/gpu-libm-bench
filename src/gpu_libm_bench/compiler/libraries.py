@@ -174,8 +174,8 @@ def _validate_bitcode(
 
 def _validate_nvvm_reflect(library_config: LibraryConfig) -> None:
     symbols: set[str] = set()
-    for entry in library_config.nvvm_reflect:
-        if not entry.name.strip() or not entry.symbol.strip():
+    for name, entry in library_config.nvvm_reflect.items():
+        if not name.strip() or not entry.symbol.strip():
             raise ValueError("nvvm_reflect name and symbol must not be empty")
         if entry.symbol in symbols:
             raise ValueError(f"duplicate nvvm_reflect symbol: {entry.symbol!r}")
@@ -194,7 +194,7 @@ def _resolve_nvvm_reflect(
     library: LibraryConfig, llvm: LLVMToolchain, target: CompilationTarget
 ) -> tuple[tuple[str, int], ...]:
     resolved = []
-    for entry in library.nvvm_reflect:
+    for entry in library.nvvm_reflect.values():
         value = entry.value
         if value is None:
             if library.name != "libdevice" or entry.symbol != "__CUDA_ARCH":

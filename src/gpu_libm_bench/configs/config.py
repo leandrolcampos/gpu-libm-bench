@@ -160,7 +160,6 @@ class LibraryFunctionConfig:
 
 @dataclass
 class NVVMReflectConfig:
-    name: str
     symbol: str
     value: int | bool | None = None
 
@@ -170,7 +169,7 @@ class LibraryConfig:
     name: str
     backends: dict[str, LibraryBitcodeConfig]
     functions: dict[str, LibraryFunctionConfig] = field(default_factory=dict)
-    nvvm_reflect: list[NVVMReflectConfig] = field(default_factory=list)
+    nvvm_reflect: dict[str, NVVMReflectConfig] = field(default_factory=dict)
 
     def symbol_for(self, function: str) -> str:
         symbol = self.functions[function].symbol

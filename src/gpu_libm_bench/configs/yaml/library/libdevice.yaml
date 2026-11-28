@@ -21,13 +21,13 @@ backends:
     bitcode_path: null
 
 nvvm_reflect:
-  - name: cuda-arch
+  cuda-arch:
     symbol: __CUDA_ARCH
     value: null
-  - name: cuda-ftz
+  cuda-ftz:
     symbol: __CUDA_FTZ
     value: false
-  - name: cuda-prec-sqrt
+  cuda-prec-sqrt:
     symbol: __CUDA_PREC_SQRT
     value: true
 

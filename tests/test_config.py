@@ -119,13 +119,13 @@ def test_nvvm_reflect_accepts_hydra_overrides() -> None:
             overrides=[
                 "backend=cuda",
                 "library=libdevice",
-                "library.nvvm_reflect.2.value=false",
+                "library.nvvm_reflect.cuda-prec-sqrt.value=false",
             ],
         )
 
     library = validate_build_config(config).library
     assert library is not None
-    assert library.nvvm_reflect[2].value is False
+    assert library.nvvm_reflect["cuda-prec-sqrt"].value is False
 
 
 def test_build_configuration_allows_no_library(build_config: DictConfig) -> None:

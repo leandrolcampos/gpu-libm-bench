@@ -102,10 +102,9 @@ def test_library_resolves_bitcode_and_bindings(
 
     expected_reflect = ()
     if library == "libdevice":
-        arch, _, sqrt = library_config.nvvm_reflect
         if override:
-            arch.value = 900
-            library_config.nvvm_reflect.remove(sqrt)
+            library_config.nvvm_reflect["cuda-arch"].value = 900
+            del library_config.nvvm_reflect["cuda-prec-sqrt"]
             expected_reflect = (
                 ("__CUDA_ARCH", 900),
                 ("__CUDA_FTZ", 0),
@@ -228,7 +227,7 @@ def test_nvptx_rejects_out_of_range_reflect_value(
     llvm: LLVMToolchain, backend_sdk: CUDAToolkit
 ) -> None:
     library = load_library_config("libdevice")
-    library.nvvm_reflect[0].value = 2**32
+    library.nvvm_reflect["cuda-arch"].value = 2**32
 
     with pytest.raises(ValueError, match="unsigned 32-bit integer"):
         libraries.resolve_library(
@@ -236,20 +235,20 @@ def test_nvptx_rejects_out_of_range_reflect_value(
         )
 
 
-@pytest.mark.parametrize("symbol", ["__CUDA_FTZ", "__CUDA_PREC_SQRT"])
+@pytest.mark.parametrize("name", ["cuda-ftz", "cuda-prec-sqrt"])
 def test_libdevice_requires_explicit_reflect_value(
     llvm: LLVMToolchain,
     backend_sdk: CUDAToolkit,
     monkeypatch: pytest.MonkeyPatch,
-    symbol: str,
+    name: str,
 ) -> None:
     library = load_library_config("libdevice")
-    entry = next(entry for entry in library.nvvm_reflect if entry.symbol == symbol)
+    entry = library.nvvm_reflect[name]
     entry.value = None
-    library.nvvm_reflect = [entry]
+    library.nvvm_reflect = {name: entry}
     monkeypatch.setattr(libraries, "_validate_bitcode", lambda *args, **kwargs: None)
 
-    with pytest.raises(ValueError, match=f"{symbol}.*provide an explicit value"):
+    with pytest.raises(ValueError, match=f"{entry.symbol}.*provide an explicit value"):
         libraries.resolve_library(
             library_config=library, llvm=llvm, target=TARGET, backend_sdk=backend_sdk
         )
@@ -262,7 +261,7 @@ def test_amdgcn_ignores_nvvm_reflect(
     library = load_library_config("llvm-libm")
     library.backends["hip"] = library.backends["cuda"]
     library.nvvm_reflect = load_library_config("libdevice").nvvm_reflect
-    library.nvvm_reflect[1].value = -1
+    library.nvvm_reflect["cuda-ftz"].value = -1
 
     path = llvm.library_dirs[0] / target.target_triple / "libm.bc"
     path.parent.mkdir(parents=True)
